@@ -80,8 +80,17 @@ Two traps:
 - [x] Delete the `X-User-Id` authorization branches (`controller_helpers.py:74-76`, `:103-104`)
 - [x] **Route-auth test** — enumerate `app.routes` dynamically, assert each carries an auth
       dependency, check against a short explicit `PUBLIC_ROUTES` allowlist
-- [ ] Verify proctoring chunks reassemble into watchable footage. If they don't, stop
-      collecting until they do. **Still open — needs real S3 objects, so it needs you.**
+- [x] Verify proctoring chunks reassemble into watchable footage. **They did not.** One
+      `MediaRecorder` with a 30 s timeslice gave only chunk 0 a WebM header, so every later
+      "view" link in the instructor app opened an undecodable file; a refresh or camera re-grant
+      restarted numbering at 0 and overwrote the earliest footage; the final chunk was dropped on
+      stop. Reproduced in headless Chromium + ffprobe. Fixed in `proctoring.ts`: one recorder per
+      chunk, numbering persisted across refresh, final chunk uploaded.
+- [ ] **Footage already in S3 is mostly unwatchable.** Chunks 1+ of each session can be salvaged
+      by concatenating them after that session's chunk 0 — only where no refresh overwrote chunk 0.
+      Decide whether to salvage, and tell whoever relies on it (misconduct reviews).
+- [ ] Still untested: Safari (records `video/mp4`), inline playback from a presigned URL, and one
+      attempt on two devices (per-device counters can still collide — server-assigned indexes fix it).
 
 Also landed, found during the work rather than in the audit:
 - [x] `assessment_router.py:150` listed *every* instructor's assessments unfiltered when the
