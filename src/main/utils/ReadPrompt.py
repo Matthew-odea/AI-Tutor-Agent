@@ -1,9 +1,7 @@
 from pathlib import Path
 
 def read_prompt(prompt_path) -> str:
-    """
-    Loads prompt text from the specified path. Raises a clear error if not found.
-    """
+    """prompt_path is a Path; if missing, falls back to prompts/<name> under cwd, then under the repo root."""
     if not prompt_path.is_file():
         candidates = [
             prompt_path,

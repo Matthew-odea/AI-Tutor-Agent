@@ -32,8 +32,6 @@ export default function MonitorProgress() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fetch only when the route id changes; loadAssessment is recreated each render and uses only stable setters
   }, [assessmentId]);
 
-  // Full-page error state — AppShell is only mounted once there is an assessment
-  // to title it with, so the retry lives on its own centred card.
   if (error && !selectedAssessment) {
     return (
       <div className="min-h-screen bg-paper flex items-center justify-center p-4">
@@ -68,9 +66,7 @@ export default function MonitorProgress() {
       title={`Monitor Progress: ${selectedAssessment.title}`}
       subtitle={selectedAssessment.course}
       actions={
-        // Ghost, not filled: View Results is lateral navigation to a sibling screen
-        // of the same assessment, not this page's primary forward action. Its
-        // mirror image on ViewResults ("Monitor Progress") carries the same weight.
+        // Ghost, not filled: lateral nav to a sibling screen (mirrors ViewResults).
         <Link
           to={`/assessments/${assessmentId}/results`}
           className="inline-flex items-center rounded-xl border border-hairline bg-paper px-4 py-2 text-sm font-medium text-ink hover:bg-ink/5 transition-colors"
@@ -78,9 +74,7 @@ export default function MonitorProgress() {
           View Results
         </Link>
       }
-      // Step 4 of the setup flow. Without this banner step 4 was never reachable as
-      // "current" anywhere in the app. maxWidth matches this shell's own (default)
-      // column so the trail lines up with the title above it.
+      // maxWidth must match this shell's (default) column.
       banner={
         <SetupStepIndicator currentStep={4} assessmentId={assessmentId} maxWidth="default" />
       }

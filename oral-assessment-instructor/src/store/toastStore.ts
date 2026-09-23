@@ -1,13 +1,4 @@
-/**
- * toastStore — global, multi-toast notification queue.
- *
- * Ported verbatim from the student app. Replaces the instructor app's old
- * `hooks/useToast.ts`, which held exactly ONE toast at a time (a second
- * notification silently clobbered the first) and had to be threaded through
- * every page that wanted to notify. Any component can now call
- * `useToastStore.getState().addToast(...)` — or the hook — and the globally
- * mounted <ToastContainer /> renders every live toast.
- */
+/** Global multi-toast queue, rendered by the single <ToastContainer /> in App.tsx. */
 import { create } from 'zustand'
 
 const TOAST_DEFAULT_MS = 3000

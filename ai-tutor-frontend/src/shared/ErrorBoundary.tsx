@@ -1,7 +1,3 @@
-/**
- * ErrorBoundary Component
- * Catches JavaScript errors anywhere in the child component tree and displays a fallback UI
- */
 import { Component } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import { trackError } from "../utils/errorTracking";
@@ -32,12 +28,10 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // Log error to console in development
     if (import.meta.env.DEV) {
       console.error("ErrorBoundary caught an error:", error, errorInfo);
     }
 
-    // Track error in production
     trackError(error, {
       component: "ErrorBoundary",
       context: "React component error",
@@ -58,22 +52,19 @@ export class ErrorBoundary extends Component<Props, State> {
       error: null,
       errorInfo: null,
     });
-    // Reload the page to reset the app state
+    // Full navigation to / to discard all in-memory state.
     window.location.href = "/";
   };
 
   render() {
     if (this.state.hasError) {
-      // Custom fallback UI
       if (this.props.fallback) {
         return this.props.fallback;
       }
 
-      // Default fallback UI
       return (
         <div className="min-h-screen bg-gradient-to-br from-red-50 to-orange-50 flex items-center justify-center p-4">
           <div className="max-w-2xl w-full bg-white rounded-2xl shadow-2xl p-8">
-            {/* Header */}
             <div className="flex items-center space-x-4 mb-6">
               <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center flex-shrink-0">
                 <svg
@@ -100,7 +91,7 @@ export class ErrorBoundary extends Component<Props, State> {
               </div>
             </div>
 
-            {/* Error Details (only in development) */}
+            {/* Error details (dev only) */}
             {import.meta.env.DEV && this.state.error && (
               <div className="mb-6">
                 <details className="bg-gray-50 rounded-lg p-4 border border-gray-200">
@@ -131,7 +122,6 @@ export class ErrorBoundary extends Component<Props, State> {
               </div>
             )}
 
-            {/* User-friendly message */}
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
               <p className="text-blue-800 text-sm">
                 <span className="font-semibold">💡 What happened?</span>
@@ -146,7 +136,6 @@ export class ErrorBoundary extends Component<Props, State> {
               </ul>
             </div>
 
-            {/* Action Buttons */}
             <div className="flex flex-col sm:flex-row gap-3">
               <button
                 onClick={this.handleReset}
@@ -189,7 +178,6 @@ export class ErrorBoundary extends Component<Props, State> {
               </button>
             </div>
 
-            {/* Help Text */}
             <p className="mt-6 text-center text-sm text-gray-500">
               If this problem persists, please contact support or try again
               later.

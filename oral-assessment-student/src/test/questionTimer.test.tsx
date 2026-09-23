@@ -6,10 +6,6 @@ import QuestionTimer from '../components/QuestionTimer';
 // (vitest fakes Date, so Date.now() === BASE at the start of each test).
 const BASE = 1_700_000_000_000;
 
-// QuestionTimer drives the single answer clock. These cover the double-fire
-// guard, the pause-awareness (so the header and recorder never diverge), and the
-// refresh-fairness anchoring (P4) that keeps the WRITTEN countdown honest across
-// a page refresh.
 describe('QuestionTimer', () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -56,7 +52,7 @@ describe('QuestionTimer', () => {
     expect(onExpire).toHaveBeenCalledTimes(1);
   });
 
-  // --- Refresh-fairness anchoring (P4) ----------------------------------------
+  // Refresh anchoring
 
   it('(a) first mount with no stored anchor persists one and counts down from the full limit', () => {
     const onExpire = vi.fn();

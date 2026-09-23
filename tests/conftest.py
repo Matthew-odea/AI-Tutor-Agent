@@ -1,9 +1,4 @@
-"""
-Shared pytest fixtures.
-
-The moto-based fixtures spin up real (mocked) AWS resources for integration
-tests.  Unit tests that use MagicMock directly are unaffected.
-"""
+"""Shared fixtures. The moto-based ones create mocked AWS resources; MagicMock unit tests don't need them."""
 from __future__ import annotations
 
 import os
@@ -36,10 +31,7 @@ def aws_credentials(monkeypatch):
 
 @pytest.fixture()
 def mock_dynamodb(aws_credentials):
-    """
-    Yield a moto-backed DynamoDB table shaped like the oral assessments table.
-    Callers receive the boto3 Table resource directly.
-    """
+    """Moto DynamoDB table shaped like the oral assessments table; yields the boto3 Table."""
     with mock_aws():
         dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
         table = dynamodb.create_table(
@@ -88,7 +80,6 @@ def conversation_memory(aws_credentials):
 
 @pytest.fixture()
 def mock_s3(aws_credentials):
-    """Yield a moto-backed S3 bucket for assessment media."""
     with mock_aws():
         s3 = boto3.client("s3", region_name="us-east-1")
         s3.create_bucket(Bucket=TEST_BUCKET)
@@ -97,7 +88,6 @@ def mock_s3(aws_credentials):
 
 @pytest.fixture()
 def mock_sqs(aws_credentials):
-    """Yield a moto-backed SQS queue URL."""
     with mock_aws():
         sqs = boto3.client("sqs", region_name="us-east-1")
         resp = sqs.create_queue(QueueName=TEST_QUEUE)

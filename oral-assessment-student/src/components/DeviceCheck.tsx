@@ -1,16 +1,7 @@
 /**
- * DeviceCheck — pre-flight mic (and camera-status) gate.
- *
- * Sits between the pre-assessment overview and the first timed question. For oral
- * mode it acquires the microphone with its OWN AudioRecorder instance, shows a live
- * input-level meter, lets the student pick an input device, and supports recording +
- * playing back a short sample. The "Start" button stays disabled until the mic is
- * CONFIRMED (granted + observed signal, or a recorded/played sample). On proceed it
- * fully releases its test stream + AudioContext BEFORE calling onReady so Q1's
- * recorder (which opens its own stream) doesn't collide with a second mic grab.
- *
- * All React state, the requestAnimationFrame metering loop, and AudioContext
- * lifecycle live here — the AudioRecorder service stays framework-agnostic.
+ * Pre-flight mic gate between the overview and Q1, using its own AudioRecorder. Start stays
+ * disabled until isMicConfirmed. The test stream is fully released before onReady so Q1's
+ * recorder doesn't hit a concurrent mic grab.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -21,8 +12,8 @@ import ErrorMessage from './ErrorMessage';
 
 interface DeviceCheckProps {
   answerMode: 'oral' | 'written';
-  requireCamera: boolean; // pass isProctoringActive from the store
-  onReady: () => void; // proceed to the assessment (== setAssessmentStarted(true))
+  requireCamera: boolean;
+  onReady: () => void;
 }
 
 type PermissionState = 'prompting' | 'granted' | 'denied' | 'error';
@@ -30,7 +21,7 @@ type PermissionState = 'prompting' | 'granted' | 'denied' | 'error';
 const MIC_DENIED_MESSAGE =
   'Microphone access denied. Please allow microphone access in your browser settings and reload.';
 const SAMPLE_CAP_SECONDS = 5;
-// Live-meter level (0..1) that counts as "the mic is actually hearing something".
+// Peak level (0..1) that counts as the mic hearing something.
 const SIGNAL_THRESHOLD = 0.08;
 
 function resolveAudioContextCtor(): typeof AudioContext | null {
@@ -42,7 +33,7 @@ function resolveAudioContextCtor(): typeof AudioContext | null {
 }
 
 export default function DeviceCheck({ answerMode, requireCamera, onReady }: DeviceCheckProps) {
-  // ─── Camera status (read-only; never blocks Start) ───────────────────────────
+  // Camera status is informational only; it never blocks Start.
   const proctorStream = useAssessmentStore((s) => s.proctorStream);
   const proctoringWarning = useAssessmentStore((s) => s.proctoringWarning);
   const cameraConnected =
@@ -50,33 +41,28 @@ export default function DeviceCheck({ answerMode, requireCamera, onReady }: Devi
     !!proctorStream &&
     proctorStream.getVideoTracks().some((t) => t.readyState === 'live');
 
-  // ─── Oral-mode mic-check state ───────────────────────────────────────────────
   const [permissionState, setPermissionState] = useState<PermissionState>('prompting');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>('');
   const [hasDetectedSound, setHasDetectedSound] = useState(false);
-  const [meterLevel, setMeterLevel] = useState(0); // 0..1
+  const [meterLevel, setMeterLevel] = useState(0);
   const [deviceFallbackNote, setDeviceFallbackNote] = useState<string | null>(null);
 
-  // Sample recording (record + playback) state.
   const [isSampleRecording, setIsSampleRecording] = useState(false);
   const [recordedSampleUrl, setRecordedSampleUrl] = useState<string | null>(null);
 
-  // Imperative resources held outside React render. Refs so the metering loop and
-  // teardown never read stale closures.
+  // Refs so the rAF loop and teardown never read stale closures.
   const recorderRef = useRef<AudioRecorder | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const rafRef = useRef<number | null>(null);
   const sampleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sampleUrlRef = useRef<string | null>(null);
-  // Latest selected device, read by re-init without re-binding callbacks.
   const selectedDeviceIdRef = useRef<string>('');
 
   const supported = checkBrowserSupport().supported;
 
-  // Stop and detach the live meter (rAF loop + AudioContext + analyser).
   const stopMeter = useCallback(() => {
     if (rafRef.current !== null) {
       cancelAnimationFrame(rafRef.current);
@@ -84,13 +70,11 @@ export default function DeviceCheck({ answerMode, requireCamera, onReady }: Devi
     }
     analyserRef.current = null;
     if (audioContextRef.current) {
-      // close() returns a promise; we don't await — just don't leak the context.
       void audioContextRef.current.close().catch(() => {});
       audioContextRef.current = null;
     }
   }, []);
 
-  // Tear down the recorder (stops owned tracks) + the meter.
   const teardownRecorder = useCallback(() => {
     stopMeter();
     if (recorderRef.current) {
@@ -99,7 +83,6 @@ export default function DeviceCheck({ answerMode, requireCamera, onReady }: Devi
     }
   }, [stopMeter]);
 
-  // Revoke + clear the current sample object URL.
   const clearSampleUrl = useCallback(() => {
     if (sampleUrlRef.current) {
       URL.revokeObjectURL(sampleUrlRef.current);
@@ -108,8 +91,6 @@ export default function DeviceCheck({ answerMode, requireCamera, onReady }: Devi
     setRecordedSampleUrl(null);
   }, []);
 
-  // Attach an AudioContext + AnalyserNode to the recorder's current stream and
-  // start the rAF metering loop. Replaces any prior meter first.
   const startMeter = useCallback((stream: MediaStream) => {
     stopMeter();
     const Ctor = resolveAudioContextCtor();
@@ -127,7 +108,7 @@ export default function DeviceCheck({ answerMode, requireCamera, onReady }: Devi
       const node = analyserRef.current;
       if (!node) return;
       node.getByteTimeDomainData(data);
-      // Peak deviation from the 128 midpoint → 0..1 amplitude.
+      // Peak (not RMS) deviation from the 128 midpoint.
       let peak = 0;
       for (let i = 0; i < data.length; i++) {
         const v = Math.abs(data[i] - 128) / 128;
@@ -142,11 +123,8 @@ export default function DeviceCheck({ answerMode, requireCamera, onReady }: Devi
     rafRef.current = requestAnimationFrame(tick);
   }, [stopMeter]);
 
-  // (Re)acquire the mic against an optional deviceId. Tears down any prior
-  // recorder/meter first, then initializes, enumerates devices, and starts the meter.
-  // An unavailable chosen device (OverconstrainedError/NotFoundError) falls back to
-  // the default device ONCE — handled inline (a retry loop) rather than recursively,
-  // so this callback never references itself.
+  // A vanished chosen device falls back to the default once, via a loop rather than
+  // recursion so the callback never references itself.
   const acquireMic = useCallback(
     async (deviceId?: string) => {
       teardownRecorder();
@@ -166,7 +144,6 @@ export default function DeviceCheck({ answerMode, requireCamera, onReady }: Devi
         } catch (err) {
           candidate.cleanup();
           const name = err instanceof Error ? err.name : '';
-          // The chosen device vanished — fall back to the default device once.
           if (targetDeviceId && (name === 'OverconstrainedError' || name === 'NotFoundError')) {
             setDeviceFallbackNote(
               'The selected microphone is no longer available — falling back to the default device.',
@@ -196,16 +173,14 @@ export default function DeviceCheck({ answerMode, requireCamera, onReady }: Devi
       try {
         const inputs = await AudioRecorder.listInputDevices();
         setDevices(inputs);
-        // Reflect which device we actually got, if known.
         if (!targetDeviceId && inputs.length > 0) {
-          // Leave selection on "default" (empty value) unless a device was chosen.
           setSelectedDeviceId((prev) => (prev && inputs.some((d) => d.deviceId === prev) ? prev : ''));
         } else if (targetDeviceId) {
           setSelectedDeviceId(targetDeviceId);
           selectedDeviceIdRef.current = targetDeviceId;
         }
       } catch {
-        // Enumeration is best-effort; the meter + gating still work without a list.
+        // Best-effort; the meter and gating work without a list.
       }
 
       const stream = recorder.getStream();
@@ -214,18 +189,15 @@ export default function DeviceCheck({ answerMode, requireCamera, onReady }: Devi
     [teardownRecorder, startMeter],
   );
 
-  // Mount: oral mode acquires the mic; written mode has nothing to test.
   useEffect(() => {
     if (answerMode !== 'oral') return;
     if (!supported) {
-      // Static, load-time sync of an unsupported-browser error into local state.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setPermissionState('error');
       setErrorMessage('Your browser does not support audio recording. Please use a recent Chrome, Edge, or Firefox.');
       return;
     }
     void acquireMic(undefined);
-    // Full teardown on unmount: rAF, AudioContext, mic tracks, sample URL, timers.
     return () => {
       if (sampleTimeoutRef.current) {
         clearTimeout(sampleTimeoutRef.current);
@@ -286,7 +258,7 @@ export default function DeviceCheck({ answerMode, requireCamera, onReady }: Devi
       sampleUrlRef.current = url;
       setRecordedSampleUrl(url);
     } catch {
-      // No usable sample — leave gating to the live-meter signal.
+      // No usable sample; gating falls back to the live meter.
     } finally {
       setIsSampleRecording(false);
     }
@@ -296,7 +268,6 @@ export default function DeviceCheck({ answerMode, requireCamera, onReady }: Devi
     void finishSample();
   };
 
-  // Confirmed mic gate (pure predicate, shared with the unit tests).
   const micConfirmed = isMicConfirmed({
     permissionState,
     hasDetectedSound,
@@ -304,8 +275,7 @@ export default function DeviceCheck({ answerMode, requireCamera, onReady }: Devi
   });
 
   const handleStart = () => {
-    // Release the test mic + AudioContext BEFORE the exam mounts so Q1's recorder
-    // can open its own stream without a second concurrent grab (NotReadableError).
+    // Release before the exam mounts, or Q1's recorder can hit NotReadableError.
     if (sampleTimeoutRef.current) {
       clearTimeout(sampleTimeoutRef.current);
       sampleTimeoutRef.current = null;
@@ -315,7 +285,6 @@ export default function DeviceCheck({ answerMode, requireCamera, onReady }: Devi
     onReady();
   };
 
-  // ─── Written mode: nothing to test ───────────────────────────────────────────
   if (answerMode === 'written') {
     return (
       <div className="fixed inset-0 bg-paper flex items-center justify-center p-4 z-40">
@@ -340,7 +309,6 @@ export default function DeviceCheck({ answerMode, requireCamera, onReady }: Devi
     );
   }
 
-  // ─── Oral mode: full mic check ───────────────────────────────────────────────
   const meterPct = Math.min(100, Math.round(meterLevel * 100));
 
   return (
@@ -373,7 +341,6 @@ export default function DeviceCheck({ answerMode, requireCamera, onReady }: Devi
 
         {permissionState === 'granted' && (
           <>
-            {/* Device picker */}
             <div className="mb-4">
               <label htmlFor="mic-device" className="block text-sm font-medium text-ink mb-1">
                 Input device
@@ -396,7 +363,6 @@ export default function DeviceCheck({ answerMode, requireCamera, onReady }: Devi
               )}
             </div>
 
-            {/* Live input-level meter */}
             <div className="mb-4">
               <div className="flex items-center justify-between mb-1">
                 <span className="text-sm font-medium text-ink">Input level</span>
@@ -416,7 +382,6 @@ export default function DeviceCheck({ answerMode, requireCamera, onReady }: Devi
               </div>
             </div>
 
-            {/* Record + playback sample */}
             <div className="mb-4">
               <p className="text-sm font-medium text-ink mb-2">
                 Optional: record a short test clip (up to {SAMPLE_CAP_SECONDS}s)
@@ -447,7 +412,6 @@ export default function DeviceCheck({ answerMode, requireCamera, onReady }: Devi
           </>
         )}
 
-        {/* Camera/proctoring status — surfaced, never blocks Start */}
         {requireCamera && (
           <div className="mb-6 text-sm">
             {cameraConnected ? (

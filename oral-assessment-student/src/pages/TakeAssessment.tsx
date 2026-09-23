@@ -33,8 +33,6 @@ export default function TakeAssessment() {
   const [isRequestingPermission, setIsRequestingPermission] = useState(false);
   const [isRestoringCamera, setIsRestoringCamera] = useState(false);
   const [isSubmittingAnswer, setIsSubmittingAnswer] = useState(false);
-  // Browser-feature support is checked once at first render (lazy init) rather than
-  // in an effect, so there's no setState-in-effect cascade.
   const [browserError, setBrowserError] = useState<string | null>(() => {
     const { supported, missing } = checkBrowserSupport();
     return supported
@@ -43,28 +41,21 @@ export default function TakeAssessment() {
         'Please use a modern browser like Chrome, Firefox, or Safari.';
   });
   const [assessmentStarted, setAssessmentStartedRaw] = useState(false);
-  // Overview confirmed → reveal the device check; device check passed → start the
-  // exam. Persisted to sessionStorage (like started_/consent_) so a mid-exam refresh
-  // never re-shows the pre-flight gate.
+  // Pre-flight gates, persisted to sessionStorage so a refresh never re-shows them.
   const [overviewConfirmed, setOverviewConfirmedRaw] = useState(false);
   const [deviceCheckPassed, setDeviceCheckPassedRaw] = useState(false);
-  // Preparation countdown for oral mode (counts down from preparationTime → 0)
   const [prepSecondsLeft, setPrepSecondsLeft] = useState<number | null>(null);
   const [prepDone, setPrepDone] = useState(false);
   const prepTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  // Guards the draft-recovery effect to run at most once per mount.
   const rehydrateAttemptedRef = useRef(false);
-  // Holds the one-shot `online` listener registered when the per-question timer
-  // expires while offline, so it can be removed on unmount or once it fires.
+  // One-shot `online` listener registered when the timer expires offline.
   const deferredSubmitRef = useRef<(() => void) | null>(null);
 
-  // Wrapper to persist assessmentStarted to sessionStorage
   const setAssessmentStarted = (v: boolean) => {
     setAssessmentStartedRaw(v);
     if (v && assessmentId) sessionStorage.setItem(`started_${assessmentId}`, 'true');
   };
 
-  // Wrapper to persist deviceCheckPassed to sessionStorage (mirrors started_/consent_).
   const setDeviceCheckPassed = (v: boolean) => {
     setDeviceCheckPassedRaw(v);
     if (v && assessmentId) sessionStorage.setItem(`devicecheck_${assessmentId}`, 'true');
@@ -118,24 +109,15 @@ export default function TakeAssessment() {
     retryLastAction,
   } = useAssessmentStore();
 
-  // True when the student originally DECLINED recording — proctoring is optional,
-  // so a later camera-revoked overlay offers a "Continue without recording" escape
-  // and the resume re-arm must NOT block them. We track decline separately from
-  // consentGiven (which is true for both accept and decline).
-  // Initialised from sessionStorage (via the URL's assessmentId) on first render, so a
-  // mid-exam refresh restores the "declined recording" decision before the resume
-  // re-arm effect runs — no setState-in-effect needed.
+  // consentGiven is true for both accept and decline, so decline is tracked separately.
+  // Lazy-init from sessionStorage so a refresh restores it before the resume re-arm effect runs.
   const [proctoringDeclined, setProctoringDeclined] = useState<boolean>(() =>
     hasDeclinedConsent(parseUrlParams(window.location.pathname)?.assessmentId)
   );
-  // Set when a silent resume re-arm fails (browser rejected getUserMedia without a
-  // gesture) — shows a blocking re-grant overlay instead of continuing un-proctored.
+  // Silent resume re-arm was rejected (getUserMedia needs a gesture); blocks until re-granted.
   const [resumeRegrantNeeded, setResumeRegrantNeeded] = useState(false);
-  // Guards the resume re-arm so it runs at most once despite this effect's deps
-  // (currentQuestionIndex / progress) changing during the exam.
   const resumeArmAttemptedRef = useRef(false);
 
-  // Initialize assessment on mount
   useEffect(() => {
     const urlParams = parseUrlParams(window.location.pathname);
     if (urlParams) {
@@ -143,10 +125,6 @@ export default function TakeAssessment() {
     }
   }, [setStudentInfo]);
 
-  // (The "declined recording" decision is restored via lazy useState init above,
-  // before the resume re-arm effect runs.)
-
-  // Load questions when student info is set
   useEffect(() => {
     if (studentId && assessmentId && questions.length === 0) {
       loadQuestions();
@@ -154,11 +132,7 @@ export default function TakeAssessment() {
     }
   }, [studentId, assessmentId, questions.length, loadQuestions, loadProgress]);
 
-  // Warn before accidental tab close/refresh mid-assessment. Modern Chromium
-  // ignores preventDefault() alone for the native "Leave site?" dialog — it
-  // requires a truthy returnValue — so we set BOTH. (The dialog text itself is
-  // not customizable in modern browsers; surfacing the native warning is enough,
-  // and an in-flight answer is now also persisted via draftStore as a backstop.)
+  // Chromium needs returnValue set (not just preventDefault) to show the "Leave site?" dialog.
   useEffect(() => {
     if (!assessmentStarted) return;
     const handler = (e: BeforeUnloadEvent) => {
@@ -169,45 +143,34 @@ export default function TakeAssessment() {
     return () => window.removeEventListener('beforeunload', handler);
   }, [assessmentStarted]);
 
-  // Restore consent/started state from server + sessionStorage on refresh
+  // Restore pre-flight gate state from server + sessionStorage on refresh.
   useEffect(() => {
-    if (questions.length === 0) return; // not loaded yet
+    if (questions.length === 0) return;
     if (!assessmentId) return;
 
-    // Multiple signals that the assessment is already in-progress:
-    // 1. Server says we're past Q1 (currentQuestionIndex > 0)
-    // 2. We have answered questions tracked locally
-    // 3. The progress endpoint reports answered questions
     const serverInProgress = currentQuestionIndex > 0;
     const hasAnswered = answeredQuestionIds.size > 0 || (progress?.answeredQuestions ?? 0) > 0;
     const sessionConsent = sessionStorage.getItem(`consent_${assessmentId}`) === 'true';
     const sessionStarted = sessionStorage.getItem(`started_${assessmentId}`) === 'true';
     const sessionDeviceCheck = sessionStorage.getItem(`devicecheck_${assessmentId}`) === 'true';
 
-    // Load-time sync of pre-flight-gate state from server + sessionStorage — a
-    // one-shot restore write on mount, not a render-loop source. These setState calls
-    // are an intentional restore from external persistence on refresh, so the
-    // set-state-in-effect heuristic is suppressed for this block.
+    // Intentional one-shot restore from external persistence, not a render loop.
     /* eslint-disable react-hooks/set-state-in-effect */
     if (serverInProgress || hasAnswered) {
-      // Already underway → past every pre-flight gate. Don't re-show consent,
-      // overview, or the device check.
       if (!consentGiven) setConsentGiven(true);
       setOverviewConfirmedRaw(true);
       setDeviceCheckPassedRaw(true);
       if (!assessmentStarted) setAssessmentStarted(true);
     } else {
-      // Q1 but check sessionStorage (consented + started but haven't answered Q1 yet)
+      // On Q1 with nothing answered: fall back to sessionStorage.
       if (sessionConsent && !consentGiven) {
         setConsentGiven(true);
       }
       if (sessionStarted) {
-        // The student already cleared overview + device check this session.
         setOverviewConfirmedRaw(true);
         setDeviceCheckPassedRaw(true);
         if (!assessmentStarted) setAssessmentStartedRaw(true);
       } else if (sessionDeviceCheck) {
-        // Cleared the device-check gate but not yet started (rare refresh window).
         setOverviewConfirmedRaw(true);
         setDeviceCheckPassedRaw(true);
       }
@@ -215,33 +178,24 @@ export default function TakeAssessment() {
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [questions.length, currentQuestionIndex, assessmentId, answeredQuestionIds.size, progress]);
 
-  // Resume re-arm: after a mid-exam refresh the live proctoring stream is gone,
-  // but a proctored session must NOT silently continue un-proctored. When the
-  // assessment is in-progress AND consent was given AND the student did NOT decline
-  // recording AND proctoring isn't already live, attempt a SILENT ensureProctoring.
-  // If the browser rejects getUserMedia without a fresh gesture, show a blocking
-  // re-grant overlay instead. Guarded to run at most once (deps include progress /
-  // currentQuestionIndex which change during the exam).
+  // Resume re-arm: a refresh drops the proctoring stream, and a proctored session must
+  // not silently continue un-proctored. Try a silent ensureProctoring once; if the browser
+  // rejects it without a gesture, show the blocking re-grant overlay.
   useEffect(() => {
     if (questions.length === 0 || !assessmentId) return;
     if (resumeArmAttemptedRef.current) return;
-    // Read the persisted decline directly too: on a refresh the restore-decline
-    // effect and this effect both fire on the same mount, so proctoringDeclined
-    // React state may still be its initial `false` here. sessionStorage is settled.
-    if (!proctored) return; // un-proctored assessment → never arm the camera
+    if (!proctored) return;
     const declined = proctoringDeclined || hasDeclinedConsent(assessmentId);
-    if (!consentGiven || declined) return; // declined → run un-proctored, no block
+    if (!consentGiven || declined) return; // declined runs un-proctored, no block
 
     const serverInProgress = currentQuestionIndex > 0;
     const hasAnswered =
       answeredQuestionIds.size > 0 || (progress?.answeredQuestions ?? 0) > 0;
     const inProgress = serverInProgress || hasAnswered;
-    if (!inProgress) return; // fresh start handled by the consent → startProctoring flow
+    if (!inProgress) return; // fresh start is handled by the consent flow
 
-    // Only oral mode implies a proctoring camera here (written has no recording).
     if (answerMode !== 'oral') return;
 
-    // Already live? nothing to do.
     const hasLiveVideo =
       !!proctorStream && proctorStream.getVideoTracks().some((t) => t.readyState === 'live');
     if (hasLiveVideo) return;
@@ -249,9 +203,7 @@ export default function TakeAssessment() {
     resumeArmAttemptedRef.current = true;
     (async () => {
       await ensureProctoring();
-      // ensureProctoring swallows getUserMedia failures into proctoringWarning and
-      // leaves no live stream. If we still have no live stream, the silent re-grant
-      // was rejected — block with the re-grant overlay rather than continue un-proctored.
+      // ensureProctoring swallows getUserMedia failures, so check for a live stream.
       const s = useAssessmentStore.getState();
       const live =
         !!s.proctorStream && s.proctorStream.getVideoTracks().some((t) => t.readyState === 'live');
@@ -271,10 +223,7 @@ export default function TakeAssessment() {
     ensureProctoring,
   ]);
 
-  // Release all camera/mic tracks + the proctoring MediaRecorder on unmount and on
-  // pagehide (preferred over `unload` for mobile Safari). stopProctoring is guarded
-  // against a double-stop, so the happy-path submit (which also calls it) plus this
-  // cleanup won't error. Does NOT touch the existing beforeunload warning above.
+  // Release media on unmount and pagehide (preferred over `unload` on mobile Safari).
   useEffect(() => {
     const releaseMedia = () => {
       const s = useAssessmentStore.getState();
@@ -289,12 +238,9 @@ export default function TakeAssessment() {
     };
   }, []);
 
-  // (Browser-support check moved to lazy useState init above — no effect needed.)
-
-  // Block browser back button during assessment
+  // Block the browser back button: a dummy history entry turns Back into a popstate.
   useEffect(() => {
     if (!assessmentStarted) return;
-    // Push a dummy history entry so back button triggers popstate instead of navigating away
     window.history.pushState(null, '', window.location.href);
     const handlePopState = () => {
       window.history.pushState(null, '', window.location.href);
@@ -303,17 +249,13 @@ export default function TakeAssessment() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [assessmentStarted]);
 
-  // Reset per-question state whenever the question changes. This is an intentional
-  // synchronous reset keyed to the question index changing (not a render-loop
-  // source), so the set-state-in-effect heuristic is suppressed for this effect body.
+  // Intentional synchronous per-question reset, keyed to the question index.
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect */
     setPrepDone(false);
     setIsSubmittingAnswer(false);
-    clearError(); // clear errors from previous question
-    // Defensive: clear any leftover written draft so text never leaks from the
-    // previous question into this one, regardless of which advance path ran
-    // (normal submit, skip, or a server-driven index change on refetch).
+    clearError();
+    // Covers every advance path (submit, skip, server-driven index change) so text never leaks.
     setTextAnswer('');
     if (prepTimerRef.current) {
       clearInterval(prepTimerRef.current);
@@ -336,11 +278,9 @@ export default function TakeAssessment() {
     /* eslint-enable react-hooks/set-state-in-effect */
   }, [currentQuestionIndex, assessmentStarted, answerMode, preparationTime]);
 
-  // Prep countdown tick
   useEffect(() => {
     if (prepSecondsLeft === null || prepDone) return;
     if (prepSecondsLeft <= 0) {
-      // Already at/under zero on (re)mount — finish prep synchronously (intentional).
       /* eslint-disable react-hooks/set-state-in-effect */
       setPrepDone(true);
       setPrepSecondsLeft(null);
@@ -368,22 +308,14 @@ export default function TakeAssessment() {
     };
   }, [prepSecondsLeft, prepDone]);
 
-  // Recover a draft answer persisted before a refresh/crash. Runs at most once
-  // per mount, and only once the assessment is in-progress (drafts only exist
-  // after the student has started recording/typing). Gating on `assessmentStarted`
-  // also means this fires AFTER the per-question reset effect's setTextAnswer('')
-  // has run for the started-transition, so a recovered text draft isn't wiped.
-  // This effect is intentionally declared after that reset effect for the same
-  // within-commit ordering reason.
+  // Draft recovery, once per mount. Must stay declared after the per-question reset effect
+  // (and gated on assessmentStarted) so its setTextAnswer('') doesn't wipe the recovered text.
   useEffect(() => {
     if (rehydrateAttemptedRef.current) return;
     if (!assessmentStarted || !assessmentId || questions.length === 0) return;
     rehydrateAttemptedRef.current = true;
-    // No cancel-on-cleanup guard: the ref above already ensures rehydrateDraft
-    // runs exactly once, and addToast targets a global store (safe to call even
-    // if this component has unmounted). A cleanup-set `cancelled` flag would let
-    // StrictMode's dev mount→cleanup→mount cycle suppress the toast even though
-    // the draft WAS recovered by the first (un-cancelled) async run.
+    // No cancel-on-cleanup flag: under StrictMode it would suppress the toast for a draft
+    // the first run did recover. addToast is a global store, safe after unmount.
     (async () => {
       const recovered = await rehydrateDraft();
       if (recovered) {
@@ -392,7 +324,6 @@ export default function TakeAssessment() {
     })();
   }, [assessmentStarted, assessmentId, questions.length, currentQuestionIndex, rehydrateDraft, addToast]);
 
-  // Tear down any pending deferred-submit listener when the component unmounts.
   useEffect(() => {
     return () => {
       if (deferredSubmitRef.current) {
@@ -403,9 +334,7 @@ export default function TakeAssessment() {
   }, []);
 
   const handleConsentAccepted = async () => {
-    // Record consent (granted) server-side + locally + sessionStorage BEFORE the
-    // camera request so a refresh won't re-show the modal. Best-effort: a failed
-    // server write only toasts, never blocks.
+    // Record before the camera request so a refresh won't re-show the modal.
     setProctoringDeclined(false);
     await recordConsentDecision(true);
 
@@ -418,18 +347,13 @@ export default function TakeAssessment() {
   };
 
   const handleConsentDeclined = async () => {
-    // Allow assessment without proctoring (consent declined = proceed without
-    // camera). granted:false is the instructor's authoritative decline signal.
-    // Persist the decline so a mid-exam refresh restores proctoringDeclined and the
-    // resume re-arm effect correctly skips re-arming the camera.
+    // Persisted so a refresh restores proctoringDeclined and the resume re-arm skips the camera.
     setProctoringDeclined(true);
     if (assessmentId) sessionStorage.setItem(declinedConsentKey(assessmentId), 'true');
     await recordConsentDecision(false);
   };
 
-  // Escape from the camera-revoked overlay when proctoring is optional: record a
-  // decline (so the instructor sees the escape was taken), then dismiss the
-  // blocking overlay and clear the proctoring-required intent.
+  // Only offered when proctoring is optional. Recorded as a decline so the instructor sees it.
   const handleContinueWithoutRecording = async () => {
     setProctoringDeclined(true);
     if (assessmentId) sessionStorage.setItem(declinedConsentKey(assessmentId), 'true');
@@ -447,9 +371,7 @@ export default function TakeAssessment() {
     }
   };
 
-  // Re-grant from the resume overlay: this runs inside a user gesture (button
-  // click), so getUserMedia is permitted. On success the overlay self-dismisses
-  // (its render condition checks for a live stream); on failure it stays up.
+  // Runs inside a click gesture, so getUserMedia is permitted here.
   const handleResumeRegrant = async () => {
     setIsRestoringCamera(true);
     try {
@@ -463,17 +385,14 @@ export default function TakeAssessment() {
     }
   };
 
-  // Register a one-shot deferred submit that fires the right handler once `online`
-  // returns. Guarded against double-submit (re-checks in-flight + clears the ref
-  // before firing) and cleaned up on unmount via the effect below.
+  // One-shot: replaces any pending listener and detaches before firing, so a flapping
+  // connection can't double-submit.
   const registerDeferredSubmit = (run: () => void) => {
-    // Replace any prior pending listener so we never stack two.
     if (deferredSubmitRef.current) {
       window.removeEventListener('online', deferredSubmitRef.current);
       deferredSubmitRef.current = null;
     }
     const onReconnect = () => {
-      // One-shot: detach immediately so a flapping connection can't double-fire.
       if (deferredSubmitRef.current) {
         window.removeEventListener('online', deferredSubmitRef.current);
         deferredSubmitRef.current = null;
@@ -489,11 +408,7 @@ export default function TakeAssessment() {
   const handleTimerExpire = async () => {
     const store = useAssessmentStore.getState();
 
-    // Offline: do NOT fire a submit that will instantly fail. The pure
-    // deferSubmitWhileOffline helper stops any active recording (blob is kept by
-    // the store), warns the student, and registers a one-shot reconnect that
-    // re-runs THIS expiry decision once online — so the right path (audio / text
-    // / skip) is chosen against fresh state at that moment.
+    // Offline: defer, then re-run this whole expiry decision on reconnect against fresh state.
     if (!store.isOnline) {
       await deferSubmitWhileOffline({
         isInFlight: () => {
@@ -512,13 +427,9 @@ export default function TakeAssessment() {
       return;
     }
 
-    // All decision logic lives in runTimerExpiry (pure + unit-tested). We wire it
-    // to the live store here, reading recording state LAZILY so the blob captured
-    // by stopRecording is seen. isSubmittingAnswer is local component state, so it
-    // is folded into the re-entrancy guard alongside the store's isUploading.
+    // Getters read the store lazily so the blob produced by stopRecording is seen.
     await runTimerExpiry({
-      // isStopping guards the manual-Stop-vs-expiry race: if a stop is already in
-      // flight, the expiry handler must not independently stop + skip.
+      // isStopping: a manual Stop in flight must not be raced by an expiry stop + skip.
       inFlight: store.isUploading || isSubmittingAnswer || store.isStopping,
       answerMode: store.answerMode,
       getIsRecording: () => useAssessmentStore.getState().isRecording,
@@ -536,7 +447,6 @@ export default function TakeAssessment() {
     setIsSubmittingAnswer(true);
     try {
       await submitCurrentAnswer();
-      // Store re-fetches questions after submit — server advances the index
     } finally {
       setIsSubmittingAnswer(false);
     }
@@ -552,7 +462,7 @@ export default function TakeAssessment() {
   };
 
   const handleNext = async () => {
-    // Re-fetch from server in case auto-advance hasn't completed yet
+    // Re-fetch in case the server-side advance hadn't landed yet.
     setIsSubmittingAnswer(true);
     try {
       await loadQuestions();
@@ -568,10 +478,9 @@ export default function TakeAssessment() {
       setShowSubmitModal(false);
       setSubmitted(true);
     }
-    // on failure: modal stays open, error from store shown inside modal
+    // On failure the modal stays open and shows the store error.
   };
 
-  // Submission success screen
   if (submitted) {
     const title = assessment?.title || 'your assessment';
     return (
@@ -600,7 +509,6 @@ export default function TakeAssessment() {
     );
   }
 
-  // Loading state
   if (isLoading && questions.length === 0) {
     return (
       <div className="min-h-screen bg-paper flex items-center justify-center">
@@ -609,7 +517,6 @@ export default function TakeAssessment() {
     );
   }
 
-  // Error state
   if (error && questions.length === 0) {
     return (
       <div className="min-h-screen bg-paper flex items-center justify-center p-4">
@@ -626,7 +533,6 @@ export default function TakeAssessment() {
     );
   }
 
-  // No questions state
   if (questions.length === 0) {
     return (
       <div className="min-h-screen bg-paper flex items-center justify-center p-4">
@@ -644,7 +550,7 @@ export default function TakeAssessment() {
 
   const currentQuestion = questions[currentQuestionIndex];
 
-  // Safety: if currentQuestionIndex is out of bounds, prompt submission
+  // Index past the end (all answered): prompt submission.
   if (!currentQuestion) {
     const fallbackAnsweredCount = progress?.answeredQuestions || 0;
     return (
@@ -711,11 +617,7 @@ export default function TakeAssessment() {
   const isLastQuestion = currentQuestionIndex === questions.length - 1;
   const answeredCount = progress?.answeredQuestions || 0;
   const currentAnswered = currentQuestion ? answeredQuestionIds.has(currentQuestion.id) : false;
-  // Lightweight header indicators (in addition to "Question X of Y"): how many
-  // questions are still ahead, and a rough estimated time remaining. The estimate
-  // is null when no per-question limit exists, in which case we only show the count.
-  // The per-question QuestionTimer below remains the authoritative answer clock and
-  // is left entirely untouched.
+  // Rough header estimate only (null with no limits); QuestionTimer is the authoritative clock.
   const questionsLeft = Math.max(0, questions.length - (currentQuestionIndex + 1));
   const remainingMinutesEstimate = estimateRemainingMinutes({
     questionCount: questions.length,
@@ -723,13 +625,10 @@ export default function TakeAssessment() {
     perQuestionSeconds: questions.map((q) => q.timeLimit),
     fallbackPerQuestionSeconds: assessment?.timeLimit ?? null,
   });
-  // Review mode (written-only v1): free back-navigation + revise before final submit.
+  // Review mode is written-only for now.
   const reviewMode = answerMode === 'written' && allowReview;
   const allAnswered = questions.length > 0 && answeredCount >= questions.length;
 
-  // Derive a minimal assessment object for the overview screen.
-  // The store's `assessment` field is only populated if the backend returns metadata;
-  // fall back to what we can derive from the loaded questions.
   const assessmentInfo = assessment ?? {
     id: assessmentId ?? '',
     title: 'Oral Assessment',
@@ -743,9 +642,7 @@ export default function TakeAssessment() {
 
   return (
     <div className="min-h-screen bg-paper flex flex-col">
-      {/* Consent modal — only for proctored assessments, once questions have loaded.
-          Un-proctored assessments (e.g. written formative) skip it entirely; consentGiven
-          stays false so the camera resume logic never arms a stream. */}
+      {/* Un-proctored: no modal, and consentGiven stays false so resume never arms a camera. */}
       {proctored && !consentGiven && questions.length > 0 && (
         <ConsentModal
           onConsent={handleConsentAccepted}
@@ -754,12 +651,7 @@ export default function TakeAssessment() {
         />
       )}
 
-      {/* Pre-flight flow (after consent, or immediately when un-proctored, before Q1):
-          overview → device check → start. The per-question timer has NOT started at
-          any point here. Overview "Start" now reveals the device check rather than
-          jumping straight into the exam:
-            - written mode has no mic to test → overview goes straight to start;
-            - oral mode shows DeviceCheck, whose onReady is what finally starts. */}
+      {/* Pre-flight: overview -> device check (oral only) -> start. No timer runs here. */}
       {(consentGiven || !proctored) && !assessmentStarted && !overviewConfirmed && (
         <PreAssessmentOverview
           assessment={assessmentInfo}
@@ -768,7 +660,6 @@ export default function TakeAssessment() {
           startLabel={answerMode === 'written' ? 'Start Assessment' : 'Continue'}
           onStart={() => {
             if (answerMode === 'written') {
-              // No mic to check — skip the device-check screen entirely.
               setDeviceCheckPassed(true);
               setAssessmentStarted(true);
             } else {
@@ -778,7 +669,6 @@ export default function TakeAssessment() {
         />
       )}
 
-      {/* Device check — oral pre-flight gate between overview and Q1. */}
       {(consentGiven || !proctored) &&
         !assessmentStarted &&
         overviewConfirmed &&
@@ -793,10 +683,8 @@ export default function TakeAssessment() {
           />
         )}
 
-      {/* Main assessment UI — only rendered after the student clicks Start */}
       {assessmentStarted && <div>
 
-      {/* Browser support error banner */}
       {browserError && (
         <div className="bg-danger text-white px-4 py-3 flex items-center justify-between">
           <span className="text-sm">{browserError}</span>
@@ -804,7 +692,6 @@ export default function TakeAssessment() {
         </div>
       )}
 
-      {/* Proctoring warning banner */}
       {proctoringWarning && (
         <div className="bg-caution/10 border-b border-caution/30 text-caution px-4 py-3 flex items-center justify-between">
           <span className="text-sm">{proctoringWarning}</span>
@@ -812,18 +699,12 @@ export default function TakeAssessment() {
         </div>
       )}
 
-      {/* Proctoring degraded banner (non-blocking) — chunk uploads are failing and
-          retrying. Styled like the yellow proctoringWarning banner, but distinct
-          from the blocking CameraRevokedOverlay. */}
       {proctoringDegraded && (
         <div className="bg-caution/10 border-b border-caution/30 text-caution px-4 py-3 flex items-center justify-between">
           <span className="text-sm">Proctoring degraded — retrying upload. Your answers are unaffected.</span>
         </div>
       )}
 
-      {/* Camera revoked overlay (blocking). When proctoring is optional (the
-          student originally declined), offers a logged "Continue without recording"
-          escape. */}
       {cameraRevoked && (
         <CameraRevokedOverlay
           onRestore={handleRestoreCamera}
@@ -833,10 +714,7 @@ export default function TakeAssessment() {
         />
       )}
 
-      {/* Resume re-grant overlay (blocking) — a mid-exam refresh dropped the
-          proctoring stream and a silent re-arm was rejected by the browser. The
-          student must re-grant the camera (a fresh gesture) rather than silently
-          continue un-proctored. Suppressed once a live stream returns. */}
+      {/* Resume re-grant overlay; dismisses itself once a live stream returns. */}
       {resumeRegrantNeeded && !cameraRevoked && !(proctoringRequested && isProctoringActive) && (
         <CameraRevokedOverlay
           title="Re-grant camera to continue"
@@ -848,26 +726,21 @@ export default function TakeAssessment() {
         />
       )}
 
-      {/* Proctoring PiP — only when this assessment is proctored */}
       {proctored && <ProctorCamera stream={proctorStream} isRecording={isProctoringActive} />}
 
-      {/* Header */}
       <header className="bg-paper border-b border-hairline flex-shrink-0">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <h1 className="text-2xl font-bold text-ink">
             {assessment?.title ?? 'Assessment'}
           </h1>
           <div className="flex items-center justify-between mt-2">
-            {/* Help affordance (left). The API sends no instructor contact, so
-                HelpButton renders its generic copy. */}
+            {/* The API sends no instructor contact, so HelpButton renders generic copy. */}
             <HelpButton />
             <div className="flex items-center space-x-4">
               <div className="text-sm font-medium text-slate text-right">
                 <div>
                   Question {currentQuestionIndex + 1} of {questions.length}
                 </div>
-                {/* Remaining indicator — questions left, and an estimated time
-                    remaining when a per-question limit exists. */}
                 <div className="text-xs font-normal text-slate mt-0.5">
                   {questionsLeft > 0
                     ? `${questionsLeft} question${questionsLeft === 1 ? '' : 's'} left`
@@ -877,32 +750,22 @@ export default function TakeAssessment() {
                   )}
                 </div>
               </div>
-              {/* Per-question countdown — the SINGLE source of truth for the answer clock.
-                  Written: counts from when the question mounts.
-                  Oral: anchored to RECORDING START and shown only while actively
-                  recording, so a student who reads/thinks before pressing Start still
-                  gets the full timeLimit. The AudioRecorder no longer runs its own
-                  auto-stop clock — this timer is the only thing that triggers stop+submit
-                  on expiry (via handleTimerExpire). */}
+              {/* The only answer clock and the only trigger for stop+submit on expiry.
+                  Written: counts from question mount. Oral: anchored to recording start,
+                  so thinking time before Start doesn't eat the limit. */}
               {(answerMode === 'written' || (answerMode === 'oral' && isRecording && recordingStartTime !== null)) && (
                 <QuestionTimer
                   timeLimitSeconds={answerMode === 'oral' ? (currentQuestion.timeLimit ?? 300) : currentQuestion.timeLimit}
                   resetKey={answerMode === 'oral' ? `${currentQuestion.id}-rec-${recordingStartTime}` : currentQuestion.id}
                   paused={answerMode === 'oral' && isPaused}
-                  /* Refresh-fairness (P4): only the WRITTEN timer persists a start
-                     anchor (keyed per assessment + question) so a refresh continues
-                     the countdown instead of granting a fresh full clock. The ORAL
-                     timer is recording-elapsed (anchored to recording start) and is
-                     deliberately NOT persisted — a refresh ends the recording, so its
-                     clock restarts by design. The key namespace `qtimer_start_*` is
-                     distinct from the `draft_*` keys owned by the durable-drafts task. */
+                  /* Only written persists its anchor so a refresh can't reset the clock; a refresh
+                     ends an oral recording, so its clock restarts by design. */
                   persistKey={
                     answerMode === 'written' && assessmentId
                       ? `qtimer_start_${assessmentId}_${currentQuestion.id}`
                       : undefined
                   }
-                  /* Review mode: the timer is a soft display only — never auto-submit,
-                     since answers can be revisited and revised. */
+                  /* Review mode: display only, never auto-submit. */
                   onExpire={reviewMode ? undefined : handleTimerExpire}
                 />
               )}
@@ -913,7 +776,6 @@ export default function TakeAssessment() {
 
       <main className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          {/* Error Display */}
           {error && (
             <div className="mb-4">
               <ErrorMessage error={error} onDismiss={clearError} />
@@ -928,7 +790,6 @@ export default function TakeAssessment() {
             </div>
           )}
 
-          {/* Submitting indicator */}
           {isSubmittingAnswer && !error && (
             <div className="mb-4 flex items-center space-x-3 bg-accent/[0.06] border border-accent/20 rounded-xl px-4 py-3">
               <svg className="animate-spin motion-reduce:animate-none h-5 w-5 text-accent" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -939,7 +800,7 @@ export default function TakeAssessment() {
             </div>
           )}
 
-          {/* Progress Tracker — display only, no navigation */}
+          {/* Navigable only in review mode. */}
           <div className="mb-4">
             <ProgressTracker
               currentIndex={currentQuestionIndex}
@@ -952,12 +813,10 @@ export default function TakeAssessment() {
             />
           </div>
 
-          {/* Question Display */}
           <div className="mb-4">
             <QuestionDisplay question={currentQuestion} />
           </div>
 
-          {/* Answer Panel — mode set by instructor */}
           <div className="mb-4">
             {answerMode === 'oral' ? (
               prepDone ? (
@@ -966,7 +825,6 @@ export default function TakeAssessment() {
                   timeLimit={currentQuestion.timeLimit ?? 300}
                 />
               ) : (
-                /* Preparation countdown */
                 <div className="bg-accent/10 border border-accent/20 rounded-xl p-8 text-center">
                   <p className="text-sm font-medium text-accent mb-2">Preparation Time</p>
                   <div className="text-6xl font-bold text-ink mb-4 tabular-nums">
@@ -975,7 +833,7 @@ export default function TakeAssessment() {
                       : '—'}
                   </div>
                   <p className="text-sm text-slate mb-6">
-                    Read the question carefully. Recording will start automatically when the timer ends.
+                    Read the question carefully. When the countdown ends, press Start Recording to answer. Your answer time begins once you start recording.
                   </p>
                   <button
                     onClick={() => { setPrepDone(true); setPrepSecondsLeft(null); if (prepTimerRef.current) { clearInterval(prepTimerRef.current); prepTimerRef.current = null; } }}
@@ -995,10 +853,8 @@ export default function TakeAssessment() {
             )}
           </div>
 
-          {/* Navigation */}
           {reviewMode ? (
-            /* Review mode: free back-navigation + a persistent submit (enabled once
-               every question has an answer). Saving an answer never auto-advances. */
+            /* Review mode: free navigation; submit enabled once every question is answered. */
             <div className="flex justify-between items-center pb-6">
               <button
                 type="button"
@@ -1082,7 +938,6 @@ export default function TakeAssessment() {
         </div>
       </main>
 
-      {/* Submit Confirmation Modal */}
       {showSubmitModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div className="bg-paper rounded-xl shadow-overlay max-w-md w-full p-6">

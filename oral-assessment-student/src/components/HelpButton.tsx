@@ -1,30 +1,11 @@
-/**
- * HelpButton — a persistent, reusable "?" affordance (P9).
- *
- * A small circular button that opens a modal with troubleshooting guidance for the
- * three most common failure modes (microphone, camera, upload/connection) plus a
- * support/contact block. It is rendered on the invite screen (where a student who
- * can't even exchange their token still needs somewhere to turn) and in the
- * in-assessment header.
- *
- * The modal reuses the focus-trap + overlay pattern from ConsentModal so keyboard
- * users stay trapped inside the dialog while it's open, and matches the existing
- * design tokens (`bg-paper rounded-xl shadow-overlay`, `accent`).
- *
- * Contact info NEVER hardcodes a real person: it comes purely from the optional
- * props (sourced from backend data — see the assumed contract on QuestionsResponse /
- * Assessment) and degrades to generic copy when nothing is supplied.
- */
+// Troubleshooting modal. Contact details come only from props (backend data), never
+// hardcoded; generic copy when absent.
 import { useEffect, useRef, useState } from 'react';
 
 interface HelpButtonProps {
-  /** Instructor display name, when the backend supplies it. */
   instructorName?: string;
-  /** Support email — rendered as a `mailto:` link when present. */
   supportEmail?: string;
-  /** Support URL — rendered as an external link when present. */
   supportUrl?: string;
-  /** Optional extra classes for the trigger button positioning (e.g. absolute placement). */
   className?: string;
 }
 
@@ -38,9 +19,7 @@ export default function HelpButton({
   const dialogRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
-  // Focus trap + Escape-to-close while the dialog is open. Mirrors ConsentModal's
-  // pattern; additionally returns focus to the trigger on close (the trigger is a
-  // persistent control, unlike ConsentModal which unmounts entirely).
+  // Focus trap as in ConsentModal, plus focus returns to the persistent trigger on close.
   useEffect(() => {
     if (!open) return;
     const dialog = dialogRef.current;
@@ -136,7 +115,6 @@ export default function HelpButton({
             </p>
 
             <div className="space-y-4">
-              {/* Microphone */}
               <section className="bg-ink/5 rounded-xl p-4">
                 <h3 className="text-sm font-semibold text-ink mb-2">
                   Microphone not detected or no sound
@@ -148,7 +126,6 @@ export default function HelpButton({
                 </ul>
               </section>
 
-              {/* Camera */}
               <section className="bg-ink/5 rounded-xl p-4">
                 <h3 className="text-sm font-semibold text-ink mb-2">
                   Camera blocked or access revoked
@@ -160,7 +137,6 @@ export default function HelpButton({
                 </ul>
               </section>
 
-              {/* Upload / connection */}
               <section className="bg-ink/5 rounded-xl p-4">
                 <h3 className="text-sm font-semibold text-ink mb-2">
                   An answer won't submit
@@ -173,7 +149,6 @@ export default function HelpButton({
               </section>
             </div>
 
-            {/* Support / contact block */}
             <section className="mt-5 border-t border-hairline pt-4">
               <h3 className="text-sm font-semibold text-ink mb-2">Still stuck?</h3>
               {hasDirectContact ? (

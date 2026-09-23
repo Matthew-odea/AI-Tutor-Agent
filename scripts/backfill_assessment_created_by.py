@@ -1,19 +1,7 @@
 #!/usr/bin/env python3
-"""
-Backfill missing assessment ownership metadata (`createdBy`) in DynamoDB.
+"""Backfill missing `createdBy` on assessments in DynamoDB. Dry run unless --apply.
 
-Default behavior is DRY RUN (no writes).
-Use --apply to persist updates.
-
-Examples:
-  Dry run all missing owners:
-    python test_scripts/backfill_assessment_created_by.py --owner-user-id <user_id>
-
-  Apply for all missing owners:
-    python test_scripts/backfill_assessment_created_by.py --owner-user-id <user_id> --apply
-
-  Apply for one assessment only:
-    python test_scripts/backfill_assessment_created_by.py --owner-user-id <user_id> --assessment-id <assessment_id> --apply
+  python scripts/backfill_assessment_created_by.py --owner-user-id <user_id> [--assessment-id <id>] [--apply]
 """
 
 from __future__ import annotations

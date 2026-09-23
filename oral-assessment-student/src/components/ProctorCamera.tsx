@@ -1,7 +1,3 @@
-/**
- * ProctorCamera — fixed bottom-right Picture-in-Picture webcam preview
- * with a red REC indicator. Supports minimise to a dot.
- */
 import { useEffect, useRef, useState } from 'react';
 
 interface ProctorCameraProps {

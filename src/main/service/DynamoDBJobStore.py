@@ -1,9 +1,4 @@
-"""
-DynamoDB-backed job store.
-
-Replaces the in-memory BatchJobManager storage so job state survives server restarts.
-DynamoDB TTL (7-day) handles cleanup automatically — no manual purge needed.
-"""
+"""Batch job state in the assessment table (PK JOB#{job_id}, SK METADATA), expired by DynamoDB TTL."""
 from __future__ import annotations
 
 import os
@@ -17,30 +12,15 @@ from botocore.exceptions import ClientError
 
 logger = logging.getLogger(__name__)
 
-_TTL_SECONDS = 7 * 24 * 3600  # 7 days
+_TTL_SECONDS = 7 * 24 * 3600
 
 
 class DynamoDBJobStore:
-    """
-    Persists batch job state to DynamoDB using the existing assessment table.
-
-    Item schema:
-        PK: JOB#{job_id}
-        SK: METADATA
-        job_id, job_type, assessment_id, status,
-        total_items, processed_count, successful_count, failed_count,
-        started_at, completed_at, error, metadata, TTL
-    """
-
     def __init__(self):
         region = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
         table_name = os.getenv("DYNAMODB_ASSESSMENT_TABLE", "oral_assessments")
         dynamodb = boto3.resource("dynamodb", region_name=region)
         self._table = dynamodb.Table(table_name)
-
-    # ------------------------------------------------------------------
-    # Public API — mirrors the old BatchJobManager interface exactly
-    # ------------------------------------------------------------------
 
     def create_job(
         self,
@@ -107,7 +87,7 @@ class DynamoDBJobStore:
             logger.error("Failed to update status for job %s: %s", job_id, exc)
 
     def increment_progress(self, job_id: str, success: bool = True) -> None:
-        """Atomic counter update — safe for concurrent threads without a lock."""
+        """Uses DynamoDB ADD, so concurrent callers need no lock."""
         try:
             self._table.update_item(
                 Key={"PK": f"JOB#{job_id}", "SK": "METADATA"},
@@ -125,13 +105,9 @@ class DynamoDBJobStore:
         except ClientError as exc:
             logger.error("Failed to increment progress for job %s: %s", job_id, exc)
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _deserialise(item: Dict[str, Any]) -> Dict[str, Any]:
-        """Convert DynamoDB item (Decimal types) to plain Python dict."""
+        """Converts DynamoDB Decimals to int and drops PK/SK/TTL."""
         return {
             "job_id": item.get("job_id"),
             "job_type": item.get("job_type"),

@@ -1,6 +1,3 @@
-/**
- * Custom hook to detect online/offline status
- */
 import { useState, useEffect } from "react";
 
 export const useOnlineStatus = () => {

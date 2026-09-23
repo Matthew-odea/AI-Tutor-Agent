@@ -1,7 +1,3 @@
-/**
- * Type definitions for pedagogy modes
- */
-
 export type PedagogyMode = "explanatory" | "concise";
 
 export interface PedagogyModeInfo {

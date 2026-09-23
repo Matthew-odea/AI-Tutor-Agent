@@ -1,17 +1,5 @@
-"""
-Results and grading: effective score, release gate, score override, reminders.
-
-Covers:
-- EPIC-6-1: GET /api/assessment/{id}/results returns results with grade distribution (existing endpoint, verified)
-- EPIC-6-1: GET /api/assessment/{id}/evaluation-status-stream/{jobId} SSE stream
-- EPIC-6-2: GET /api/assessment/{id}/student/{studentId}/results — instructor per-student detail
-- EPIC-6-2: PUT /api/assessment/{id}/student/{studentId}/question/{questionId}/override — score override
-- EPIC-6-3: PUT /api/assessment/{id}/release-results — release results flag
-- EPIC-6-3: Student results gated on resultsReleased flag
-- EPIC-6-3: GET /api/student/{id}/assessment/{id}/results/pdf — PDF generation
-- EPIC-6-4: POST /api/assessment/{id}/student/{studentId}/remind — send reminder
-- InstructorAssessmentResultsAggregator.get_student_detail — unit tests
-- OralAssessmentResultsAggregator resultsReleased gate — unit tests
+"""Instructor results endpoints (per-student detail, score override, release, reminders),
+student results gating and PDF, and the aggregators behind them.
 """
 
 from unittest.mock import MagicMock, patch
@@ -30,10 +18,6 @@ from src.main.service.OralAssessmentService import OralAssessmentServiceError
 from src.main.service.InstructorAssessmentResultsAggregator import InstructorAssessmentResultsAggregator, _effective_score
 from src.main.service.OralAssessmentResultsAggregator import OralAssessmentResultsAggregator
 
-
-# ─────────────────────────────────────────────────────────────
-# Shared helpers
-# ─────────────────────────────────────────────────────────────
 
 _INSTRUCTOR = AuthPrincipal(user_id="i-1", roles=["instructor"], source="jwt")
 _STUDENT = AuthPrincipal(user_id="s-1", roles=["student"], source="jwt", assessment_id="a-1")
@@ -121,10 +105,6 @@ def _make_student_detail(**kwargs):
     return defaults
 
 
-# ─────────────────────────────────────────────────────────────
-# _effective_score unit tests
-# ─────────────────────────────────────────────────────────────
-
 class TestEffectiveScore:
     def test_returns_instructor_score_when_set(self):
         assert _effective_score({"totalScore": 5, "instructorScore": 9}) == 9
@@ -139,17 +119,12 @@ class TestEffectiveScore:
         assert _effective_score({"totalScore": 8, "instructorScore": 0}) == 0
 
 
-# ─────────────────────────────────────────────────────────────
-# InstructorAssessmentResultsAggregator.get_student_detail
-# ─────────────────────────────────────────────────────────────
-
 class TestGetStudentDetail:
     def _make_table(self, questions=None, answers=None, evaluations=None, chunks=None, enrollment=None, metadata=None):
         table = MagicMock()
 
-        # get_student_detail now issues ONE query for all items under the student
-        # PK (questions/answers/evaluations/chunks share the partition) and buckets
-        # them by SK prefix in code.
+        # get_student_detail issues one query for the student PK (questions/answers/evaluations/
+        # chunks share the partition) and buckets items by SK prefix.
         all_items = (questions or []) + (answers or []) + (evaluations or []) + (chunks or [])
         table.query.return_value = {"Items": all_items}
 
@@ -214,10 +189,6 @@ class TestGetStudentDetail:
         assert 1 in proctoring["missingIndexes"]
 
 
-# ─────────────────────────────────────────────────────────────
-# OralAssessmentResultsAggregator — resultsReleased gate
-# ─────────────────────────────────────────────────────────────
-
 class TestResultsReleasedGate:
     def _make_table(self, released: bool):
         table = MagicMock()
@@ -239,7 +210,6 @@ class TestResultsReleasedGate:
 
     def test_passes_gate_when_released(self):
         table = MagicMock()
-        # Enrollment
         table.get_item.side_effect = lambda Key, **kwargs: {
             "Item": (
                 {"name": "Alice", "email": "a@b.com", "status": "submitted"}
@@ -253,10 +223,6 @@ class TestResultsReleasedGate:
         with pytest.raises(ValueError, match="not available"):
             agg.get_student_results(student_id="s-1", assessment_id="a-1")
 
-
-# ─────────────────────────────────────────────────────────────
-# EPIC-6-2: GET /api/assessment/{id}/student/{studentId}/results
-# ─────────────────────────────────────────────────────────────
 
 class TestGetStudentDetailEndpoint:
     def test_returns_student_detail(self):
@@ -289,10 +255,6 @@ class TestGetStudentDetailEndpoint:
         resp = client.get("/api/assessment/a-1/student/s-1/results")
         assert resp.status_code == 403
 
-
-# ─────────────────────────────────────────────────────────────
-# EPIC-6-2: PUT override
-# ─────────────────────────────────────────────────────────────
 
 class TestScoreOverrideEndpoint:
     def test_override_success(self):
@@ -344,10 +306,6 @@ class TestScoreOverrideEndpoint:
         assert resp.status_code == 400
         assert resp.json()["error"]["code"] == "override_failed"
 
-
-# ─────────────────────────────────────────────────────────────
-# EPIC-6-3: PUT /api/assessment/{id}/release-results
-# ─────────────────────────────────────────────────────────────
 
 class TestReleaseResultsEndpoint:
     def test_release_results_success(self):
@@ -411,10 +369,6 @@ class TestReleaseResultsEndpoint:
         assert sent_to == [["bad@example.com"], ["ok@example.com"]]
 
 
-# ─────────────────────────────────────────────────────────────
-# EPIC-6-3: student results gated
-# ─────────────────────────────────────────────────────────────
-
 class TestStudentResultsGated:
     def test_results_not_released_returns_404(self):
         svc = MagicMock()
@@ -426,10 +380,6 @@ class TestStudentResultsGated:
         assert resp.status_code == 404
         assert resp.json()["error"]["code"] == "student_results_not_found"
 
-
-# ─────────────────────────────────────────────────────────────
-# EPIC-6-4: POST /api/assessment/{id}/student/{studentId}/remind
-# ─────────────────────────────────────────────────────────────
 
 class TestSendReminderEndpoint:
     def test_send_reminder_success(self):
@@ -463,10 +413,6 @@ class TestSendReminderEndpoint:
         assert resp.status_code == 400
         assert resp.json()["error"]["code"] == "reminder_failed"
 
-
-# ─────────────────────────────────────────────────────────────
-# EPIC-6-3: PDF endpoint
-# ─────────────────────────────────────────────────────────────
 
 class TestStudentResultsPdf:
     def _make_results(self):

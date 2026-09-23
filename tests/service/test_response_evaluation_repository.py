@@ -3,6 +3,8 @@ Integration tests for ResponseEvaluationRepository using moto.
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 import boto3
 import pytest
 from moto import mock_aws
@@ -90,6 +92,8 @@ class TestStoreEvaluation:
         assert int(item["correctnessScore"]) == 4
         assert int(item["totalScore"]) == 7
         assert item["feedback"] == "Good work"
+        # Single-offset ISO timestamp like every other writer (not "+00:00Z").
+        assert datetime.fromisoformat(item["evaluatedAt"]).utcoffset() == timedelta(0)
 
 
 class TestStoreEvaluationReviewFlags:
@@ -145,6 +149,8 @@ class TestHumanScore:
         assert int(item["humanUnderstandingScore"]) == 4
         assert int(item["humanTotalScore"]) == 9
         assert item["humanScoredBy"] == "grader@example.edu"
+        assert datetime.fromisoformat(item["humanScoredAt"]).utcoffset() == timedelta(0)
+        assert result["humanScoredAt"] == item["humanScoredAt"]
         # AI scores are untouched — the human score is a separate reference.
         assert int(item["totalScore"]) == 7
 

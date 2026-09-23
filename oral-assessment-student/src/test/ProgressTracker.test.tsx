@@ -4,8 +4,7 @@ import ProgressTracker from '../components/ProgressTracker';
 
 afterEach(cleanup);
 
-// Query the indicator divs directly by their state-bearing aria-label. Using a
-// CSS attribute selector (rather than getByLabelText) is robust for plain divs.
+// Attribute selector rather than getByLabelText, which is unreliable for plain divs.
 const byLabel = (root: HTMLElement, label: string) =>
   root.querySelector(`[aria-label="${label}"]`) as HTMLElement | null;
 

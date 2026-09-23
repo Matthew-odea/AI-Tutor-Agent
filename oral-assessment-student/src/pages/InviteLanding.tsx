@@ -7,12 +7,7 @@ import type { Schemas } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
-/**
- * Persistent top-right Help affordance for the invite screen. Pre-exchange we have
- * NO per-assessment contact data, so it renders with no contact props and the
- * generic fallback copy. Shown across the no-token, error and ready states so a
- * student who can't even exchange their link always has somewhere to turn.
- */
+// No contact props: there is no per-assessment data before the token exchange.
 function InviteHelp() {
   return (
     <div className="absolute top-4 right-4">
@@ -25,10 +20,8 @@ export default function InviteLanding() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token');
-  // ?next=results sends the student to their feedback instead of the assessment.
-  // Results can't be linked to directly because the page needs the session token
-  // that only the invite exchange sets, and without this a student who has
-  // already submitted lands back in the question UI.
+  // ?next=results: results can't be deep-linked because they need the session token only
+  // this exchange sets; without it a submitted student lands back in the question UI.
   const resultsMode = searchParams.get('next') === 'results';
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -114,8 +107,6 @@ export default function InviteLanding() {
     );
   }
 
-  // Results mode skips the "before you begin" pre-flight entirely — none of it
-  // applies to a student who has already submitted and is here to read feedback.
   if (resultsMode) {
     return (
       <div className="relative min-h-screen bg-paper flex items-center justify-center p-4">
@@ -152,12 +143,8 @@ export default function InviteLanding() {
           <p className="text-sm text-slate mb-6">Before you begin, here's what to expect.</p>
         </div>
 
-        {/* "Before you begin" pre-flight panel. We have NO per-assessment data until
-            the single-use token is exchanged, so this copy is intentionally
-            format-agnostic — true for both proctored oral exams and unproctored
-            written assessments. The assessment's specific format, question count,
-            timing and any device/proctoring requirements are shown on the next
-            screen (PreAssessmentOverview), after the token is exchanged. */}
+        {/* Format-agnostic on purpose: nothing is known about the assessment until the
+            single-use token is exchanged. Specifics come in PreAssessmentOverview. */}
         <div className="bg-paper border border-hairline rounded-xl p-5 mb-6 text-left">
           <h3 className="font-serif text-sm font-semibold text-ink mb-3">Before you begin</h3>
           <ul className="text-sm text-ink space-y-2.5">

@@ -1,4 +1,3 @@
-# src/app.py
 from __future__ import annotations
 
 import logging
@@ -35,7 +34,6 @@ from src.main.middleware.logging_middleware import RequestLoggingMiddleware
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    """Start background workers on startup; stop them on shutdown."""
     try:
         dispatcher = get_sqs_job_dispatcher()
         if dispatcher.queue_url:
@@ -52,7 +50,7 @@ async def _lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Failed to start SQS consumer: %s", e)
 
-    yield  # app runs here
+    yield
 
     try:
         dispatcher = get_sqs_job_dispatcher()
@@ -73,13 +71,11 @@ def create_app() -> FastAPI:
         lifespan=_lifespan,
     )
 
-    # CORS Configuration
-    # Default: Allow all localhost addresses for development
+    # "http://localhost:*" is a dev sentinel that settings maps to ["*"]; an empty value adds no CORS at all.
     origins_env = settings.allow_origins_raw
     
     if origins_env == "http://localhost:*":
-        # Allow all localhost ports for development
-        origins: List[str] = settings.allow_origins  # Allow all origins in dev (will be filtered by credentials)
+        origins: List[str] = settings.allow_origins
         app.add_middleware(
             CORSMiddleware,
             allow_origins=origins,
@@ -88,7 +84,6 @@ def create_app() -> FastAPI:
             allow_headers=["*"],
         )
     elif origins_env:
-        # Production: Use specific origins from env variable
         origins: List[str] = settings.allow_origins
         app.add_middleware(
             CORSMiddleware,

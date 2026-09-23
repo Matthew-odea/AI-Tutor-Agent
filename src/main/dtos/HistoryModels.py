@@ -1,6 +1,3 @@
-"""
-DTOs for History (workspaces, views, code memory, assistant threads).
-"""
 from pydantic import BaseModel
 from typing import List, Optional
 

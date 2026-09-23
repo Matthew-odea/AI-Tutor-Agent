@@ -1,18 +1,5 @@
-/**
- * Structured Data Helper
- *
- * Generates JSON-LD structured data for rich search results.
- * JSON-LD (JavaScript Object Notation for Linked Data) helps search engines
- * understand your content better and can enable rich snippets in search results.
- *
- * @see https://developers.google.com/search/docs/appearance/structured-data/intro-structured-data
- * @see https://schema.org/
- */
+/** JSON-LD schema.org data for search results. The ai-tutor.example.com URLs are placeholders. */
 
-/**
- * Organization structured data
- * Identifies the organization behind the application
- */
 export const organizationSchema = {
   "@context": "https://schema.org",
   "@type": "Organization",
@@ -27,10 +14,6 @@ export const organizationSchema = {
   },
 };
 
-/**
- * WebApplication structured data
- * Describes the AI Tutor application itself
- */
 export const webApplicationSchema = {
   "@context": "https://schema.org",
   "@type": "WebApplication",
@@ -55,10 +38,6 @@ export const webApplicationSchema = {
   browserRequirements: "Requires JavaScript. Requires modern web browser.",
 };
 
-/**
- * FAQPage structured data
- * Can be added to a FAQ section if needed
- */
 export const faqSchema = {
   "@context": "https://schema.org",
   "@type": "FAQPage",
@@ -90,10 +69,6 @@ export const faqSchema = {
   ],
 };
 
-/**
- * BreadcrumbList structured data
- * Helps search engines understand site hierarchy
- */
 export const breadcrumbSchema = (path: string) => {
   const items: Array<{ name: string; url: string }> = [
     { name: "Home", url: "https://ai-tutor.example.com" },
@@ -125,17 +100,7 @@ export const breadcrumbSchema = (path: string) => {
   };
 };
 
-/**
- * Helper function to inject JSON-LD script into document head
- *
- * @param schema - The structured data object to inject
- * @example
- * ```tsx
- * useEffect(() => {
- *   injectStructuredData(webApplicationSchema)
- * }, [])
- * ```
- */
+/** Returns a cleanup function that removes the injected script. */
 export const injectStructuredData = (schema: object) => {
   const script = document.createElement("script");
   script.type = "application/ld+json";

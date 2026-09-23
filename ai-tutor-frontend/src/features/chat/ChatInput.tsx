@@ -1,6 +1,3 @@
-/**
- * Chat input component for General Chat experience
- */
 import { useState, useRef, useEffect, type KeyboardEvent } from "react";
 
 interface ChatInputProps {
@@ -17,7 +14,6 @@ export const ChatInput = ({
   const [input, setInput] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Auto-resize textarea whenever input changes
   useEffect(() => {
     if (textareaRef.current) {
       textareaRef.current.style.height = "40px";
@@ -44,7 +40,6 @@ export const ChatInput = ({
       <div className="max-w-5xl mx-auto">
         <div className="flex items-end space-x-2 h-[40px]">
           <div className="flex-1 relative flex flex-col justify-end">
-            {/* User guide above textarea (absolute positioning) */}
             <div className="absolute bottom-full left-0 mb-0.5 px-1 pointer-events-none">
               {!disabled && !input ? (
                 <p className="text-[10px] text-gray-400 leading-tight whitespace-nowrap">

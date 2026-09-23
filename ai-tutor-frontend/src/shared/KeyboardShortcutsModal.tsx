@@ -1,6 +1,3 @@
-/**
- * Keyboard shortcuts help modal
- */
 import { getShortcutDisplay } from "../hooks/useKeyboardShortcuts";
 
 interface ShortcutsModalProps {

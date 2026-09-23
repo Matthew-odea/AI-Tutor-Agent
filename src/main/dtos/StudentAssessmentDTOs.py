@@ -1,41 +1,26 @@
-"""
-DTOs for Student Assessment endpoints
-"""
-
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 
 
-# --- Request Models ---
-
 class SubmitAnswerRequest(BaseModel):
-    """Request to submit an answer (audio, text, video, or an explicit skip) for a question"""
     question_id: str = Field(..., description="Question identifier")
     assessment_id: str = Field(..., description="Assessment identifier")
     answer_type: str = Field("audio", description="'audio', 'text', 'video', or 'skipped'")
-    # Audio answer fields
     audio_url: Optional[str] = Field(None, description="S3 URL of uploaded audio file (audio answers)")
     duration: Optional[int] = Field(None, description="Recording duration in seconds", ge=0)
-    # Text answer fields
     text_content: Optional[str] = Field(None, description="Written answer text (text answers)", min_length=1)
-    # Video answer fields
     video_url: Optional[str] = Field(None, description="S3 URL of uploaded video file (video answers)")
-    # Client-side answer-mode hint ('oral' | 'written'). Informational only — the
-    # skipped-answer path sends it; the service does not branch on it. Declared so
-    # the request validates cleanly rather than relying on extra-field tolerance.
+    # Sent by the skip path; the service ignores it. Declared so validation does not depend on extra-field tolerance
     mode: Optional[str] = Field(None, description="Answer mode hint: 'oral' or 'written'")
 
 
 class SubmitAssessmentRequest(BaseModel):
-    """Request to mark assessment as complete"""
     assessment_id: str = Field(..., description="Assessment identifier")
 
 
-# --- Response Models ---
-
 class QuestionResponse(BaseModel):
-    """Individual question data (text is None for gated future questions)"""
+    """text is None for gated future questions."""
     id: str
     text: Optional[str] = None
     codeContext: Optional[str] = None
@@ -45,13 +30,11 @@ class QuestionResponse(BaseModel):
     topic: Optional[str] = None
     timeLimit: Optional[int] = None
     createdAt: str
-    # Student's prior answer text, only populated in review (allowReview) mode so the
-    # UI can pre-fill it when navigating back to an answered question.
+    # Only populated in allowReview mode, so the UI can pre-fill revisited answers
     priorAnswer: Optional[str] = None
 
 
 class StudentQuestionsResponse(BaseModel):
-    """Response with list of questions for a student"""
     ok: bool = True
     studentId: str
     assessmentId: str
@@ -68,7 +51,6 @@ class StudentQuestionsResponse(BaseModel):
 
 
 class SubmitAnswerResponse(BaseModel):
-    """Response after submitting an answer"""
     ok: bool = True
     studentId: str
     questionId: str
@@ -82,7 +64,6 @@ class SubmitAnswerResponse(BaseModel):
 
 
 class SubmitProctorChunkRequest(BaseModel):
-    """Request to log a proctoring chunk manifest entry"""
     assessment_id: str = Field(..., description="Assessment identifier")
     chunk_url: str = Field(..., description="S3 URL of the proctoring chunk")
     chunk_index: int = Field(..., description="Zero-based chunk sequence number", ge=0)
@@ -90,7 +71,6 @@ class SubmitProctorChunkRequest(BaseModel):
 
 
 class SubmitProctorChunkResponse(BaseModel):
-    """Response after storing a proctoring chunk manifest entry"""
     ok: bool = True
     studentId: str
     assessmentId: str
@@ -98,7 +78,6 @@ class SubmitProctorChunkResponse(BaseModel):
 
 
 class SubmitConsentRequest(BaseModel):
-    """Request to record a student's webcam-proctoring consent decision."""
     assessment_id: str = Field(..., description="Assessment identifier")
     granted: bool = Field(..., description="True if the student consented to proctoring, False if declined")
     consent_version: str = Field(..., description="Version of the consent text the student was shown")
@@ -106,7 +85,6 @@ class SubmitConsentRequest(BaseModel):
 
 
 class SubmitConsentResponse(BaseModel):
-    """Response after recording a consent decision."""
     ok: bool = True
     studentId: str
     assessmentId: str
@@ -115,7 +93,6 @@ class SubmitConsentResponse(BaseModel):
 
 
 class SubmitAssessmentResponse(BaseModel):
-    """Response after submitting complete assessment"""
     ok: bool = True
     studentId: str
     assessmentId: str
@@ -127,7 +104,6 @@ class SubmitAssessmentResponse(BaseModel):
 
 
 class StudentProgressResponse(BaseModel):
-    """Response with student progress data"""
     studentId: str
     studentName: str
     studentEmail: str
@@ -136,10 +112,7 @@ class StudentProgressResponse(BaseModel):
     status: str
     totalQuestions: int
     answeredQuestions: int
-    # Authoritative list of question ids that have an answer record (incl. skips).
-    # The client prefers this over a position-based heuristic to gate which
-    # questions are answered after a mid-assessment refresh. Defaults to an empty
-    # list so older clients/responses remain valid.
+    # Authoritative answered set (incl. skips); client uses it over position heuristics after a refresh
     answeredQuestionIds: List[str] = Field(default_factory=list)
     percentage: float
     startedAt: Optional[str] = None
@@ -147,7 +120,6 @@ class StudentProgressResponse(BaseModel):
 
 
 class QuestionResultDetail(BaseModel):
-    """Detailed result for a single question"""
     questionId: str
     questionNumber: Optional[int] = None
     questionText: str
@@ -170,7 +142,6 @@ class QuestionResultDetail(BaseModel):
 
 
 class StudentResultsResponse(BaseModel):
-    """Response with complete evaluation results"""
     studentId: str
     studentName: str
     studentEmail: str

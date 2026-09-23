@@ -22,8 +22,7 @@ export default function AssessmentList() {
       setAssessments(list);
       setLoading(false);
 
-      // Load stats in background — don't block the page render.
-      // Sequential to avoid overwhelming the single-worker backend.
+      // Background and sequential: the backend runs a single worker.
       for (const a of list) {
         try {
           const progData = await apiService.getAssessmentProgress(a.id);
@@ -32,7 +31,7 @@ export default function AssessmentList() {
           const completed = prog.filter(s => s.status === 'submitted' || s.status === 'completed').length;
           setStatsCache(prev => ({ ...prev, [a.id]: { enrolled, completed } }));
         } catch {
-          // skip — card just won't show stats
+          // Card just renders without stats.
         }
       }
     } catch (err) {
@@ -42,15 +41,12 @@ export default function AssessmentList() {
   };
 
   useEffect(() => {
-    // Intentional: load assessments once on mount. loadAssessments toggles
-    // loading/error/data state as it fetches — effect-driven initial fetch,
-    // not a render cascade.
+    // Initial fetch on mount, not a render cascade.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadAssessments();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only fetch; loadAssessments only touches stable store setters and apiService
   }, []);
 
-  // Auto-refresh stats when page regains focus
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') {
@@ -76,7 +72,6 @@ export default function AssessmentList() {
     }
   };
 
-  // Display assessments (real data when available)
   const displayAssessments = Array.isArray(assessments) ? assessments : [];
 
   return (
@@ -113,9 +108,6 @@ export default function AssessmentList() {
       ) : (
         <div className="grid gap-6">
           {displayAssessments.map((assessment) => {
-          // Chip tint AND label both come from the shared status tokens, so the
-          // status reads as Title Case here exactly as it does on every other
-          // screen instead of the raw lowercase backend value.
           const status = assessmentStatusToken(assessment.status);
           return (
           <div
@@ -146,8 +138,7 @@ export default function AssessmentList() {
                 >
                   Open
                 </Link>
-                {/* Two-step inline confirm — no modal for a destructive-but-recoverable
-                    action, and the confirm names the assessment for screen readers. */}
+                {/* Two-step inline confirm, not a modal. */}
                 {confirmDeleteId === assessment.id ? (
                   <>
                     <button

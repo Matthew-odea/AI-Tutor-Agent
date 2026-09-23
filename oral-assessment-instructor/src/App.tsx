@@ -19,22 +19,16 @@ import './index.css';
 function App() {
   return (
     <BrowserRouter>
-      {/* ErrorBoundary is the outermost element inside the router, so a render
-          crash on any screen shows the fallback card instead of a blank page.
-          OfflineBanner and ToastContainer are mounted once, globally: pages push
-          into the toastStore rather than rendering their own <Toast />. */}
+      {/* Mounted once globally; pages push into toastStore instead of rendering toasts. */}
       <ErrorBoundary>
         <OfflineBanner />
         <ToastContainer />
         <Routes>
-          {/* Public routes */}
           <Route path="/login" element={<Login />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
 
-          {/* Default route */}
           <Route path="/" element={<Navigate to="/assessments" replace />} />
 
-          {/* Protected instructor routes */}
           <Route path="/assessments" element={<AuthGate><AssessmentList /></AuthGate>} />
           <Route path="/assessments/create" element={<AuthGate><CreateAssessment /></AuthGate>} />
           <Route path="/assessments/:assessmentId/upload" element={<AuthGate><UploadStudents /></AuthGate>} />
@@ -44,7 +38,6 @@ function App() {
           <Route path="/assessments/:assessmentId/student/:studentId/results" element={<AuthGate><StudentResultDetail /></AuthGate>} />
           <Route path="/assessments/:assessmentId/questions/:studentId" element={<AuthGate><QuestionEditor /></AuthGate>} />
 
-          {/* 404 */}
           <Route path="*" element={<NotFound />} />
         </Routes>
       </ErrorBoundary>

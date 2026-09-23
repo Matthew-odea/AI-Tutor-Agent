@@ -10,12 +10,10 @@ import { initPerformanceTracking } from "./utils/performance";
 import { AnalyticsWrapper } from "./shared/AnalyticsWrapper";
 import { PageLoader } from "./shared/PageLoader";
 
-// Initialize monitoring services
 initErrorTracking();
 initAnalytics();
 initPerformanceTracking();
 
-// Lazy load routes for code splitting
 const App = lazy(() => import("./App.tsx"));
 const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy.tsx"));
 const TermsOfService = lazy(() => import("./pages/TermsOfService.tsx"));

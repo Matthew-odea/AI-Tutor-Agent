@@ -22,7 +22,6 @@ class OralAssessmentAnswerSubmission:
         video_url: Optional[str] = None,
         allow_review: bool = False,
     ) -> Dict[str, Any]:
-        # Validate required fields per answer type
         if answer_type == "text" and not (text_content and text_content.strip()):
             raise ValueError("Text answer cannot be empty")
         if answer_type == "audio" and not audio_url:
@@ -45,11 +44,8 @@ class OralAssessmentAnswerSubmission:
             dynamo_item["videoUrl"] = video_url or ""
             dynamo_item["duration"] = duration or 0
         elif answer_type == "skipped":
-            # Explicit non-answer: stored as a genuine zero-credit skip with no
-            # media or text content. Evaluation writes a deterministic 0-score
-            # record for it and never sends it to the LLM (see
-            # EvaluationWorkflowRunner). It still counts as "answered" for
-            # progress so the student isn't blocked from submitting.
+            # Zero-credit skip, no content. EvaluationWorkflowRunner scores it 0 without
+            # the LLM; it still counts as answered so the student can submit.
             pass
         else:  # audio
             dynamo_item["audioUrl"] = audio_url or ""
@@ -57,11 +53,10 @@ class OralAssessmentAnswerSubmission:
 
         from boto3.dynamodb.conditions import Attr
         if allow_review:
-            # Review mode: upsert so a student can revise an earlier answer. The set of
-            # ANSWER# items is unchanged by an overwrite, so progress counts stay correct.
+            # Upsert so the student can revise; overwriting doesn't change the ANSWER# count.
             self.table.put_item(Item=dynamo_item)
         else:
-            # Conditional put to prevent duplicate submissions (atomic check-and-store)
+            # Atomic check-and-store blocks duplicate submissions.
             self.table.put_item(
                 Item=dynamo_item,
                 ConditionExpression=Attr("SK").not_exists(),

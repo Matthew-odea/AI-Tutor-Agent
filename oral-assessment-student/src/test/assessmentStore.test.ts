@@ -1,9 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Progress, Question } from '../types';
 
-// ── Mock the network + upload layers so the store never touches a real backend ──
-// getQuestions/getProgress are left bare so each test sets the exact response it
-// needs; the rest get harmless default resolutions (mirrors timerExpiry.test.ts).
+// getQuestions/getProgress are left bare so each test sets its own response.
 vi.mock('../services/api', () => ({
   getStudentToken: vi.fn().mockResolvedValue('token'),
   getQuestions: vi.fn(),
@@ -60,9 +58,7 @@ beforeEach(() => {
   useAssessmentStore.setState({ studentId: 'z1', assessmentId: 'a1' });
 });
 
-// ────────────────────────────────────────────────────────────────────────────
 // loadProgress — authoritative server IDs preferred over the index heuristic.
-// ────────────────────────────────────────────────────────────────────────────
 describe('loadProgress', () => {
   it('prefers the server answeredQuestionIds list over the index heuristic, unioned with session-tracked ids', async () => {
     useAssessmentStore.setState({
@@ -119,14 +115,12 @@ describe('loadProgress', () => {
   it('falls back to the first-N-by-index heuristic when the server omits the field, replacing (not unioning) prior ids', async () => {
     useAssessmentStore.setState({
       questions: [q('q1'), q('q2'), q('q3')],
-      // A stale id the legacy heuristic branch must NOT preserve — proves the
-      // fallback path keeps today's behavior (replace, not union).
+      // The fallback branch replaces rather than unions, so this must not survive.
       answeredQuestionIds: new Set<string>(['qX']),
     });
     vi.mocked(api.getProgress).mockResolvedValueOnce({
       ...baseProgress,
       answeredQuestions: 2,
-      // no answeredQuestionIds field present
     });
 
     await useAssessmentStore.getState().loadProgress();
@@ -140,9 +134,7 @@ describe('loadProgress', () => {
   });
 });
 
-// ────────────────────────────────────────────────────────────────────────────
 // skipCurrentQuestion — a skip is tracked distinctly and clears any draft.
-// ────────────────────────────────────────────────────────────────────────────
 describe('skipCurrentQuestion', () => {
   it('records the question in skippedQuestionIds (NOT answeredQuestionIds) and clears the written draft', async () => {
     useAssessmentStore.setState({
@@ -180,9 +172,7 @@ describe('skipCurrentQuestion', () => {
   });
 });
 
-// ────────────────────────────────────────────────────────────────────────────
 // goToQuestion — client-side navigation, only in review mode (allowReview).
-// ────────────────────────────────────────────────────────────────────────────
 describe('goToQuestion', () => {
   it('jumps to the index and pre-fills that question\'s prior answer when allowReview is true', () => {
     useAssessmentStore.setState({
@@ -222,9 +212,7 @@ describe('goToQuestion', () => {
   });
 });
 
-// ────────────────────────────────────────────────────────────────────────────
 // submitCurrentTextAnswer — review mode saves without advancing or re-fetching.
-// ────────────────────────────────────────────────────────────────────────────
 describe('submitCurrentTextAnswer (review mode)', () => {
   it('saves, reflects the answer locally, clears any skip, and does NOT advance or re-fetch questions', async () => {
     useAssessmentStore.setState({

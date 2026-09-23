@@ -1,6 +1,3 @@
-/**
- * Toast notification store using Zustand
- */
 import { create } from "zustand";
 import { TIMEOUTS } from "../config/theme";
 
@@ -35,7 +32,6 @@ export const useToastStore = create<ToastStore>((set) => ({
       toasts: [...state.toasts, toast],
     }));
 
-    // Auto-remove toast after duration
     if (duration > 0) {
       setTimeout(() => {
         set((state) => ({

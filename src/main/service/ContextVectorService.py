@@ -23,25 +23,25 @@ class ContextVectorService:
         neo4j_password: str | None = None,
         aws_region: str | None = None,
         embed_model_id: str | None = None,
-        expected_embed_dim: Optional[int] = None,   # defaults to 1024 if None
-        embed_max_chars: Optional[int] = None,      # max characters to send to embed API
+        expected_embed_dim: Optional[int] = None,
+        embed_max_chars: Optional[int] = None,
     ) -> None:
         self.neo4j_uri = neo4j_uri or os.getenv("NEO4J_URI")
         self.neo4j_user = neo4j_user or os.getenv("NEO4J_USERNAME")
         self.neo4j_password = neo4j_password or os.getenv("NEO4J_PASSWORD")
 
-        # AWS Bedrock (Cohere)
+        # aws_region/embed_model_id are only echoed in upload responses; embed() uses
+        # AgentCoreProvider, which reads BEDROCK_MODEL_EMBED from agentcore_setup.config.
         self.aws_region = aws_region or os.getenv("AWS_REGION", "ap-southeast-2")
         self.embed_model_id = embed_model_id or os.getenv("EMBED_MODEL", "cohere.embed-english-v3")
         self.expected_embed_dim = expected_embed_dim or 1024
-        # Embed max chars: provider limits (default 2048 based on observed error)
+        # 2048 is the limit observed from the embed API's ValidationException
         self.embed_max_chars = embed_max_chars or int(os.getenv("EMBED_MAX_CHARS", "2048"))
         self.ingest_chunk_max_chars = int(os.getenv("CONTEXT_CHUNK_MAX_CHARS", "1800"))
         self.ingest_chunk_overlap_chars = int(os.getenv("CONTEXT_CHUNK_OVERLAP_CHARS", "220"))
         self.enable_llm_preprocessing = os.getenv("CONTEXT_ENABLE_LLM_PREPROCESSING", "false").lower() == "true"
         self._course_structure = self._load_course_structure()
 
-        # Neo4j driver
         self.driver: Driver = GraphDatabase.driver(self.neo4j_uri, auth=(self.neo4j_user, self.neo4j_password))
         self.preprocessor = TextPreprocessingService()
         self.llm = AgentCoreProvider()
@@ -55,8 +55,6 @@ class ContextVectorService:
             return json.loads(config_path.read_text(encoding="utf-8"))
         except Exception:
             return {}
-
-    # ------------------------ ingestion rules ------------------------
 
     @staticmethod
     def _normalize_text_for_ingest(text: str) -> str:
@@ -254,15 +252,11 @@ class ContextVectorService:
 
         return finalized, strategy
 
-    # ------------------------ core ops ------------------------
-
     def embed(self, text: str) -> List[float]:
-        # Defensive: ensure text is a string
         if not isinstance(text, str):
             text = str(text)
 
-        # Truncate long inputs to provider max length to avoid ValidationException
-        # Default behavior: truncate at the end (keep the start). This mirrors a "truncate=END" strategy.
+        # Keep the start (truncate=END) to avoid the provider's ValidationException on long input
         if self.embed_max_chars and len(text) > self.embed_max_chars:
             print(f"[warn] input too long for embed API (len={len(text)}); truncating to {self.embed_max_chars} chars")
             text = text[: self.embed_max_chars]
@@ -276,8 +270,6 @@ class ContextVectorService:
             raise ValueError(f"Embedding dim mismatch: expected {self.expected_embed_dim}, got {len(vectors[0])}")
         return vectors[0]
 
-    # ------------------------ public API for controller ------------------------
-
     def upload_document(
         self,
         document_name: str,
@@ -290,9 +282,7 @@ class ContextVectorService:
         course_term: str | None = None,
         course_year: int | None = None,
     ) -> Dict[str, Any]:
-        """
-        Uploads a document, splitting into chunks. All chunks share the same document_id.
-        """
+        """All chunks share one document_id and are keyed by (id, chunk_idx)."""
         normalized_text = self._normalize_text_for_ingest(text)
         if not normalized_text:
             raise ValueError("Cannot upload empty document text")
@@ -324,7 +314,6 @@ class ContextVectorService:
         inserted = []
         with self.driver.session() as s:
             for i, ch in enumerate(chunks):
-                # If chunk is a dict, use its 'content' field
                 chunk_text = ch["content"] if isinstance(ch, dict) and "content" in ch else str(ch)
                 chunk_title = ch["title"] if isinstance(ch, dict) and "title" in ch else ""
                 embedding = self.embed(chunk_text)
@@ -409,10 +398,6 @@ class ContextVectorService:
         }
 
     def delete_document(self, document_id: str) -> Dict[str, int]:
-        """
-        Delete all Document nodes with the given id (document_id).
-        Returns {'documents_deleted': <n>}
-        """
         with self.driver.session() as s:
             rec = s.run(
                 """
@@ -451,10 +436,7 @@ class ContextVectorService:
             return docs
 
     def semantic_search(self, query: str, top_k: int = 5, scope: str | None = None) -> list[dict]:
-        """
-        Returns top_k most relevant document chunks for the query.
-        Each result: {"id": str, "text": str, "score": float, ...}
-        """
+        """Brute force: loads every chunk (in scope) and ranks by cosine similarity in Python; no Neo4j vector index is used."""
         import math
         def cosine_similarity(a, b):
             dot = sum(x*y for x, y in zip(a, b))
@@ -506,7 +488,7 @@ class ContextVectorService:
             for r in results:
                 emb = r["embedding"]
                 if not emb or len(emb) != len(query_embedding):
-                    continue  # skip invalid
+                    continue  # missing or different-dimension embedding (e.g. from an older model)
                 score = cosine_similarity(query_embedding, emb)
                 scored.append({
                     "id": r["id"],

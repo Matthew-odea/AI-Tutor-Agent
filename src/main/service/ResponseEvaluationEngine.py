@@ -9,25 +9,17 @@ from src.main.service.ScoringConfig import ScoringConfig
 
 logger = logging.getLogger(__name__)
 
-# Each dimension (correctness / understanding) is scored on a 0..5 scale.
 DIMENSION_MAX = 5
 
-# A transcript shorter than this (after stripping) is treated as unusable —
-# almost always a transcription failure or a non-answer — and flagged for
-# instructor review rather than auto-scored. Real spoken answers to a
-# programming question are full sentences, so this is deliberately small and
-# only catches near-empty output ("uh", "ok", a stray token).
+# Shorter transcripts are flagged for review, not scored. Deliberately small: it only
+# catches near-empty output ("uh", "ok", a stray token), never a real answer.
 DEFAULT_MIN_TRANSCRIPT_CHARS = 8
 
-# Deepgram per-transcript confidence below this marks the transcript as
-# untrustworthy. The answer is still scored (there is text to grade) but is
-# flagged for review so the instructor can sanity-check the transcription.
+# Deepgram confidence below this still gets scored but is flagged for review.
 DEFAULT_MIN_TRANSCRIPT_CONFIDENCE = 0.6
 
-# Tool/function schema used to force structured output from the model.
-# total_score is intentionally omitted: it is always computed server-side as
-# correctness + understanding, which eliminates a whole class of model
-# arithmetic errors.
+# Forced tool-use schema. total_score is deliberately absent: it is computed server-side
+# so model arithmetic errors can't reach a grade.
 EVALUATION_TOOL_NAME = "record_evaluation"
 EVALUATION_TOOL_DESCRIPTION = (
     "Record the evaluation of a student's spoken answer using the rubric. "
@@ -67,10 +59,6 @@ class ResponseEvaluationEngine:
         self.min_transcript_confidence = min_transcript_confidence
         self.use_structured_output = use_structured_output
 
-    # ──────────────────────────────────────────────────────────────
-    # Public API
-    # ──────────────────────────────────────────────────────────────
-
     def evaluate_qa_pair(self, qa_pair: Dict[str, Any], rubric: str = "", course_context: str = "") -> Dict[str, Any]:
         question = qa_pair["question"]
         answer = qa_pair["answer"]
@@ -101,10 +89,6 @@ class ResponseEvaluationEngine:
             meta=meta,
         )
 
-    # ──────────────────────────────────────────────────────────────
-    # Core evaluation
-    # ──────────────────────────────────────────────────────────────
-
     def _evaluate(
         self,
         *,
@@ -116,9 +100,7 @@ class ResponseEvaluationEngine:
     ) -> Dict[str, Any]:
         text = (transcript or "").strip()
 
-        # Task 4: unusable audio must never be silently auto-scored 0. Empty or
-        # too-short transcripts are flagged for review instead. A genuine
-        # non-answer can still be zeroed by the instructor.
+        # Unusable audio must never be silently auto-scored 0; flag it and let the instructor decide.
         if not text:
             return self._needs_review_eval(
                 meta,
@@ -142,9 +124,7 @@ class ResponseEvaluationEngine:
             }
         ]
 
-        # Task 2: structured output first, hardened text-parse fallback, and a
-        # flagged-for-review safety net — a malformed model response must never
-        # surface a raw error string to the student.
+        # A malformed model response must never surface a raw error to the student.
         try:
             raw, method, structured_failed = self._run_model_evaluation(messages)
         except Exception as error:
@@ -166,8 +146,6 @@ class ResponseEvaluationEngine:
         if confidence is not None:
             evaluation["transcript_confidence"] = confidence
 
-        # Task 4: a low-confidence transcript is still scored (there is text to
-        # grade) but flagged so the instructor can verify the transcription.
         if (
             confidence is not None
             and answer_type in ("audio", "video")
@@ -176,8 +154,6 @@ class ResponseEvaluationEngine:
             evaluation["needs_review"] = True
             evaluation["review_reasons"].append("low_confidence_transcript")
 
-        # Task 2/5: structured output was attempted but the model fell back to
-        # free-text parsing — surface it for a human glance.
         if structured_failed:
             evaluation["needs_review"] = True
             evaluation["review_reasons"].append("structured_output_fallback")
@@ -186,18 +162,13 @@ class ResponseEvaluationEngine:
         return evaluation
 
     def _run_model_evaluation(self, messages: List[Dict[str, Any]]) -> Tuple[Dict[str, Any], str, bool]:
-        """
-        Return (raw_eval_dict, method, structured_failed).
+        """Return (raw_eval, method, structured_failed): structured output if supported, else text parse.
 
-        Attempts forced structured output first when the client advertises it,
-        then falls back to parsing free text. Raises only if the text-parse
-        fallback itself fails (handled by the caller as needs_review).
+        Raises only if the text-parse fallback fails.
         """
         structured_failed = False
 
-        # `is True` (not truthiness) so a MagicMock test double — whose
-        # attributes are auto-created and truthy — does not masquerade as
-        # structured-output-capable.
+        # `is True`, not truthiness: MagicMock attributes are truthy and would fake support.
         structured_capable = (
             self.use_structured_output
             and getattr(self.agent_client, "supports_structured_output", False) is True
@@ -225,10 +196,6 @@ class ResponseEvaluationEngine:
         raw = self.parse_evaluation_response(response_text)
         return raw, "text", structured_failed
 
-    # ──────────────────────────────────────────────────────────────
-    # Normalization / validation (Task 2)
-    # ──────────────────────────────────────────────────────────────
-
     @staticmethod
     def _clamp_dimension(value: Any) -> int:
         """Coerce to an int in [0, DIMENSION_MAX]; non-numeric becomes 0."""
@@ -248,14 +215,13 @@ class ResponseEvaluationEngine:
         return [s] if s else []
 
     def _normalize_evaluation(self, raw: Dict[str, Any]) -> Dict[str, Any]:
-        """Clamp scores to range and enforce total = correctness + understanding."""
         correctness = self._clamp_dimension(raw.get("correctness_score"))
         understanding = self._clamp_dimension(raw.get("understanding_score"))
         feedback = str(raw.get("feedback") or "").strip() or "No feedback was provided."
         return {
             "correctness_score": correctness,
             "understanding_score": understanding,
-            # Server-enforced — the model's own total_score is never trusted.
+            # Never trust the model's own total_score.
             "total_score": correctness + understanding,
             "feedback": feedback,
             "strengths": self._as_str_list(raw.get("strengths"))[:5],
@@ -271,7 +237,7 @@ class ResponseEvaluationEngine:
         feedback: str,
         evaluation_method: str = "unscored",
     ) -> Dict[str, Any]:
-        """A valid, zero-score evaluation explicitly flagged for instructor review."""
+        """Zero-score evaluation flagged for instructor review."""
         evaluation = {
             "correctness_score": 0,
             "understanding_score": 0,
@@ -295,10 +261,6 @@ class ResponseEvaluationEngine:
             return float(value)
         except (TypeError, ValueError):
             return None
-
-    # ──────────────────────────────────────────────────────────────
-    # Prompt building
-    # ──────────────────────────────────────────────────────────────
 
     def _build_qa_pair_prompt(
         self, question: Dict[str, Any], answer: Dict[str, Any], rubric: str, course_context: str
@@ -378,8 +340,7 @@ Evaluate this response and provide your assessment in JSON format as specified.
         if not isinstance(evaluation, dict):
             raise ResponseEvaluationEngineError("Evaluation response was not a JSON object")
 
-        # total_score is no longer required: it is recomputed server-side from
-        # the two dimensions in _normalize_evaluation.
+        # total_score isn't required; _normalize_evaluation recomputes it.
         required_fields = ["correctness_score", "understanding_score", "feedback"]
         for field in required_fields:
             if field not in evaluation:
@@ -389,5 +350,5 @@ Evaluate this response and provide your assessment in JSON format as specified.
 
     @staticmethod
     def calculate_grade(percentage: float, cutoffs: Optional[Dict[str, Any]] = None) -> str:
-        """Map a percentage to a grade label. Defaults reproduce the 90/75/60 scale."""
+        """Defaults to the 90/75/60 cutoffs."""
         return ScoringConfig(cutoffs=cutoffs).grade(percentage)

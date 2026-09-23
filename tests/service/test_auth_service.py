@@ -1,14 +1,4 @@
-"""
-Tests for AuthService covering:
-- Registration (signup)
-- Email/password login
-- JWT issuance, decoding, and validation
-- Refresh token flow
-- Student invite token generation and exchange
-- Principal resolution from headers
-- Google OAuth (mocked)
-- Password hashing
-"""
+"""Tests for AuthService."""
 from __future__ import annotations
 
 import json
@@ -23,10 +13,6 @@ from fastapi import HTTPException
 from src.main.auth.models import AuthPrincipal
 from src.main.auth.service import AuthService
 
-
-# ─────────────────────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────────────────────
 
 def _build_service(monkeypatch, **overrides) -> AuthService:
     """Create an AuthService with sensible test defaults (no real AWS calls)."""
@@ -51,10 +37,6 @@ def _build_service(monkeypatch, **overrides) -> AuthService:
     assert svc.auth_users_table is None and svc.persist_users is False
     return svc
 
-
-# ─────────────────────────────────────────────────────────────
-# Registration
-# ─────────────────────────────────────────────────────────────
 
 class TestRegistration:
     def test_register_returns_principal(self, monkeypatch):
@@ -85,10 +67,6 @@ class TestRegistration:
             svc.register_user("dupe@example.com", "anotherpassword123")
         assert exc_info.value.status_code == 409
 
-
-# ─────────────────────────────────────────────────────────────
-# Email/password authentication
-# ─────────────────────────────────────────────────────────────
 
 class TestEmailPasswordAuth:
     def test_login_success(self, monkeypatch):
@@ -136,10 +114,6 @@ class TestEmailPasswordAuth:
         assert "reset" in exc_info.value.detail.lower()
 
 
-# ─────────────────────────────────────────────────────────────
-# Password hashing
-# ─────────────────────────────────────────────────────────────
-
 class TestPasswordHashing:
     def test_hash_and_verify(self, monkeypatch):
         svc = _build_service(monkeypatch)
@@ -153,10 +127,6 @@ class TestPasswordHashing:
         assert AuthService._is_hashed_password("pbkdf2_sha256$200000$abc$def") is True
         assert AuthService._is_hashed_password("plaintext") is False
 
-
-# ─────────────────────────────────────────────────────────────
-# JWT access tokens
-# ─────────────────────────────────────────────────────────────
 
 class TestAccessTokens:
     def test_issue_and_decode(self, monkeypatch):
@@ -201,10 +171,6 @@ class TestAccessTokens:
         assert exc_info.value.status_code == 503
 
 
-# ─────────────────────────────────────────────────────────────
-# Refresh tokens
-# ─────────────────────────────────────────────────────────────
-
 class TestRefreshTokens:
     def test_issue_and_exchange(self, monkeypatch):
         svc = _build_service(monkeypatch)
@@ -247,14 +213,10 @@ class TestRefreshTokens:
         assert exc_info.value.status_code == 401
 
 
-# ─────────────────────────────────────────────────────────────
-# Student invite tokens
-# ─────────────────────────────────────────────────────────────
-
 class TestStudentInviteTokens:
-    def test_generate_invite_token(self, monkeypatch):
+    def test_generate_invite_token(self, monkeypatch, mock_dynamodb):
         svc = _build_service(monkeypatch)
-        svc._assessment_table_cache = None  # skip DynamoDB
+        svc._assessment_table_cache = mock_dynamodb
 
         token = svc.generate_student_invite_token("s-1", "a-1")
         assert isinstance(token, str)
@@ -263,10 +225,12 @@ class TestStudentInviteTokens:
         assert payload["student_id"] == "s-1"
         assert payload["assessment_id"] == "a-1"
         assert payload["purpose"] == "student_invite"
+        record = mock_dynamodb.get_item(Key={"PK": f"INVITE#{payload['jti']}", "SK": "METADATA"})["Item"]
+        assert record["used"] is False
 
-    def test_exchange_invite_token(self, monkeypatch):
+    def test_exchange_invite_token(self, monkeypatch, mock_dynamodb):
         svc = _build_service(monkeypatch)
-        svc._assessment_table_cache = None  # skip jti check
+        svc._assessment_table_cache = mock_dynamodb
 
         token = svc.generate_student_invite_token("s-1", "a-1")
         result = svc.exchange_student_invite_token(token)
@@ -274,6 +238,63 @@ class TestStudentInviteTokens:
         assert result["student_id"] == "s-1"
         assert result["assessment_id"] == "a-1"
         assert "access_token" in result
+
+    def test_invite_is_reusable_until_revoked(self, monkeypatch, mock_dynamodb):
+        # Invites are deliberately reusable until the assessment closes; deleting the jti revokes them.
+        svc = _build_service(monkeypatch)
+        svc._assessment_table_cache = mock_dynamodb
+
+        token = svc.generate_student_invite_token("s-1", "a-1")
+        svc.exchange_student_invite_token(token)
+        svc.exchange_student_invite_token(token)
+
+        jti = pyjwt.decode(token, "test-secret-key", algorithms=["HS256"])["jti"]
+        mock_dynamodb.delete_item(Key={"PK": f"INVITE#{jti}", "SK": "METADATA"})
+        with pytest.raises(HTTPException) as exc_info:
+            svc.exchange_student_invite_token(token)
+        assert exc_info.value.status_code == 401
+
+    def test_invite_fails_closed_when_table_unreachable(self, monkeypatch):
+        """Previously the table was cached as None and every exchange skipped the jti check (replayable)."""
+        svc = _build_service(monkeypatch)
+        broken = MagicMock()
+        broken.Table.return_value.load.side_effect = Exception("network down")
+        monkeypatch.setattr("src.main.auth.service.boto3.resource", lambda *a, **kw: broken)
+
+        with pytest.raises(HTTPException) as gen_exc:
+            svc.generate_student_invite_token("s-1", "a-1")
+        assert gen_exc.value.status_code == 503
+
+        token = pyjwt.encode(
+            {
+                "sub": "s-1", "student_id": "s-1", "assessment_id": "a-1",
+                "purpose": "student_invite", "jti": "abc",
+                "iat": int(time.time()), "exp": int(time.time()) + 3600,
+            },
+            "test-secret-key",
+            algorithm="HS256",
+        )
+        for _ in range(2):
+            with pytest.raises(HTTPException) as exc_info:
+                svc.exchange_student_invite_token(token)
+            assert exc_info.value.status_code == 503
+
+    def test_table_unavailability_is_not_cached(self, monkeypatch, mock_dynamodb):
+        real_resource = __import__("boto3").resource  # before _build_service patches it
+        svc = _build_service(monkeypatch)
+        calls = {"n": 0}
+
+        def flaky_resource(*a, **kw):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise Exception("transient")
+            return real_resource(*a, **kw)
+
+        monkeypatch.setattr("src.main.auth.service.boto3.resource", flaky_resource)
+        with pytest.raises(HTTPException):
+            svc.generate_student_invite_token("s-1", "a-1")
+        token = svc.generate_student_invite_token("s-1", "a-1")
+        assert svc.exchange_student_invite_token(token)["student_id"] == "s-1"
 
     def test_issue_student_session_token(self, monkeypatch):
         svc = _build_service(monkeypatch)
@@ -363,10 +384,6 @@ class TestStudentInviteEmail:
         assert "use it again" in message["Body"]["Text"]["Data"]
 
 
-# ─────────────────────────────────────────────────────────────
-# Principal resolution
-# ─────────────────────────────────────────────────────────────
-
 class TestPrincipalResolution:
     def test_resolve_from_bearer_token(self, monkeypatch):
         svc = _build_service(monkeypatch)
@@ -385,10 +402,10 @@ class TestPrincipalResolution:
             svc.resolve_principal(None, "fallback-user")
         assert exc_info.value.status_code == 401
 
-    def test_resolve_rejects_tokens_of_another_purpose(self, monkeypatch):
+    def test_resolve_rejects_tokens_of_another_purpose(self, monkeypatch, mock_dynamodb):
         """Reset, refresh and invite tokens share the signing key — none is a credential."""
         svc = _build_service(monkeypatch)
-        svc._assessment_table_cache = None
+        svc._assessment_table_cache = mock_dynamodb
 
         reset_token, _jti, _expires = svc._issue_password_reset_token("u@test.com")
         refresh_token = svc.issue_refresh_token(AuthPrincipal(user_id="u-1", email="u@test.com"))
@@ -411,10 +428,6 @@ class TestPrincipalResolution:
             svc.resolve_principal("Basic dXNlcjpwYXNz", None)
         assert exc_info.value.status_code == 401
 
-
-# ─────────────────────────────────────────────────────────────
-# Google OAuth (mocked)
-# ─────────────────────────────────────────────────────────────
 
 class TestGoogleOAuth:
     def test_google_auth_not_configured_raises(self, monkeypatch):
@@ -455,10 +468,6 @@ class TestGoogleOAuth:
         assert principal.source == "google"
         assert principal.user_id == "google-sub-123"
 
-
-# ─────────────────────────────────────────────────────────────
-# Edge cases
-# ─────────────────────────────────────────────────────────────
 
 class TestEdgeCases:
     def test_extract_bearer_token(self):

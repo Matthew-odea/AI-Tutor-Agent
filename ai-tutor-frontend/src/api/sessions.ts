@@ -1,13 +1,8 @@
-/**
- * Session management API methods
- */
+/** Adapts the view-session history API to the SessionInfo / chat-history shapes the sidebar uses. */
 import { listViewSessions, getViewHistory, deleteViewSession } from "./history";
 import type { SessionListResponse, ChatHistoryResponse } from "../types";
 import { getUserSession } from "../utils/userSession";
 
-/**
- * Get list of all chat sessions
- */
 export const listSessions = async (
   workspaceId: string | null,
 ): Promise<SessionListResponse> => {
@@ -40,9 +35,6 @@ export const listSessions = async (
   return { sessions, total: sessions.length };
 };
 
-/**
- * Get chat history for a specific session
- */
 export const getSessionHistory = async (
   sessionId: string,
 ): Promise<ChatHistoryResponse> => {
@@ -57,9 +49,6 @@ export const getSessionHistory = async (
   };
 };
 
-/**
- * Delete a session
- */
 export const deleteSession = async (sessionId: string): Promise<void> => {
   await deleteViewSession(sessionId);
 };

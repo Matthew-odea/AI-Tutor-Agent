@@ -1,13 +1,4 @@
-"""
-Integration tests for OralAssessmentService using moto-mocked DynamoDB.
-
-Covers the core student flow:
-- get_student_questions
-- submit_answer (audio, text, video)
-- get_student_progress
-- submit_assessment
-- get_student_results
-"""
+"""Integration tests for the OralAssessmentService student flow using moto-mocked DynamoDB."""
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -53,7 +44,6 @@ def dynamo_env(monkeypatch):
 
 
 def _seed_assessment(table, assessment_id="a-1", title="Test Assessment", access_mode="open"):
-    """Create assessment metadata."""
     table.put_item(Item={
         "PK": f"ASSESSMENT#{assessment_id}",
         "SK": "METADATA",
@@ -66,7 +56,6 @@ def _seed_assessment(table, assessment_id="a-1", title="Test Assessment", access
 
 
 def _seed_enrollment(table, student_id="s-1", assessment_id="a-1", status="enrolled"):
-    """Enroll a student in an assessment."""
     # Primary enrollment record (used by question access)
     table.put_item(Item={
         "PK": f"STUDENT#{student_id}",
@@ -86,7 +75,6 @@ def _seed_enrollment(table, student_id="s-1", assessment_id="a-1", status="enrol
 
 
 def _seed_questions(table, student_id="s-1", assessment_id="a-1", count=3):
-    """Seed student-specific questions."""
     for i in range(1, count + 1):
         table.put_item(Item={
             "PK": f"STUDENT#{student_id}#ASSESSMENT#{assessment_id}",
@@ -100,7 +88,6 @@ def _seed_questions(table, student_id="s-1", assessment_id="a-1", count=3):
 
 
 def _create_service(table) -> OralAssessmentService:
-    """Create an OralAssessmentService wired to the moto table."""
     svc = OralAssessmentService()
     # Override the auto-created resources with the moto table
     svc.table = table
@@ -110,10 +97,6 @@ def _create_service(table) -> OralAssessmentService:
     svc.results_aggregator.table = table
     return svc
 
-
-# ─────────────────────────────────────────────────────────────
-# get_student_questions
-# ─────────────────────────────────────────────────────────────
 
 class TestGetStudentQuestions:
     def test_returns_questions_for_enrolled_student(self, dynamo_env):
@@ -157,7 +140,6 @@ class TestGetStudentQuestions:
         svc = _create_service(table)
 
         result = svc.get_student_questions("s-1", "a-1")
-        # Returns dict with empty questions list
         assert result["questions"] == []
         assert result["currentQuestionIndex"] == 0
 
@@ -210,10 +192,6 @@ class TestGetStudentQuestions:
         assert len(result["questions"]) == 2
 
 
-# ─────────────────────────────────────────────────────────────
-# submit_answer
-# ─────────────────────────────────────────────────────────────
-
 def _seed_question_order(table, student_id="s-1", assessment_id="a-1", question_ids=None):
     """Set questionOrder and currentQuestionIdx on the enrollment record so submit_answer passes ordering validation."""
     if question_ids is None:
@@ -247,7 +225,6 @@ class TestSubmitAnswer:
         assert result["answerType"] == "audio"
         assert result["audioUrl"] == "s3://bucket/audio/s-1/q-1_1.webm"
 
-        # Verify stored in DynamoDB
         response = table.get_item(Key={
             "PK": "STUDENT#s-1#ASSESSMENT#a-1",
             "SK": "ANSWER#q-1",
@@ -333,7 +310,6 @@ class TestSubmitAnswer:
 
 
 def _enable_review(table, assessment_id="a-1"):
-    """Flip allowReview=True on the assessment metadata."""
     table.update_item(
         Key={"PK": f"ASSESSMENT#{assessment_id}", "SK": "METADATA"},
         UpdateExpression="SET allowReview = :r",
@@ -399,7 +375,7 @@ class TestReviewMode:
         assert item["textContent"] == "revised attempt"
 
     def test_strict_mode_rejects_revision_when_flag_absent(self, dynamo_env):
-        """No allowReview field → today's behaviour: second submit raises 'already submitted'."""
+        """No allowReview field: a second submit raises 'already submitted'."""
         table = dynamo_env
         _seed_assessment(table)  # no allowReview
         _seed_enrollment(table)
@@ -457,22 +433,12 @@ class TestReviewMode:
         assert qs["q-2"].get("priorAnswer") is None
 
 
-# ─────────────────────────────────────────────────────────────
-# get_student_progress
-# ─────────────────────────────────────────────────────────────
-
 class TestGetStudentProgress:
     def test_progress_with_no_answers(self, dynamo_env):
         table = dynamo_env
         _seed_assessment(table)
         _seed_enrollment(table)
-        # Seed assessment-level questions (used by progress query)
-        for i in range(1, 4):
-            table.put_item(Item={
-                "PK": "ASSESSMENT#a-1",
-                "SK": f"QUESTION#q-{i}",
-                "text": f"Q{i}",
-            })
+        _seed_questions(table, count=3)
         svc = _create_service(table)
 
         progress = svc.get_student_progress("s-1", "a-1")
@@ -485,13 +451,7 @@ class TestGetStudentProgress:
         table = dynamo_env
         _seed_assessment(table)
         _seed_enrollment(table)
-        for i in range(1, 4):
-            table.put_item(Item={
-                "PK": "ASSESSMENT#a-1",
-                "SK": f"QUESTION#q-{i}",
-                "text": f"Q{i}",
-            })
-        # Seed one answer
+        _seed_questions(table, count=3)
         table.put_item(Item={
             "PK": "STUDENT#s-1#ASSESSMENT#a-1",
             "SK": "ANSWER#q-1",
@@ -512,12 +472,7 @@ class TestGetStudentProgress:
         table = dynamo_env
         _seed_assessment(table)
         _seed_enrollment(table)
-        for i in range(1, 4):
-            table.put_item(Item={
-                "PK": "ASSESSMENT#a-1",
-                "SK": f"QUESTION#q-{i}",
-                "text": f"Q{i}",
-            })
+        _seed_questions(table, count=3)
         # q-1 answered, q-3 skipped, q-2 untouched.
         table.put_item(Item={
             "PK": "STUDENT#s-1#ASSESSMENT#a-1", "SK": "ANSWER#q-1",
@@ -533,6 +488,27 @@ class TestGetStudentProgress:
         assert progress["answeredQuestions"] == 2
         assert sorted(progress["answeredQuestionIds"]) == ["q-1", "q-3"]
 
+    def test_progress_total_matches_served_questions(self, dynamo_env):
+        """Legacy BANK_QUESTION# items are neither served nor counted."""
+        table = dynamo_env
+        _seed_assessment(table)
+        _seed_enrollment(table)
+        _seed_questions(table, count=2)
+        table.put_item(Item={
+            "PK": "ASSESSMENT#a-1", "SK": "BANK_QUESTION#b-1",
+            "id": "b-1", "text": "Bank question?",
+        })
+        table.put_item(Item={
+            "PK": "STUDENT#s-1#ASSESSMENT#a-1", "SK": "ANSWER#q-1",
+            "questionId": "q-1", "answerType": "text", "status": "submitted",
+        })
+        svc = _create_service(table)
+
+        progress = svc.get_student_progress("s-1", "a-1")
+        assert progress["totalQuestions"] == 2
+        assert progress["totalQuestions"] == len(svc.get_student_questions("s-1", "a-1")["questions"])
+        assert progress["percentage"] == pytest.approx(50.0)
+
     def test_progress_unenrolled_raises(self, dynamo_env):
         table = dynamo_env
         _seed_assessment(table)
@@ -541,10 +517,6 @@ class TestGetStudentProgress:
         with pytest.raises(OralAssessmentServiceError, match="not enrolled"):
             svc.get_student_progress("unknown", "a-1")
 
-
-# ─────────────────────────────────────────────────────────────
-# submit_assessment
-# ─────────────────────────────────────────────────────────────
 
 class TestSubmitAssessment:
     def test_submit_completed_assessment(self, dynamo_env):
@@ -568,7 +540,6 @@ class TestSubmitAssessment:
         assert result["status"] == "submitted"
         assert result["questionsAnswered"] == 2
 
-        # Verify enrollment updated
         enrollment = table.get_item(Key={
             "PK": "ASSESSMENT#a-1",
             "SK": "STUDENT#s-1",
@@ -603,13 +574,8 @@ class TestSubmitAssessment:
             svc.submit_assessment("s-1", "a-1")
 
 
-# ─────────────────────────────────────────────────────────────
-# get_student_results
-# ─────────────────────────────────────────────────────────────
-
 class TestGetStudentResults:
     def _seed_full_assessment(self, table):
-        """Seed a fully evaluated assessment."""
         _seed_assessment(table)
         # Enable results release
         table.update_item(
@@ -620,7 +586,6 @@ class TestGetStudentResults:
         _seed_enrollment(table, status="submitted")
 
         pk = "STUDENT#s-1#ASSESSMENT#a-1"
-        # Questions
         table.put_item(Item={
             "PK": pk, "SK": "QUESTION#q-1",
             "text": "What is a list?", "questionType": "general",
@@ -629,7 +594,6 @@ class TestGetStudentResults:
             "PK": pk, "SK": "QUESTION#q-2",
             "text": "Explain your code", "questionType": "specific",
         })
-        # Answers
         table.put_item(Item={
             "PK": pk, "SK": "ANSWER#q-1",
             "audioUrl": "s3://bucket/a1.webm", "duration": 30,
@@ -638,7 +602,6 @@ class TestGetStudentResults:
             "PK": pk, "SK": "ANSWER#q-2",
             "audioUrl": "s3://bucket/a2.webm", "duration": 45,
         })
-        # Evaluations
         table.put_item(Item={
             "PK": pk, "SK": "EVALUATION#q-1",
             "totalScore": 8, "maxScore": 10,
@@ -720,10 +683,6 @@ class TestGetStudentResults:
             svc.get_student_results("unknown", "a-1")
 
 
-# ─────────────────────────────────────────────────────────────
-# Assessment window checks
-# ─────────────────────────────────────────────────────────────
-
 class TestAssessmentWindow:
     def test_open_access_skips_window_check(self, dynamo_env):
         table = dynamo_env
@@ -755,10 +714,6 @@ class TestAssessmentWindow:
             svc.get_student_questions("s-1", "a-1")
 
 
-# ─────────────────────────────────────────────────────────────
-# Proctor chunks
-# ─────────────────────────────────────────────────────────────
-
 class TestProctorChunk:
     def test_submit_proctor_chunk(self, dynamo_env):
         table = dynamo_env
@@ -773,7 +728,6 @@ class TestProctorChunk:
         )
         assert result["ok"] is True
 
-        # Verify stored
         item = table.get_item(Key={
             "PK": "STUDENT#s-1#ASSESSMENT#a-1",
             "SK": "PROCTORING#CHUNK#000000",

@@ -1,16 +1,7 @@
 """
-AssessmentReportRenderer — one-page cohort report, formatted to the house
-summary layout (see docs: single A4 page, card grid of distributions, closing
-prose paragraph).
-
-Charts are inline SVG and the CSS is inline: the output is a single
-self-contained HTML file with no external requests, so it renders identically
-whether it is opened in a browser, emailed as an attachment, or handed to
-WeasyPrint for PDF.
-
-The layout is deliberately fixed at four cards. The reference layout carries
-six, but a cohort report only has four distributions worth plotting — padding
-the grid with filler would make the page look fuller and say less.
+One-page A4 cohort report. Inline SVG + CSS with no external requests, so the same
+HTML renders identically in a browser, as an attachment, or through WeasyPrint.
+Deliberately four cards: the report has only four distributions worth plotting.
 """
 
 from __future__ import annotations
@@ -21,7 +12,6 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
-# ── Palette ──────────────────────────────────────────────────────────────────
 INK = "#202124"
 GREY = "#5f6368"
 GREY_LIGHT = "#80868b"
@@ -30,9 +20,7 @@ BLUE = "#4285f4"
 RED = "#d93025"
 GRID = "#e8eaed"
 
-# Humanist sans matching the reference. All fallbacks are system fonts, so the
-# file stays self-contained — no webfont fetch, which a strict PDF renderer or
-# an offline viewer would drop anyway.
+# No webfont fetch (keeps the file self-contained); Lato is used only if installed locally
 FONT_STACK = (
     "'Lato', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif"
 )
@@ -43,15 +31,12 @@ def _esc(value: Any) -> str:
 
 
 def _fmt(value: Optional[float], suffix: str = "") -> str:
-    """Render a number for display, or an em dash when absent."""
     if value is None:
         return "—"
     if isinstance(value, float) and value.is_integer():
         return f"{int(value)}{suffix}"
     return f"{value}{suffix}"
 
-
-# ── Charts ───────────────────────────────────────────────────────────────────
 
 def _vbar_svg(
     buckets: Sequence[Dict[str, Any]],
@@ -60,21 +45,15 @@ def _vbar_svg(
     width: int = 340,
     height: int = 142,
 ) -> str:
-    """
-    Vertical histogram with optional dashed marker lines (mean, median).
-
-    `markers` are (label, percentage) pairs positioned along the 0-100 x axis,
-    matching the reference layout's dashed mean line.
-    """
-    # `top` reserves a clear band above the plot for the marker label, so it
-    # never collides with the top gridline or a tall bar's value label.
+    """`markers` are (label, percentage) dashed lines placed on a 0-100 x axis."""
+    # `top` reserves a band for marker labels so they clear the top gridline and bar labels
     left, right, top, bottom = 26, 8, 28, 26
     plot_w = width - left - right
     plot_h = height - top - bottom
     counts = [int(b.get("count", 0)) for b in buckets]
     peak = max(counts) if counts and max(counts) > 0 else 1
 
-    # Keep the y axis on whole students — a "2.5 students" tick is nonsense.
+    # Integer ticks only (ceil division): y is a count of students
     tick_step = max(1, -(-peak // 4))
     ticks = list(range(0, peak + tick_step, tick_step))
 
@@ -125,7 +104,7 @@ def _vbar_svg(
             f'<line x1="{x:.1f}" y1="{top - 3}" x2="{x:.1f}" y2="{top + plot_h}" '
             f'stroke="{RED}" stroke-width="1" stroke-dasharray="3,2"/>'
         )
-        # Nudge the label inward at the extremes so it can't run off the card.
+        # Re-anchor near the edges so the label can't run off the card
         anchor = "middle"
         if x < left + 22:
             anchor = "start"
@@ -148,7 +127,7 @@ def _hbar_svg(
     row_h: int = 17,
     scale_max: Optional[float] = None,
 ) -> str:
-    """Horizontal bars: (label, value, display value) per row."""
+    """rows are (label, value, display value)."""
     if not rows:
         return ""
     height = row_h * len(rows) + 6
@@ -182,7 +161,6 @@ def _hbar_svg(
     return "".join(parts)
 
 
-# ── Page ─────────────────────────────────────────────────────────────────────
 
 _CSS = f"""
 @page {{ size: A4; margin: 13mm 12mm; }}
@@ -245,7 +223,6 @@ def _card(title: str, note: str, chart: str, foot: str = "") -> str:
 
 
 def render_report_html(report: Dict[str, Any]) -> str:
-    """Render a stored cohort report as a one-page, self-contained HTML document."""
     counts = report.get("counts") or {}
     scores = report.get("scores") or {}
     dims = report.get("dimensions") or {}
@@ -256,9 +233,7 @@ def render_report_html(report: Dict[str, Any]) -> str:
     submitted = int(counts.get("submitted") or 0)
     enrolled = int(counts.get("enrolled") or 0)
 
-    # Built from raw values and escaped once, at output. Escaping here as well
-    # would double-encode, so a title containing "&" or "'" would render the
-    # entity itself on the page.
+    # Raw here, escaped once at output; escaping twice would show "&amp;" on the page
     title = str(report.get("assessmentTitle") or "Assessment")
     course = str(report.get("course") or "")
     heading = f"{course}{' ' if course else ''}{title}: Cohort Results Summary (n = {evaluated})"
@@ -292,7 +267,6 @@ def render_report_html(report: Dict[str, Any]) -> str:
         "</div>"
     )
 
-    # Card 1 — score distribution, the centrepiece of the reference layout.
     markers = []
     if scores.get("average") is not None:
         markers.append((f'mean {_fmt(scores.get("average"))}', float(scores["average"])))
@@ -304,7 +278,6 @@ def render_report_html(report: Dict[str, Any]) -> str:
         if counts.get("notEvaluated") else "",
     )
 
-    # Card 2 — grade bands.
     bands = ["Excellent", "Competent", "Developing", "Needs Improvement"]
     grade_rows = [(b, float(grades.get(b, 0) or 0), str(int(grades.get(b, 0) or 0))) for b in bands]
     cutoffs = grades.get("_cutoffs") or {}
@@ -322,7 +295,6 @@ def render_report_html(report: Dict[str, Any]) -> str:
         cutoff_note,
     )
 
-    # Card 3 — where the cohort is in the pipeline.
     pipeline_rows = [
         ("Enrolled", float(enrolled), str(enrolled)),
         ("Submitted", float(submitted), str(submitted)),
@@ -337,8 +309,7 @@ def render_report_html(report: Dict[str, Any]) -> str:
         f"Reporting on a partial cohort — {enrolled - submitted} students have not submitted.",
     )
 
-    # Card 4 — the only cross-student breakdown that is comparable, since
-    # questions are generated per student.
+    # Dimensions are the only comparable cross-student breakdown (questions are per student)
     answers = int(dims.get("answersEvaluated") or 0)
     dim_rows = [
         ("Correctness", float(dims.get("averageCorrectness") or 0), _fmt(dims.get("averageCorrectness"))),
@@ -349,7 +320,7 @@ def render_report_html(report: Dict[str, Any]) -> str:
         "Marks per answer",
         f"Mean score on each dimension across {answers} evaluated "
         f"{'answer' if answers == 1 else 'answers'}.",
-        _hbar_svg(dim_rows, scale_max=5.0),
+        _hbar_svg(dim_rows, scale_max=5.0),  # dimension scores are 0-5 (ResponseEvaluationEngine schema)
         f"{flagged} {'answer' if flagged == 1 else 'answers'} flagged for human review."
         if flagged else "Nothing flagged for human review.",
     )
@@ -379,13 +350,7 @@ def render_report_html(report: Dict[str, Any]) -> str:
 
 
 def render_report_pdf(report: Dict[str, Any]) -> bytes:
-    """
-    Render the same one-pager to PDF via WeasyPrint.
-
-    WeasyPrint is a declared dependency but needs native pango/cairo libraries
-    that are commonly absent on a dev Mac, so the import is local and the
-    failure message says what to install rather than surfacing a bare ImportError.
-    """
+    """WeasyPrint is imported lazily: it needs native pango/cairo, often missing on dev Macs."""
     try:
         from weasyprint import HTML  # noqa: PLC0415
     except Exception as e:  # pragma: no cover - environment-dependent

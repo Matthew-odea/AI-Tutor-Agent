@@ -1,7 +1,3 @@
-/**
- * Main chat container component - Supports stacked and split layouts
- */
-
 import { useChat } from "../../hooks/useChat";
 import { MessageList } from "./MessageList";
 import { ChatInput } from "./ChatInput";
@@ -11,7 +7,6 @@ export const ChatContainer = () => {
 
   return (
     <div className="flex flex-col h-full bg-white overflow-hidden">
-      {/* Error Banner */}
       {error && (
         <div className="bg-red-50 border-l-4 border-red-500 px-6 py-4 animate-fade-in">
           <div className="flex items-start space-x-3">
@@ -24,7 +19,6 @@ export const ChatContainer = () => {
         </div>
       )}
 
-      {/* Content Area - Always stacked (single-column) */}
       <div className="flex-1 overflow-hidden bg-white flex flex-col">
         <div className="flex-1 overflow-hidden w-full">
           <MessageList
@@ -33,7 +27,6 @@ export const ChatContainer = () => {
             onSendMessage={sendMessage}
           />
         </div>
-        {/* Chat Input - Spans full width */}
         <ChatInput onSend={sendMessage} disabled={isLoading} />
       </div>
     </div>

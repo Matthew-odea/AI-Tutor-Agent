@@ -21,7 +21,6 @@ export const SidebarHeader: React.FC<SidebarHeaderProps> = ({
         isCollapsed ? "justify-center" : "justify-between"
       }`}
     >
-      {/* Logo */}
       <div
         className={`flex items-center gap-2 min-w-0 ${
           isCollapsed ? "opacity-0 pointer-events-none w-0 flex-none" : "flex-1"

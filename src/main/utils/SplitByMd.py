@@ -3,12 +3,9 @@ from typing import List, Dict
 
 
 def split_by_markdown_heading(text: str) -> List[Dict[str, str]]:
-    """
-    Splits markdown text by '##' headings and returns a list of dicts with 'title' and 'content'.
-    """
+    """Split on '##' headings only into [{'title', 'content'}]; '#' and '###' are not split points. Text before the first heading is dropped."""
     heading_iter = list(re.finditer(r"(?m)^##\s+(.+)$", text))
     if not heading_iter:
-        # No headings, treat all as one chunk with empty title
         return [{"title": "", "content": text.strip()}] if text.strip() else []
 
     sections: List[Dict[str, str]] = []
@@ -19,5 +16,3 @@ def split_by_markdown_heading(text: str) -> List[Dict[str, str]]:
         content = text[start:end].strip()
         sections.append({"title": title, "content": content})
     return sections
-
-# NOTE: Does not handle nested headings or '#' top-level titles. TODO: Add support if needed.

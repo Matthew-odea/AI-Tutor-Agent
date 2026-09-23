@@ -2,25 +2,23 @@ import { afterEach } from "vitest";
 import { cleanup } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
-// Cleanup after each test
 afterEach(() => {
   cleanup();
 });
 
-// Mock window.matchMedia
+// jsdom does not implement matchMedia or scrollIntoView.
 Object.defineProperty(window, "matchMedia", {
   writable: true,
   value: (query: string) => ({
     matches: false,
     media: query,
     onchange: null,
-    addListener: () => {}, // deprecated
-    removeListener: () => {}, // deprecated
+    addListener: () => {},
+    removeListener: () => {},
     addEventListener: () => {},
     removeEventListener: () => {},
     dispatchEvent: () => true,
   }),
 });
 
-// Mock scrollIntoView
 Element.prototype.scrollIntoView = () => {};

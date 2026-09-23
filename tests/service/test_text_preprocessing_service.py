@@ -1,7 +1,3 @@
-"""
-test_text_preprocessing_service.py
-Unit tests for TextPreprocessingService.preprocess_to_markdown.
-"""
 import pytest
 from unittest.mock import MagicMock
 from src.main.service.TextPreprocessingService import TextPreprocessingService
@@ -28,8 +24,6 @@ def test_preprocess_to_markdown_error(service):
         service.preprocess_to_markdown("Some text")
 
 
-# ── Chunk splitting ─────────────────────────────────────
-
 class TestSplitTextIntoChunks:
     def test_single_chunk_short_text(self, service):
         chunks = service._split_text_into_chunks("Header\n", "Short text", max_chars=500)
@@ -50,8 +44,6 @@ class TestSplitTextIntoChunks:
         chunks = service._split_text_into_chunks(big_header, text, max_chars=400)
         assert len(chunks) >= 1
 
-
-# ── Multi-chunk preprocessing ───────────────────────────
 
 class TestMultiChunkPreprocessing:
     def test_multi_chunk_concatenates(self, service, monkeypatch):

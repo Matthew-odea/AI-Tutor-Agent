@@ -1,11 +1,3 @@
-/**
- * LoadingSpinner - Loading indicator component
- *
- * Ported from the student app so both apps share one spinner. Tokenized
- * (`border-ink/10` track, `border-t-accent` head) and motion-safe
- * (`motion-reduce:animate-none`).
- */
-
 interface LoadingSpinnerProps {
   size?: 'sm' | 'md' | 'lg';
   message?: string;

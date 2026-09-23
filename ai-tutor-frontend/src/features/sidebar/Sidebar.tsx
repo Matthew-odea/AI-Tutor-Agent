@@ -1,6 +1,3 @@
-/**
- * Sidebar component for session management - ChatGPT style
- */
 import { useChatStore } from "../../store/chatStore";
 import { useState, useEffect, useRef } from "react";
 import { useSessions } from "../../hooks/useSessions";

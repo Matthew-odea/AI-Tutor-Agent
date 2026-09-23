@@ -1,13 +1,4 @@
-"""
-Integration tests for SQSJobDispatcher using moto-mocked SQS.
-
-Covers:
-- enqueue_question_generation
-- enqueue_evaluation_batch
-- _process_message routing
-- Malformed message handling
-- start_consumer / stop_consumer lifecycle
-"""
+"""Integration tests for SQSJobDispatcher using moto-mocked SQS."""
 from __future__ import annotations
 
 import json
@@ -31,12 +22,10 @@ def sqs_env(monkeypatch):
     monkeypatch.setenv("AWS_DEFAULT_REGION", "us-east-1")
 
     with mock_aws():
-        # SQS
         sqs_client = boto3.client("sqs", region_name="us-east-1")
         resp = sqs_client.create_queue(QueueName=QUEUE_NAME)
         queue_url = resp["QueueUrl"]
 
-        # DynamoDB
         dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
         table = dynamodb.create_table(
             TableName=TABLE_NAME,
@@ -59,10 +48,6 @@ def _make_dispatcher(queue_url, table) -> SQSJobDispatcher:
     return SQSJobDispatcher(queue_url=queue_url, region="us-east-1", table=table)
 
 
-# ─────────────────────────────────────────────────────────────
-# Enqueue question generation
-# ─────────────────────────────────────────────────────────────
-
 class TestEnqueueQuestionGeneration:
     def test_enqueue_sends_messages(self, sqs_env):
         queue_url, table, sqs_client = sqs_env
@@ -81,7 +66,6 @@ class TestEnqueueQuestionGeneration:
 
         assert count == 2
 
-        # Verify messages are in the queue
         resp = sqs_client.receive_message(QueueUrl=queue_url, MaxNumberOfMessages=10)
         messages = resp.get("Messages", [])
         assert len(messages) == 2
@@ -104,10 +88,6 @@ class TestEnqueueQuestionGeneration:
 
         assert count == 15
 
-
-# ─────────────────────────────────────────────────────────────
-# Enqueue evaluation batch
-# ─────────────────────────────────────────────────────────────
 
 class TestEnqueueEvaluationBatch:
     def test_enqueue_evaluation_messages(self, sqs_env):
@@ -151,10 +131,6 @@ class TestEnqueueReportGeneration:
         assert body["milestone"] == 2
         assert body["triggered_by"] == "auto_threshold"
 
-
-# ─────────────────────────────────────────────────────────────
-# Message processing
-# ─────────────────────────────────────────────────────────────
 
 class TestProcessMessage:
     def test_routes_question_generation_message(self, sqs_env):
@@ -263,10 +239,6 @@ class TestProcessMessage:
         dispatcher._process_message(msg, MagicMock(), None)
 
 
-# ─────────────────────────────────────────────────────────────
-# Consumer lifecycle
-# ─────────────────────────────────────────────────────────────
-
 class TestConsumerLifecycle:
     def test_start_and_stop(self, sqs_env):
         queue_url, table, _ = sqs_env
@@ -279,7 +251,6 @@ class TestConsumerLifecycle:
         # Give thread a moment to stop
         import time
         time.sleep(0.5)
-        # _stopping is set
         assert dispatcher._stopping.is_set()
 
     def test_start_is_idempotent(self, sqs_env):

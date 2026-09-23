@@ -304,40 +304,32 @@ class AuthService:
             user_record["password_reset_jti"] = reset_jti
             user_record["password_reset_expires_at"] = self._format_datetime(expires_at)
 
-    def _clear_user_reset_state(self, normalized_email: str) -> None:
+    def _consume_reset_and_set_password(self, normalized_email: str, reset_jti: str, hashed_password: str) -> None:
+        """Sets the password and clears the reset jti in one conditional write, so a token can't be replayed."""
         if self.auth_users_table:
             now_raw = self._format_datetime(datetime.now(timezone.utc))
             try:
                 self.auth_users_table.update_item(
                     Key={"email": normalized_email},
                     UpdateExpression=(
-                        "REMOVE password_reset_jti, password_reset_expires_at "
-                        "SET password_reset_used_at = :used_at, updated_at = :updated_at"
+                        "SET password = :password, password_reset_used_at = :used_at, updated_at = :updated_at "
+                        "REMOVE password_reset_jti, password_reset_expires_at"
                     ),
+                    ConditionExpression="password_reset_jti = :reset_jti",
                     ExpressionAttributeValues={
+                        ":password": hashed_password,
+                        ":reset_jti": reset_jti,
                         ":used_at": now_raw,
                         ":updated_at": now_raw,
                     },
                 )
-            except Exception:
-                logger.exception("Failed to clear password reset state for %s", normalized_email)
-
-        user_record = self._login_users.get(normalized_email)
-        if user_record is not None:
-            user_record.pop("password_reset_jti", None)
-            user_record.pop("password_reset_expires_at", None)
-
-    def _set_user_password(self, normalized_email: str, hashed_password: str) -> None:
-        if self.auth_users_table:
-            now_raw = self._format_datetime(datetime.now(timezone.utc))
-            try:
-                self.auth_users_table.update_item(
-                    Key={"email": normalized_email},
-                    UpdateExpression="SET password = :password, updated_at = :updated_at",
-                    ExpressionAttributeValues={
-                        ":password": hashed_password,
-                        ":updated_at": now_raw,
-                    },
+            except ClientError as error:
+                if error.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid reset token")
+                logger.exception("Failed to update password for %s", normalized_email)
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Unable to update password",
                 )
             except Exception:
                 logger.exception("Failed to update password for %s", normalized_email)
@@ -349,6 +341,8 @@ class AuthService:
         user_record = self._login_users.get(normalized_email)
         if user_record is not None:
             user_record["password"] = hashed_password
+            user_record.pop("password_reset_jti", None)
+            user_record.pop("password_reset_expires_at", None)
 
     def _build_password_reset_link(self, token: str) -> str:
         if not self.password_reset_base_url:
@@ -499,7 +493,7 @@ class AuthService:
         )
 
     def list_users(self) -> List[Dict[str, Any]]:
-        """Scan auth_users table and return all users (email + roles only)."""
+        """Full table scan; returns email + roles only."""
         if not self.auth_users_table:
             return []
         try:
@@ -530,9 +524,7 @@ class AuthService:
             return []
 
     def set_user_roles(self, email: str, roles: List[str]) -> List[str]:
-        """Overwrite a user's roles list in DynamoDB and in-memory cache.
-
-        Unknown roles are dropped and the rest lower-cased; returns what was saved."""
+        """Unknown roles are dropped and the rest lower-cased; returns what was saved."""
         normalized = self._normalize_email(email)
         if not normalized:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid email")
@@ -555,7 +547,6 @@ class AuthService:
             if err.response.get("Error", {}).get("Code") == "ConditionalCheckFailedException":
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update roles")
-        # Update in-memory cache if present
         cached = self._login_users.get(normalized)
         if cached:
             cached["roles"] = cleaned
@@ -750,8 +741,7 @@ class AuthService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Reset token has expired")
 
         hashed_password = self._hash_password(trimmed_password)
-        self._set_user_password(normalized_email, hashed_password)
-        self._clear_user_reset_state(normalized_email)
+        self._consume_reset_and_set_password(normalized_email, reset_jti, hashed_password)
 
         return "Password has been reset successfully."
 
@@ -792,9 +782,7 @@ class AuthService:
 
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
 
-    # ------------------------------------------------------------------
-    # Refresh tokens (EPIC-1-1)
-    # ------------------------------------------------------------------
+    # Refresh tokens
 
     def issue_refresh_token(self, principal: AuthPrincipal) -> str:
         """Issue a long-lived refresh JWT (7 days). Set as HTTP-only cookie by callers."""
@@ -815,7 +803,6 @@ class AuthService:
         return jwt.encode(payload, self.jwt_secret, algorithm=self.jwt_algorithm)
 
     def exchange_refresh_token(self, token: str) -> Dict[str, Any]:
-        """Validate a refresh token and issue a new access token."""
         if not self.jwt_secret:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -850,37 +837,32 @@ class AuthService:
         principal = AuthPrincipal(user_id=user_id, email=email, roles=roles, source="jwt")
         return self.issue_access_token(principal)
 
-    # ------------------------------------------------------------------
-    # Student invite tokens (EPIC-7-4)
-    # ------------------------------------------------------------------
+    # Student invite tokens
 
     def _get_assessment_table(self):
-        """Lazy-load the assessment DynamoDB table for invite token storage."""
-        if not hasattr(self, "_assessment_table_cache"):
-            try:
-                import boto3
-                region = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
-                table_name = os.getenv("DYNAMODB_ASSESSMENT_TABLE", "oral_assessments")
-                dynamodb = boto3.resource("dynamodb", region_name=region)
-                table = dynamodb.Table(table_name)
-                table.load()
-                self._assessment_table_cache = table
-            except Exception:
-                logger.warning("Assessment table unavailable — invite token jti tracking disabled")
-                self._assessment_table_cache = None
-        return self._assessment_table_cache
+        """Cached on success only; raises 503 if unreachable, since invite jti enforcement needs it."""
+        table = getattr(self, "_assessment_table_cache", None)
+        if table is not None:
+            return table
+        try:
+            region = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
+            table_name = os.getenv("DYNAMODB_ASSESSMENT_TABLE", "oral_assessments")
+            dynamodb = boto3.resource("dynamodb", region_name=region)
+            table = dynamodb.Table(table_name)
+            table.load()
+        except Exception:
+            logger.exception("Assessment table unavailable; cannot enforce invite tokens")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Invite service is temporarily unavailable",
+            )
+        self._assessment_table_cache = table
+        return table
 
     def assessment_window_end(self, assessment_id: str) -> Optional[datetime]:
-        """
-        Close time of an assessment, from the same METADATA item the assessment
-        service reads: the scheduled window end when the assessment is scheduled,
-        otherwise the due date. Returns None when it cannot be determined, in
-        which case callers fall back to a fixed expiry.
-        """
-        table = self._get_assessment_table()
-        if not table:
-            return None
+        """Scheduled window end if scheduled, else due date; None if unknown (callers fall back to a fixed expiry)."""
         try:
+            table = self._get_assessment_table()
             item = table.get_item(
                 Key={"PK": f"ASSESSMENT#{assessment_id}", "SK": "METADATA"}
             ).get("Item")
@@ -899,16 +881,14 @@ class AuthService:
             return None
 
     def generate_student_invite_token(self, student_id: str, assessment_id: str) -> str:
-        """
-        Generate a signed invite token for a student. It stays exchangeable for a
-        session token for as long as the assessment window is open, so a student
-        who loses their session can recover it from the same emailed link.
-        """
+        """Reusable until the assessment window closes; the DynamoDB INVITE#{jti} record is the revocation point, so this fails closed if the table is unavailable."""
         if not self.jwt_secret:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="JWT authentication is not configured",
             )
+        # Fail closed before minting anything if the jti store is unreachable
+        table = self._get_assessment_table()
         now = datetime.now(timezone.utc)
         window_end = self.assessment_window_end(assessment_id)
         # One hour past the close so a submission in the final minutes still works.
@@ -928,25 +908,23 @@ class AuthService:
         }
         token = jwt.encode(payload, self.jwt_secret, algorithm=self.jwt_algorithm)
 
-        table = self._get_assessment_table()
-        if table:
-            try:
-                table.put_item(Item={
-                    "PK": f"INVITE#{jti}",
-                    "SK": "METADATA",
-                    "student_id": student_id,
-                    "assessment_id": assessment_id,
-                    "used": False,
-                    "created_at": now.isoformat(),
-                    # TTL slightly beyond token expiry so the check still works at edge
-                    "TTL": int((expires_at + timedelta(hours=1)).timestamp()),
-                })
-            except Exception:
-                logger.exception("Failed to store invite jti for student %s", student_id)
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to create invite token",
-                )
+        try:
+            table.put_item(Item={
+                "PK": f"INVITE#{jti}",
+                "SK": "METADATA",
+                "student_id": student_id,
+                "assessment_id": assessment_id,
+                "used": False,
+                "created_at": now.isoformat(),
+                # TTL outlives the token so a late exchange still finds the record
+                "TTL": int((expires_at + timedelta(hours=1)).timestamp()),
+            })
+        except Exception:
+            logger.exception("Failed to store invite jti for student %s", student_id)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create invite token",
+            )
 
         return token
 
@@ -960,15 +938,9 @@ class AuthService:
         custom_subject: str = "",
         custom_message: str = "",
     ) -> None:
-        """
-        Send an invite email to a student.
-        Silently returns (logs warning) if SES or from-email is not configured,
-        so the invite endpoint never fails due to email delivery.
+        """Never raises on delivery problems, so the invite endpoint cannot fail on email.
 
-        custom_subject / custom_message: if provided, override the default
-        email content.  Use {{name}}, {{firstName}}, {{title}}, and {{link}} as
-        placeholders. {{firstName}} falls back to the full name when the roster
-        holds a single-word name.
+        custom_subject/custom_message support {{name}}, {{firstName}}, {{title}}, {{link}} placeholders.
         """
         if not self.password_reset_from_email:
             logger.warning("Student invite email skipped — AUTH_PASSWORD_RESET_FROM_EMAIL not configured")
@@ -996,7 +968,7 @@ class AuthService:
 
         if custom_message:
             text_body = _render(custom_message)
-            # Auto-generate HTML from text: paragraphs + clickable link
+            # Paragraphs containing the invite link become just the link
             html_body = "".join(
                 f"<p>{line}</p>" if invite_link not in line
                 else f'<p><a href="{invite_link}">{invite_link}</a></p>'
@@ -1036,12 +1008,7 @@ class AuthService:
             logger.warning("Failed to send invite email to %s: %s", student_email, exc)
 
     def exchange_student_invite_token(self, token: str) -> Dict[str, Any]:
-        """
-        Exchange an invite token for a short-lived student session token.
-        Re-usable while the assessment window is open — losing a session must not
-        lock a student out of their own assessment — and refused once it closes.
-        The jti record in DynamoDB remains the revocation point.
-        """
+        """Reusable while the assessment window is open, so a student who loses their session can recover it."""
         if not self.jwt_secret:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -1069,6 +1036,7 @@ class AuthService:
         if not student_id or not assessment_id or not jti:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid invite token claims")
 
+        table = self._get_assessment_table()
         now = datetime.now(timezone.utc)
         window_end = self.assessment_window_end(assessment_id)
         if window_end and now > window_end + timedelta(hours=1):
@@ -1077,29 +1045,33 @@ class AuthService:
                 detail="This assessment has closed.",
             )
 
-        # The jti record must still exist — deleting it revokes the invite.
-        table = self._get_assessment_table()
-        if table:
-            try:
-                table.update_item(
-                    Key={"PK": f"INVITE#{jti}", "SK": "METADATA"},
-                    UpdateExpression="SET #u = :true, last_used_at = :now",
-                    ConditionExpression="attribute_exists(PK)",
-                    ExpressionAttributeNames={"#u": "used"},
-                    ExpressionAttributeValues={":true": True, ":now": now.isoformat()},
-                )
-            except ClientError as exc:
-                code = exc.response.get("Error", {}).get("Code", "")
-                if code == "ConditionalCheckFailedException":
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="This invite link is no longer valid.",
-                    )
-                logger.exception("DynamoDB error checking invite jti %s", jti)
+        # Deleting the jti record revokes the invite
+        try:
+            table.update_item(
+                Key={"PK": f"INVITE#{jti}", "SK": "METADATA"},
+                UpdateExpression="SET #u = :true, last_used_at = :now",
+                ConditionExpression="attribute_exists(PK)",
+                ExpressionAttributeNames={"#u": "used"},
+                ExpressionAttributeValues={":true": True, ":now": now.isoformat()},
+            )
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code == "ConditionalCheckFailedException":
                 raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Failed to validate invite token",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="This invite link is no longer valid.",
                 )
+            logger.exception("DynamoDB error checking invite jti %s", jti)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to validate invite token",
+            )
+        except Exception:
+            logger.exception("Error checking invite jti %s", jti)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to validate invite token",
+            )
 
         return self.issue_student_session_token(student_id, assessment_id, window_end=window_end)
 
@@ -1109,12 +1081,7 @@ class AuthService:
         assessment_id: str,
         window_end: Optional[datetime] = None,
     ) -> Dict[str, Any]:
-        """
-        Issue a short-lived (12-hour) session JWT for a student, never outliving
-        the assessment window when that is known.
-        The JWT has sub=student_id and roles=["student"] so the existing
-        _assert_student_access() check in student_router.py works unchanged.
-        """
+        """12-hour session capped at the assessment window; sub=student_id and roles=["student"] so _assert_student_access (controller_helpers) accepts it."""
         if not self.jwt_secret:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

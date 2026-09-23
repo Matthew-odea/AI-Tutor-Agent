@@ -10,12 +10,19 @@ import {
   isResultsPendingError,
   isResultsStillPending,
   TIME_EXPIRED_SENTINEL,
+  NO_ORAL_ANSWER_SENTINEL,
+  isSkipSentinel,
   DEFAULT_QUESTION_MAX,
 } from '../utils/resultHelpers';
 
 describe('deriveResultStatus', () => {
   it('treats the time-expired sentinel as skipped', () => {
     expect(deriveResultStatus({ transcript: TIME_EXPIRED_SENTINEL, totalScore: 0 })).toBe('skipped');
+  });
+
+  it('treats the oral [NO_ORAL_ANSWER] fallback as skipped too', () => {
+    expect(deriveResultStatus({ transcript: '[NO_ORAL_ANSWER]', totalScore: 0 })).toBe('skipped');
+    expect(deriveResultStatus({ transcript: NO_ORAL_ANSWER_SENTINEL, totalScore: null })).toBe('skipped');
   });
 
   it('trims whitespace around the sentinel', () => {
@@ -37,6 +44,19 @@ describe('deriveResultStatus', () => {
     expect(deriveResultStatus({ transcript: 'Wrong but answered', totalScore: 0 })).toBe('graded');
   });
 
+});
+
+describe('isSkipSentinel', () => {
+  it('matches both skip markers, trimmed', () => {
+    expect(isSkipSentinel('(time expired)')).toBe(true);
+    expect(isSkipSentinel(' [NO_ORAL_ANSWER]\n')).toBe(true);
+  });
+
+  it('does not match real or empty transcripts', () => {
+    expect(isSkipSentinel('I ran out of time expired')).toBe(false);
+    expect(isSkipSentinel('')).toBe(false);
+    expect(isSkipSentinel(undefined)).toBe(false);
+  });
 });
 
 describe('totalMaxFor / componentMaxFor', () => {

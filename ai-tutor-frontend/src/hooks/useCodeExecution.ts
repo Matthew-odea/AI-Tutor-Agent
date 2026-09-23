@@ -3,33 +3,7 @@ import { getPyodide } from "../utils/pyodideLoader";
 import { formatStudentFriendlyPythonError } from "../utils/pythonErrorFormatter";
 import type { CodeExecutionResult } from "../types";
 
-/**
- * Custom hook for executing Python code in the browser using Pyodide
- *
- * Handles code execution, output/error capture, and execution timing.
- * Uses Pyodide WebAssembly runtime for client-side Python execution.
- *
- * @returns Object containing:
- *   - isLoading: Boolean indicating if code is currently executing
- *   - result: Last execution result (output, error, execution time)
- *   - runCode: Async function to execute Python code
- *
- * @example
- * ```tsx
- * const { runCode, isLoading, result } = useCodeExecution();
- *
- * const handleRun = async () => {
- *   const result = await runCode('print("Hello, World!")');
- *   console.log(result.output); // => "Hello, World!\n"
- * };
- * ```
- *
- * @remarks
- * - First code execution loads Pyodide (~10MB), subsequent runs are fast
- * - Captures both stdout and stderr separately
- * - Formats Python tracebacks for better readability
- * - Execution happens entirely in the browser (no server calls)
- */
+/** Runs Python fully in-browser via Pyodide. The interpreter is shared across runs, so stdio is reset every time. */
 export function useCodeExecution() {
   const [isLoading, setIsLoading] = useState(false);
   const [result, setResult] = useState<CodeExecutionResult | null>(null);
@@ -39,10 +13,9 @@ export function useCodeExecution() {
     const startTime = performance.now();
 
     try {
-      // Load Pyodide (cached after first load)
       const pyodide = await getPyodide();
 
-      // Reset stdout/stderr capture and setup traceback formatting
+      // input() would hang with no stdin, so replace it with a helpful error.
       await pyodide.runPythonAsync(`
     import sys
     import traceback
@@ -66,11 +39,9 @@ export function useCodeExecution() {
     builtins.input = _blocked_input
     `);
 
-      // Execute user code with better error handling
       try {
         await pyodide.runPythonAsync(code);
       } catch (pythonError: unknown) {
-        // If there's a Python exception, format it nicely
         const pythonErrorMessage =
           pythonError instanceof Error
             ? pythonError.message
@@ -103,7 +74,6 @@ else:
         return executionResult;
       }
 
-      // Capture output
       const stdout = await pyodide.runPythonAsync("sys.stdout.getvalue()");
       const stderr = await pyodide.runPythonAsync("sys.stderr.getvalue()");
 
@@ -118,10 +88,9 @@ else:
       setResult(executionResult);
       return executionResult;
     } catch (error: unknown) {
-      // JavaScript/Pyodide loading errors
+      // Pyodide load/JS-level failure, not a Python exception.
       const executionTime = performance.now() - startTime;
 
-      // Build concise error message
       let errorMessage = "";
 
       if (error instanceof Error && error.name) {

@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// Mock the network layer the ProctoringRecorder depends on so no real backend is hit.
 vi.mock('../services/api', () => ({
   getUploadUrl: vi.fn(),
   uploadAudioToS3: vi.fn(),
@@ -25,8 +24,6 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-// Helper: directly exercise the private uploadChunk via the queue by reaching the
-// instance method. We test the resilience contract through the public callbacks.
 function makeRecorder(overrides: Partial<ConstructorParameters<typeof ProctoringRecorder>[0]> = {}) {
   const onChunkUploaded = vi.fn();
   const onError = vi.fn();
@@ -40,8 +37,7 @@ function makeRecorder(overrides: Partial<ConstructorParameters<typeof Proctoring
   return { rec, onChunkUploaded, onError };
 }
 
-// uploadChunk is private; cast to reach it for focused unit testing of the retry
-// + buffer behavior (the same path ondataavailable feeds into).
+// uploadChunk is private; cast to reach the path ondataavailable feeds.
 type UploadChunk = (blob: Blob, index: number) => Promise<void>;
 const callUpload = (rec: ProctoringRecorder, blob: Blob, index: number): Promise<void> =>
   (rec as unknown as { uploadChunk: UploadChunk }).uploadChunk(blob, index);

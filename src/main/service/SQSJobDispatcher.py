@@ -1,25 +1,9 @@
-"""
-SQSJobDispatcher - SQS-based job dispatch and in-process consumer
+"""SQS producer plus an in-process consumer thread for evaluation, question-generation and report jobs.
 
-Replaces the inline thread dispatch in generate-questions-batch with durable
-SQS messages so work survives server restarts. The consumer runs in the same
-process as the API (background thread), meeting the platform plan's
-"worker runs in-process via thread pool" constraint.
-
-Message lifecycle:
-  enqueue → SQS → consumer receives → processes → deletes message
-
-Delivery is at-least-once, so the consumer is idempotent per (job, item):
-each job record keeps the set of items it has counted, a redelivered message
-for a counted item is deleted without redoing the work, and the counter
-update is conditional so a duplicate can never count twice.
-
-While a message is being worked on, a heartbeat keeps extending its
-visibility, so a long evaluation is not redelivered to another worker
-mid-run. If the server dies mid-message the heartbeat stops and the message
-becomes visible again within _VISIBILITY_TIMEOUT. A failed message is left
-on the queue and retried with backoff; after _MAX_RECEIVES attempts it is
-counted as failed on the job and SQS moves it to the DLQ.
+Delivery is at-least-once, so the consumer is idempotent per (job, item): the job record keeps the set of
+counted items, a redelivery for a counted item is deleted without redoing the work, and the counter update
+is conditional. A heartbeat extends visibility while a message is worked on; a failed message is retried
+with backoff and, after _MAX_RECEIVES attempts, counted as failed and moved to the DLQ by SQS.
 """
 
 from __future__ import annotations
@@ -39,32 +23,24 @@ logger = logging.getLogger(__name__)
 
 _VISIBILITY_TIMEOUT = 900       # 15 min — set on every receive, overriding the queue default
 _HEARTBEAT_SECONDS = _VISIBILITY_TIMEOUT // 3  # re-extend visibility well before it lapses
-_LONG_POLL_SECONDS = 10         # reduces empty receives
+_LONG_POLL_SECONDS = 10
 # One at a time: messages held in a local batch are not heartbeated, so a batch
 # of slow evaluations would expire the later ones and hand them to another worker.
 _MAX_MESSAGES_PER_RECEIVE = 1
 _MAX_RECEIVES = 3               # must equal maxReceiveCount in the queue's redrive policy (terraform)
 _RETRY_BACKOFF_SECONDS = 60     # a failed message reappears after 60s, then 120s
-_CONSUMER_ERROR_BACKOFF = 5     # seconds to sleep after an unexpected consumer loop error
+_CONSUMER_ERROR_BACKOFF = 5     # seconds
 
 
 class SQSJobDispatcher:
     def __init__(self, *, queue_url: str, region: str, table):
-        """
-        Args:
-            queue_url: Full SQS queue URL (e.g. https://sqs.us-east-1.amazonaws.com/123/ai-tutor-jobs)
-            region: AWS region string
-            table: boto3 DynamoDB Table resource (for job progress updates)
-        """
+        """table is the DynamoDB Table holding JOB# progress records."""
         self.queue_url = queue_url
         self.table = table
         self.sqs = boto3.client("sqs", region_name=region)
         self._consumer_thread: Optional[threading.Thread] = None
         self._stopping = threading.Event()
 
-    # ─────────────────────────────────────────────────────────────
-    # Producer
-    # ─────────────────────────────────────────────────────────────
 
     def enqueue_evaluation_batch(
         self,
@@ -72,11 +48,7 @@ class SQSJobDispatcher:
         assessment_id: str,
         students: List[Dict[str, Any]],
     ) -> int:
-        """
-        Send one SQS message per student for evaluation.
-
-        Returns the number of messages successfully enqueued.
-        """
+        """One message per student. Returns how many were enqueued."""
         enqueued = self._enqueue_per_student(job_id, [
             {
                 "job_type": "evaluation",
@@ -102,12 +74,7 @@ class SQSJobDispatcher:
         course_name: str = "",
         assessment_title: str = "",
     ) -> int:
-        """
-        Send one SQS message per student for question generation.
-
-        Returns the number of messages successfully enqueued.
-        Uses batch send (10 per call) for efficiency.
-        """
+        """One message per student. Returns how many were enqueued."""
         enqueued = self._enqueue_per_student(job_id, [
             {
                 "job_type": "question_generation",
@@ -164,12 +131,7 @@ class SQSJobDispatcher:
         triggered_by: str = "auto_threshold",
         milestone: Optional[int] = None,
     ) -> int:
-        """
-        Send a single message requesting a cohort report for the assessment.
-
-        Unlike evaluation and question generation this is one message per job,
-        not one per student — the report is a whole-cohort aggregate.
-        """
+        """One message per job (not per student): the report is a whole-cohort aggregate."""
         try:
             self.sqs.send_message(
                 QueueUrl=self.queue_url,
@@ -190,9 +152,6 @@ class SQSJobDispatcher:
             logger.error("SQS report-generation send error: %s", e)
             return 0
 
-    # ─────────────────────────────────────────────────────────────
-    # Consumer
-    # ─────────────────────────────────────────────────────────────
 
     def start_consumer(
         self,
@@ -200,17 +159,7 @@ class SQSJobDispatcher:
         evaluation_workflow_runner: Optional[Any] = None,
         report_service: Optional[Any] = None,
     ) -> None:
-        """
-        Start the background SQS consumer thread.
-        Idempotent — calling multiple times has no effect if already running.
-
-        Args:
-            question_generation_service: Handles 'question_generation' job type.
-            evaluation_workflow_runner: Handles 'evaluation' job type. If None,
-                evaluation messages are logged as warnings and deleted.
-            report_service: Handles 'report_generation' job type. If None,
-                report messages are logged as warnings and deleted.
-        """
+        """Start the supervised consumer thread; no-op if already running."""
         if self._consumer_thread and self._consumer_thread.is_alive():
             logger.debug("SQS consumer already running")
             return
@@ -239,7 +188,6 @@ class SQSJobDispatcher:
         logger.info("SQS job consumer started (queue: %s)", self.queue_url)
 
     def is_running(self) -> bool:
-        """Return True if the consumer supervisor thread is alive."""
         return bool(self._consumer_thread and self._consumer_thread.is_alive())
 
     def stop_consumer(self) -> None:
@@ -252,7 +200,6 @@ class SQSJobDispatcher:
         evaluation_workflow_runner: Optional[Any] = None,
         report_service: Optional[Any] = None,
     ) -> None:
-        """Main consumer loop — runs until process exits or stop_consumer() called."""
         logger.info("SQS consumer loop running")
         while not self._stopping.is_set():
             try:
@@ -463,11 +410,9 @@ class SQSJobDispatcher:
             else:
                 logger.error("Failed to update job progress for %s: %s", job_id, e)
             return
-        # Check if all items processed → mark job complete
         self._maybe_complete_job(job_id)
 
     def _maybe_complete_job(self, job_id: str) -> None:
-        """Mark job 'completed' if processed_count has reached total_items."""
         try:
             resp = self.table.get_item(Key={"PK": f"JOB#{job_id}", "SK": "METADATA"})
             item = resp.get("Item")
@@ -499,16 +444,9 @@ def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# ─────────────────────────────────────────────────────────────────
-# Queue URL resolution
-# ─────────────────────────────────────────────────────────────────
 
 def resolve_queue_url(queue_name: str = "ai-tutor-jobs", region: str = "us-east-1") -> str:
-    """
-    Resolve the SQS queue URL.
-    Prefers SQS_JOBS_QUEUE_URL env var; falls back to dynamic lookup.
-    Returns empty string if the queue cannot be found (consumer will pause and retry).
-    """
+    """SQS_JOBS_QUEUE_URL if set, else look it up by name; "" if not found."""
     explicit = os.getenv("SQS_JOBS_QUEUE_URL", "")
     if explicit:
         return explicit

@@ -1,7 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-// Mirror assessmentStore.test.ts's network mocks so importing the store never
-// hits a real backend.
 vi.mock('../services/api', () => ({
   getStudentToken: vi.fn().mockResolvedValue('token'),
   getQuestions: vi.fn(),

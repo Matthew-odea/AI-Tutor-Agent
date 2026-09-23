@@ -1,10 +1,4 @@
-"""
-BatchJobManager: thin wrapper around DynamoDBJobStore.
-
-Preserves the original public API exactly so assessment_router.py and any other
-callers need zero changes. Job state is now persisted in DynamoDB — jobs survive
-server restarts. DynamoDB TTL handles automatic cleanup after 7 days.
-"""
+"""Enum-typed facade over DynamoDBJobStore. Jobs survive restarts; DynamoDB TTL expires them after 7 days."""
 from __future__ import annotations
 
 from enum import Enum
@@ -27,8 +21,6 @@ class JobType(str, Enum):
 
 
 class BatchJobManager:
-    """DynamoDB-backed batch job manager. Same public API as the old in-memory version."""
-
     def __init__(self):
         self._store = DynamoDBJobStore()
 
@@ -55,11 +47,11 @@ class BatchJobManager:
         assessment_id: Optional[str] = None,
         job_type: Optional[JobType] = None,
     ) -> List[Dict[str, Any]]:
-        # Jobs are always fetched by job_id directly in the current hot paths.
+        # Deliberate stub: callers only fetch jobs by job_id.
         return []
 
     def clear_old_jobs(self, hours: int = 24) -> None:
-        pass  # DynamoDB TTL handles this automatically
+        pass  # No-op: DynamoDB TTL expires jobs
 
 
 _batch_job_manager: Optional[BatchJobManager] = None

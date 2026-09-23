@@ -1,16 +1,10 @@
-"""
-Unit tests for QuestionGenerationService with mocked LLM.
-
-Covers:
-- Prompt construction
-- JSON response parsing (plain, markdown-fenced, malformed)
-- generate_questions end-to-end with mocked LLM and DynamoDB
-"""
+"""Unit tests for QuestionGenerationService with a mocked LLM."""
 from __future__ import annotations
 
 import json
 import os
 import tempfile
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock, patch
 
 import boto3
@@ -82,10 +76,6 @@ def dynamo_env(monkeypatch):
         yield table
 
 
-# ─────────────────────────────────────────────────────────────
-# JSON parsing
-# ─────────────────────────────────────────────────────────────
-
 class TestParseJsonResponse:
     def _make_svc(self, mock_llm, temp_output_dir):
         return QuestionGenerationService(agent_client=mock_llm, output_dir=temp_output_dir)
@@ -119,10 +109,6 @@ class TestParseJsonResponse:
             svc._parse_json_response('{"key": "value"}')
 
 
-# ─────────────────────────────────────────────────────────────
-# Prompt construction
-# ─────────────────────────────────────────────────────────────
-
 class TestPromptConstruction:
     def test_system_prompt_includes_template(self, mock_llm, temp_output_dir):
         svc = QuestionGenerationService(agent_client=mock_llm, output_dir=temp_output_dir)
@@ -136,10 +122,6 @@ class TestPromptConstruction:
         assert "Build a BST" in prompt
         assert "class BST:" in prompt
 
-
-# ─────────────────────────────────────────────────────────────
-# End-to-end generation
-# ─────────────────────────────────────────────────────────────
 
 class TestGenerateQuestions:
     def test_generate_returns_questions_and_files(self, mock_llm, temp_output_dir):
@@ -172,6 +154,13 @@ class TestGenerateQuestions:
         )
 
         assert result["dynamodb_stored"] is True
+        # createdAt must be a single-offset ISO timestamp like every other writer (not "+00:00Z").
+        items = dynamo_env.scan()["Items"]
+        question_items = [i for i in items if i["SK"].startswith("QUESTION#")]
+        assert question_items
+        for item in question_items:
+            assert not item["createdAt"].endswith("Z")
+            assert datetime.fromisoformat(item["createdAt"]).utcoffset() == timedelta(0)
 
     def test_generate_is_idempotent_per_student(self, mock_llm, dynamo_env, temp_output_dir):
         """A redelivered message or a re-run batch must not append a second set of
@@ -215,10 +204,6 @@ class TestGenerateQuestions:
                 student_name="test",
             )
 
-
-# ─────────────────────────────────────────────────────────────
-# Task 7: validation — dedupe + count-mismatch warning
-# ─────────────────────────────────────────────────────────────
 
 class TestValidateQuestions:
     def _svc(self, mock_llm, temp_output_dir):

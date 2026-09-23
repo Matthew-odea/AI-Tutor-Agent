@@ -16,6 +16,7 @@ import { STORAGE_KEYS } from "../config/constants";
 
 type EditIntent = "strong" | "weak" | "none";
 
+/** Keyword heuristic. Only 'strong' is routed to the edit-proposal endpoint; 'weak' is currently handled like 'none'. */
 const classifyEditIntent = (
   query: string,
   recentMessages?: Array<{ role: string; content: string }>,
@@ -214,7 +215,6 @@ const classifyEditIntent = (
     "sample input",
     "sample output",
   ];
-  // Continuation phrases that imply "keep editing" in multi-turn context
   const continuationPhrases = [
     "now ",
     "also ",
@@ -262,14 +262,13 @@ const classifyEditIntent = (
     hasAssignmentSignal ||
     (/\n/.test(query) && query.length > 180 && hasCodeTarget);
 
-  // Info phrases take priority — "explain this code" should NOT trigger an edit
+  // Info phrases win: "explain this code" must not trigger an edit.
   if (hasInfoPhrase && !hasStrongVerb && !looksLikeProblemPaste) return "none";
 
   if (hasStrongVerb || hasFileHint || looksLikeProblemPaste) return "strong";
   if (hasConstructVerb) return "strong";
 
-  // Multi-turn: if the last assistant message contained an edit block, short follow-ups
-  // like "now add error handling" or "also make it recursive" are likely edit continuations
+  // After an edit reply, short follow-ups ("now add error handling") are likely edit continuations.
   if (recentMessages && recentMessages.length >= 1) {
     const lastAssistant = [...recentMessages]
       .reverse()
@@ -280,7 +279,6 @@ const classifyEditIntent = (
         (phrase) => lowered.startsWith(phrase) || lowered.includes(phrase),
       );
       if (hasContinuation) return "strong";
-      // Short messages after an edit are likely edit follow-ups
       if (query.trim().length < 80 && !hasInfoPhrase) return "weak";
     }
   }

@@ -1,8 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Progress, Question } from '../types';
 
-// Network + upload layers stubbed so the store never touches a real backend
-// (mirrors assessmentStore.test.ts).
 vi.mock('../services/api', () => ({
   getStudentToken: vi.fn().mockResolvedValue('token'),
   getQuestions: vi.fn(),
@@ -19,9 +17,7 @@ vi.mock('../services/s3', () => ({
   validateAudioBlob: vi.fn().mockReturnValue(true),
 }));
 
-// The durable-draft persistence layer is mocked here: these tests assert the
-// STORE wiring (which draft calls fire on which transitions, and how rehydrate
-// reconciles a loaded draft against the current question) — not real IndexedDB.
+// Asserts store wiring around drafts, not real IndexedDB.
 vi.mock('../services/draftStore', () => ({
   saveAudioDraft: vi.fn().mockResolvedValue(undefined),
   loadAudioDraft: vi.fn().mockResolvedValue(null),
@@ -79,7 +75,7 @@ beforeEach(() => {
   });
 });
 
-// ─── Persist-on-capture ──────────────────────────────────────────────────────
+// Persist-on-capture
 describe('persist on capture', () => {
   it('setTextAnswer persists a NON-empty draft for the current question', () => {
     useAssessmentStore.getState().setTextAnswer('partial answer');
@@ -114,7 +110,7 @@ describe('persist on capture', () => {
   });
 });
 
-// ─── rehydrateDraft — audio ──────────────────────────────────────────────────
+// rehydrateDraft — audio
 describe('rehydrateDraft (audio)', () => {
   it('restores recordedBlob + duration when the draft matches the current question and none is in memory', async () => {
     const blob = audioBlob();
@@ -171,7 +167,7 @@ describe('rehydrateDraft (audio)', () => {
   });
 });
 
-// ─── rehydrateDraft — text ───────────────────────────────────────────────────
+// rehydrateDraft — text
 describe('rehydrateDraft (text)', () => {
   it('restores textAnswer when empty and the draft matches the current question', async () => {
     vi.mocked(draftStore.loadTextDraft).mockReturnValueOnce({ questionId: 'q1', text: 'recovered text' });
@@ -207,7 +203,7 @@ describe('rehydrateDraft (text)', () => {
   });
 });
 
-// ─── Draft clearing on every terminal path ──────────────────────────────────
+// Draft clearing on every terminal path
 describe('drafts cleared on success / skip / cancel / reset', () => {
   it('clears the audio draft after a SUCCESSFUL audio submit', async () => {
     vi.mocked(api.getQuestions).mockResolvedValue({

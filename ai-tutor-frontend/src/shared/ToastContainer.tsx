@@ -1,6 +1,3 @@
-/**
- * Toast notification component
- */
 import { useEffect } from "react";
 import { useToastStore } from "../store/toastStore";
 import type { Toast, ToastType } from "../store/toastStore";
@@ -85,7 +82,6 @@ const ToastItem = ({ toast }: { toast: Toast }) => {
   const { removeToast } = useToastStore();
 
   useEffect(() => {
-    // Add entrance animation
     const timer = setTimeout(() => {
       const element = document.getElementById(toast.id);
       if (element) {

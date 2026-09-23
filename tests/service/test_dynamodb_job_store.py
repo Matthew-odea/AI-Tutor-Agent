@@ -1,13 +1,4 @@
-"""
-Integration tests for DynamoDBJobStore using moto.
-
-Covers:
-- create_job
-- get_job
-- update_status
-- increment_progress
-- Full lifecycle (create → running → increment → completed)
-"""
+"""Integration tests for DynamoDBJobStore using moto."""
 from __future__ import annotations
 
 import boto3

@@ -12,16 +12,13 @@ import {
 } from '../utils/helpers';
 import { isResultsNotReleasedError } from '../utils/resultHelpers';
 
-// Auto-poll cadence and cap. ~15 background polls × 8s ≈ 2 minutes before we
-// stop and hand control back to the student with a manual "Check again".
+// ~2 minutes of background polling before falling back to a manual "Check again".
 const POLL_INTERVAL_MS = 8000;
 const MAX_RESULT_POLLS = 15;
 
-// Single accent style shared by both "Download PDF" buttons.
 const PDF_BUTTON_CLASS =
   'inline-flex items-center gap-2 rounded-xl bg-accent text-white px-4 py-2 text-sm font-medium hover:bg-accent-hover transition-colors duration-200 ease-out';
 
-/** True when the user has asked the OS to reduce motion. SSR/no-matchMedia safe. */
 function prefersReducedMotion(): boolean {
   return (
     typeof window !== 'undefined' &&
@@ -30,12 +27,7 @@ function prefersReducedMotion(): boolean {
   );
 }
 
-/**
- * Signature #2 — oversized serif numeral over a thin teal arc dial whose sweep
- * equals `percentage`. Both the numeral and the stroke count up ONCE on mount
- * over ~750ms ease-out; under prefers-reduced-motion they snap to the final
- * value instantly. Pure presentation — no behavior or copy depends on it.
- */
+// Counts up once on mount; snaps to the final value under reduced motion.
 function ScoreDial({
   total,
   max,
@@ -52,20 +44,17 @@ function ScoreDial({
   useEffect(() => {
     let raf = 0;
     if (prefersReducedMotion()) {
-      // Snap to final values asynchronously (in a rAF callback, not
-      // synchronously in the effect body) so prop changes still settle
-      // without triggering a cascading-render lint error.
+      // Snap inside a rAF, not the effect body, to avoid the set-state-in-effect lint.
       raf = requestAnimationFrame(() => {
         setProgress(target);
         setShownTotal(total);
       });
       return () => cancelAnimationFrame(raf);
     }
-    const DURATION = 750; // ms, within the 600–900ms spec window
+    const DURATION = 750; // ms
     const start = performance.now();
     const tick = (now: number) => {
       const t = Math.min(1, (now - start) / DURATION);
-      // ease-out cubic
       const eased = 1 - Math.pow(1 - t, 3);
       setProgress(target * eased);
       setShownTotal(Math.round(total * eased));
@@ -75,7 +64,6 @@ function ScoreDial({
     return () => cancelAnimationFrame(raf);
   }, [target, total]);
 
-  // Geometry: a near-full sweep with a small gap at the bottom reads as a dial.
   const R = 84;
   const STROKE = 6;
   const SIZE = (R + STROKE) * 2;
@@ -92,7 +80,6 @@ function ScoreDial({
         className="absolute inset-0 -rotate-90"
         aria-hidden="true"
       >
-        {/* Track */}
         <circle
           cx={CENTER}
           cy={CENTER}
@@ -101,13 +88,12 @@ function ScoreDial({
           stroke="var(--color-hairline)"
           strokeWidth={STROKE}
         />
-        {/* Teal sweep */}
         <circle
           cx={CENTER}
           cy={CENTER}
           r={R}
           fill="none"
-          stroke="var(--color-accent)"
+          stroke="var(--color-accent-solid)"
           strokeWidth={STROKE}
           strokeLinecap="round"
           strokeDasharray={circumference}
@@ -154,22 +140,20 @@ export default function ViewResults() {
 
   const addToast = useToastStore((state) => state.addToast);
 
-  // Initialize and load results
   useEffect(() => {
     if (urlStudentId && urlAssessmentId) {
       setStudentInfo(urlStudentId, urlAssessmentId);
     }
   }, [urlStudentId, urlAssessmentId, setStudentInfo]);
 
-  // Load progress first to check submission status
+  // Progress gates the results fetch on submission status.
   useEffect(() => {
     if (studentId && assessmentId && !progress) {
       loadProgress();
     }
   }, [studentId, assessmentId, progress, loadProgress]);
 
-  // First (foreground) results fetch — exactly once. Background polling (below)
-  // takes over afterwards so the full-screen spinner only ever shows on first load.
+  // Foreground fetch exactly once; background polling takes over so the spinner shows only on first load.
   const initialLoadDoneRef = useRef(false);
   useEffect(() => {
     if (initialLoadDoneRef.current) return;
@@ -181,18 +165,16 @@ export default function ViewResults() {
     }
   }, [studentId, assessmentId, isResultsReady, progress, loadResults]);
 
-  // Load assessment metadata (title, course) if not already in store
+  // Only for title/course metadata; best-effort.
   useEffect(() => {
     if (studentId && assessmentId && !assessment) {
       loadQuestions().catch(() => {
-        // Silently ignore — metadata is best-effort for display
+        // ignore
       });
     }
   }, [studentId, assessmentId, assessment, loadQuestions]);
 
-  // Auto-poll while results are pending. Polls run in the BACKGROUND (no global
-  // isLoading), so the "Evaluating Your Assessment" panel stays put with no
-  // spinner flicker. Stops when results arrive OR the attempt cap is reached.
+  // Background polls don't touch isLoading, so the pending panel doesn't flicker.
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
     if (isResultsReady || resultsPollExhausted) {
@@ -226,12 +208,11 @@ export default function ViewResults() {
   }, [isResultsReady, resultsPollExhausted, studentId, assessmentId, progress, loadResults, setResultsPollExhausted]);
 
   const handleCheckAgain = () => {
-    initialLoadDoneRef.current = true; // initial load already happened; this is a manual retry
+    initialLoadDoneRef.current = true;
     resetResultsPolling();
     loadResults();
   };
 
-  // Shared assessment header for pending/error states
   const assessmentHeader = assessment ? (
     <div className="text-center mb-6">
       <h1 className="font-serif text-2xl font-semibold text-ink">{assessment.title}</h1>
@@ -241,7 +222,6 @@ export default function ViewResults() {
     </div>
   ) : null;
 
-  // Guard: if progress loaded and assessment not submitted, redirect to assessment
   if (progress && progress.status !== 'submitted') {
     return (
       <div className="min-h-screen bg-paper flex items-center justify-center p-4">
@@ -263,7 +243,6 @@ export default function ViewResults() {
     );
   }
 
-  // Loading state — first foreground fetch only (background polls never set isLoading)
   if (isLoading) {
     return (
       <div className="min-h-screen bg-paper flex items-center justify-center p-4">
@@ -277,7 +256,6 @@ export default function ViewResults() {
     );
   }
 
-  // Polling exhausted — grading is taking longer than expected. Offer a manual retry.
   if (resultsPollExhausted && !isResultsReady && !results) {
     return (
       <div className="min-h-screen bg-paper flex items-center justify-center p-4">
@@ -304,13 +282,9 @@ export default function ViewResults() {
     );
   }
 
-  // Error / pending states. `isResultsPending` can be set without an error when
-  // the server answered 2xx with a "still evaluating" body rather than results,
-  // so it gates this block too — otherwise that case would fall through to the
-  // "No Results Available" panel.
+  // isResultsPending can be set with no error (a 2xx "still evaluating" body), so it gates
+  // this block too. The error only picks which pending panel to show.
   if (error || isResultsPending) {
-    // `isResultsPending` (store) is the single source of truth for "still pending";
-    // the error message only refines WHICH pending panel (not-released vs evaluating).
     const isNotReleased = isResultsNotReleasedError(error);
     return (
       <div className="min-h-screen bg-paper flex items-center justify-center p-4">
@@ -327,8 +301,7 @@ export default function ViewResults() {
             </div>
           ) : isResultsPending ? (
             <div className="p-6 bg-accent/[0.06] border border-accent/20 rounded-xl text-center">
-              {/* Calm breathing dot instead of a spinner — the 8s poll updates
-                  this panel in place; reduced-motion freezes it via index.css. */}
+              {/* Reduced motion freezes this via index.css. */}
               <div className="mx-auto h-12 w-12 mb-3 flex items-center justify-center">
                 <span className="h-3 w-3 rounded-full bg-accent animate-pulse" aria-hidden="true"></span>
               </div>
@@ -350,7 +323,6 @@ export default function ViewResults() {
     );
   }
 
-  // No results state
   if (!results) {
     return (
       <div className="min-h-screen bg-paper flex items-center justify-center p-4">
@@ -394,7 +366,6 @@ export default function ViewResults() {
 
   return (
     <div className="min-h-screen bg-paper">
-      {/* Header */}
       <header className="bg-paper border-b border-hairline">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
@@ -407,7 +378,6 @@ export default function ViewResults() {
       </header>
 
       <main className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* AI-grading disclosure */}
         <div className="mb-6 flex items-start gap-2 rounded-xl border border-hairline bg-ink/[0.02] p-3 text-sm text-slate">
           <svg className="h-5 w-5 flex-shrink-0 text-slate mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -418,7 +388,6 @@ export default function ViewResults() {
           </p>
         </div>
 
-        {/* Overall Score Card — signature #2: serif numeral + teal arc dial */}
         <div className="bg-paper rounded-xl border border-hairline p-8 mb-8">
           <div className="flex flex-col items-center">
             <ScoreDial
@@ -427,7 +396,6 @@ export default function ViewResults() {
               percentage={results.percentage}
             />
 
-            {/* Grade as a restrained hairline row, not a rounded-full pill */}
             <div className="mt-6 flex items-center gap-3 rounded-xl border border-hairline px-4 py-2">
               <span className="text-sm text-slate">Grade</span>
               <span className={`rounded-xl px-3 py-0.5 font-serif font-semibold ${gradeColorClass}`}>
@@ -454,7 +422,6 @@ export default function ViewResults() {
           </div>
         </div>
 
-        {/* Question Results */}
         <div>
           <h2 className="font-serif text-xl font-semibold text-ink mb-4">
             Question Details
@@ -468,7 +435,6 @@ export default function ViewResults() {
             ))}
           </div>
 
-          {/* Bottom Download PDF — unified accent style, same as header */}
           <div className="mt-8 flex justify-center">
             <button onClick={handleDownloadPdf} className={PDF_BUTTON_CLASS}>
               Download PDF

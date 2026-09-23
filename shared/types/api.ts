@@ -84,7 +84,7 @@ export interface paths {
         put?: never;
         /**
          * Upload File Context
-         * @description Upload a PDF file, extract its text using FileToTextService, and process as a document upload.
+         * @description Upload a PDF, extract its text and index it as a context document.
          */
         post: operations["upload_file_context_internal_context_uploadFile_post"];
         delete?: never;
@@ -534,7 +534,7 @@ export interface paths {
         };
         /**
          * Get Student Results Pdf
-         * @description EPIC-6-3: Generate a PDF results report for a student.
+         * @description Student results as a downloadable PDF.
          */
         get: operations["get_student_results_pdf_api_student__student_id__assessment__assessment_id__results_pdf_get"];
         put?: never;
@@ -665,13 +665,10 @@ export interface paths {
         put?: never;
         /**
          * Generate Student Invite
-         * @description Generate a single-use invitation link for a specific student.
+         * @description Mint a fresh single-use 7-day invite link for one student and email it.
          *
-         *     Also backs the instructor "Resend invite" action: each call mints a *fresh*
-         *     token (new jti, new 7-day expiry, unused) so a student whose previous link
-         *     expired or was consumed gets a working one. Accepts optional
-         *     { "subject": "...", "message": "..." } with {{name}}, {{title}}, {{link}}
-         *     placeholders, matching the bulk send-invites endpoint.
+         *     Also backs "Resend invite". Optional body {"subject", "message"} supports
+         *     {{name}}, {{title}}, {{link}} placeholders, as in send-invites.
          */
         post: operations["generate_student_invite_api_assessment__id__students__student_id__invite_post"];
         delete?: never;
@@ -691,17 +688,11 @@ export interface paths {
         put?: never;
         /**
          * Send Bulk Invites
-         * @description Send invite emails to enrolled students.  Accepts optional customisation:
-         *     { "subject": "...", "message": "...", "studentIds": [...], "next": "results" }
-         *     Use {{name}}, {{title}}, {{link}} as placeholders in subject/message.
+         * @description Email invites to enrolled students.
          *
-         *     studentIds restricts the send to those students; omit it to mail everyone
-         *     enrolled. Needed for follow-up mail aimed at a subset (e.g. only students
-         *     who actually submitted), so a targeted notice doesn't reach the whole roster.
-         *
-         *     next="results" points {{link}} at the student's feedback rather than the
-         *     assessment itself. Without it a student who has already submitted lands back
-         *     in the question UI.
+         *     Optional body: {"subject", "message", "studentIds", "next"}; {{name}}, {{title}},
+         *     {{link}} placeholders. studentIds limits the send to a subset (omit for everyone).
+         *     next="results" links to feedback, otherwise submitted students land back in the question UI.
          */
         post: operations["send_bulk_invites_api_assessment__id__send_invites_post"];
         delete?: never;
@@ -720,9 +711,7 @@ export interface paths {
         get?: never;
         /**
          * Update Assessment Brief
-         * @description Update the assignment brief for an assessment.
-         *     The brief must be at least 50 characters.
-         *     Only editable while the assessment is in draft or scheduled status.
+         * @description Update the assignment brief (min 50 chars, draft/scheduled only).
          */
         put: operations["update_assessment_brief_api_assessment__id__brief_put"];
         post?: never;
@@ -743,10 +732,7 @@ export interface paths {
         put?: never;
         /**
          * Generate Questions Batch
-         * @description Trigger batch question generation for all (or specified) enrolled students.
-         *     One SQS message is enqueued per student; the in-process consumer processes
-         *     them asynchronously. Job state is persisted to DynamoDB so it survives
-         *     server restarts.
+         * @description Enqueue question generation (one SQS message per student) for all or listed students.
          */
         post: operations["generate_questions_batch_api_assessment__id__generate_questions_batch_post"];
         delete?: never;
@@ -764,12 +750,7 @@ export interface paths {
         };
         /**
          * Stream Student Evaluation Progress
-         * @description SSE stream for per-question evaluation progress for a single student.
-         *
-         *     Emits one event per poll cycle (2 s) with:
-         *       { questionsEvaluated, totalQuestions, percentage, status }
-         *
-         *     Closes when status is 'completed' or 'failed', or after 10 min (300 polls).
+         * @description SSE: one student's per-question evaluation progress every 2 s; closes on completed/failed or after 10 min.
          */
         get: operations["stream_student_evaluation_progress_api_assessment__id__students__studentId__evaluation_progress_get"];
         put?: never;
@@ -898,10 +879,8 @@ export interface paths {
          * Generate Assessment Report
          * @description Generate the cohort report on demand.
          *
-         *     Runs inline rather than via SQS: the instructor is waiting on the response,
-         *     and the aggregation is a handful of DynamoDB queries. The automatic
-         *     threshold path goes through the queue instead so it never blocks a
-         *     student's submit.
+         *     Inline, not via SQS: the instructor is waiting and it is a few DynamoDB queries.
+         *     The auto-threshold path uses the queue so it never blocks a student's submit.
          */
         post: operations["generate_assessment_report_api_assessment__id__report_generate_post"];
         delete?: never;
@@ -959,7 +938,7 @@ export interface paths {
         };
         /**
          * Get Student Detail
-         * @description EPIC-6-2: Instructor per-student detailed results with transcript, playback URLs, and proctor chunk health.
+         * @description Instructor per-student detailed results with transcript, playback URLs, and proctor chunk health.
          */
         get: operations["get_student_detail_api_assessment__id__student__student_id__results_get"];
         put?: never;
@@ -980,7 +959,7 @@ export interface paths {
         get?: never;
         /**
          * Override Question Score
-         * @description EPIC-6-2: Override an AI-assigned score for a specific question.
+         * @description Override an AI-assigned score for a specific question.
          */
         put: operations["override_question_score_api_assessment__id__student__student_id__question__question_id__override_put"];
         post?: never;
@@ -1000,7 +979,7 @@ export interface paths {
         get?: never;
         /**
          * Release Results
-         * @description EPIC-6-3: Release results so students can view their feedback.
+         * @description Release results so students can view their feedback.
          */
         put: operations["release_results_api_assessment__id__release_results_put"];
         post?: never;
@@ -1020,8 +999,7 @@ export interface paths {
         get?: never;
         /**
          * Record Human Score
-         * @description Dual-scoring harness: record a HUMAN reference score for a question.
-         *     Separate from the grade override — it does not change the student's grade.
+         * @description Record a human reference score for the dual-scoring harness; does not change the student's grade.
          */
         put: operations["record_human_score_api_assessment__id__student__student_id__question__question_id__human_score_put"];
         post?: never;
@@ -1082,7 +1060,7 @@ export interface paths {
         put?: never;
         /**
          * Send Reminder
-         * @description EPIC-6-4: Send an email reminder to a student who has not yet submitted.
+         * @description Send an email reminder to a student who has not yet submitted.
          */
         post: operations["send_reminder_api_assessment__id__student__student_id__remind_post"];
         delete?: never;
@@ -1100,13 +1078,13 @@ export interface paths {
         };
         /**
          * List Student Questions
-         * @description EPIC-3-3: List all generated questions for a student.
+         * @description List all generated questions for a student.
          */
         get: operations["list_student_questions_api_assessment__id__students__student_id__questions_get"];
         put?: never;
         /**
          * Add Student Question
-         * @description EPIC-3-3: Manually add a question for a specific student. Locked once assessment is open.
+         * @description Manually add a question for a specific student. Draft/scheduled only.
          */
         post: operations["add_student_question_api_assessment__id__students__student_id__questions_post"];
         delete?: never;
@@ -1125,13 +1103,13 @@ export interface paths {
         get?: never;
         /**
          * Update Student Question
-         * @description EPIC-3-3: Edit a student question's text. Locked once assessment is open.
+         * @description Edit a student question's text. Draft/scheduled only.
          */
         put: operations["update_student_question_api_assessment__id__students__student_id__questions__question_id__put"];
         post?: never;
         /**
          * Delete Student Question
-         * @description EPIC-3-3: Delete a student question. Min 1 must remain. Locked once assessment is open.
+         * @description Delete a student question. Min 1 must remain. Draft/scheduled only.
          */
         delete: operations["delete_student_question_api_assessment__id__students__student_id__questions__question_id__delete"];
         options?: never;
@@ -1148,7 +1126,7 @@ export interface paths {
         };
         /**
          * Stream Evaluation Status
-         * @description EPIC-6-1: SSE stream for evaluation job status (auto-refreshes results dashboard).
+         * @description SSE stream for evaluation job status (auto-refreshes results dashboard).
          */
         get: operations["stream_evaluation_status_api_assessment__id__evaluation_status_stream__jobId__get"];
         put?: never;
@@ -1170,25 +1148,12 @@ export interface paths {
         put?: never;
         /**
          * Get Upload Url
-         * @description Generate a presigned URL for uploading media to S3.
+         * @description Presigned S3 PUT URL (1 hour). The key is built server-side from the principal, so callers can only write under their own prefix:
          *
-         *     The S3 key is built on the server from the authenticated principal plus the
-         *     parameters below — the caller never supplies the key, so it can only ever
-         *     write under its own prefix:
+         *     - kind=audio      -> audio/{user_id}/{question_id}_{server_timestamp}.{ext}
+         *     - kind=proctoring -> proctoring/{assessment_id}/{user_id}/chunk_{index}.{ext}
          *
-         *     - kind=audio        -> audio/{user_id}/{question_id}_{server_timestamp}.{ext}
-         *     - kind=proctoring   -> proctoring/{assessment_id}/{user_id}/chunk_{index}.{ext}
-         *
-         *     Parameters:
-         *     - kind: "audio" (answer recording) or "proctoring" (session chunk)
-         *     - content_type: MIME type of the file; checked against an allowlist, and the
-         *       key extension is derived from it
-         *     - question_id: required when kind=audio
-         *     - assessment_id, chunk_index: required when kind=proctoring
-         *
-         *     Returns:
-         *     - uploadUrl: Presigned URL for PUT request (valid for 1 hour)
-         *     - fileUrl: Public URL to access the file after upload
+         *     content_type is allowlisted and determines the extension.
          */
         post: operations["get_upload_url_api_s3_upload_url_post"];
         delete?: never;
@@ -1299,8 +1264,7 @@ export interface paths {
         put?: never;
         /**
          * Exchange Student Invite
-         * @description Exchange a single-use student invite token for a 12-hour session JWT.
-         *     The invite token is invalidated after use (jti marked used in DynamoDB).
+         * @description Exchange a single-use student invite token (jti burned in DynamoDB) for a 12-hour session JWT.
          */
         post: operations["exchange_student_invite_api_auth_student_exchange_post"];
         delete?: never;
@@ -1369,7 +1333,7 @@ export interface paths {
         };
         /**
          * List Users
-         * @description List all registered users with their roles. Instructor-only.
+         * @description List all users with roles. Instructor-only.
          */
         get: operations["list_users_api_auth_users_get"];
         put?: never;
@@ -1404,10 +1368,7 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /**
-         * AddStudentQuestionRequest
-         * @description Instructor manually adds a question for a specific student
-         */
+        /** AddStudentQuestionRequest */
         AddStudentQuestionRequest: {
             /**
              * Text
@@ -1476,10 +1437,7 @@ export interface components {
                 [key: string]: number;
             };
         };
-        /**
-         * AssessmentListResponse
-         * @description Response with list of assessments
-         */
+        /** AssessmentListResponse */
         AssessmentListResponse: {
             /**
              * Ok
@@ -1528,7 +1486,7 @@ export interface components {
         };
         /**
          * AssessmentReportResponse
-         * @description Cohort summary report. Aggregate only — carries no per-student identifiers.
+         * @description Cohort summary report. Aggregate only, carries no per-student identifiers.
          */
         AssessmentReportResponse: {
             /**
@@ -1545,10 +1503,7 @@ export interface components {
             generated: boolean;
             report?: components["schemas"]["AssessmentReport"] | null;
         };
-        /**
-         * AssessmentResponse
-         * @description Assessment data response
-         */
+        /** AssessmentResponse */
         AssessmentResponse: {
             /** Id */
             id: string;
@@ -1709,10 +1664,7 @@ export interface components {
              */
             Scope: string;
         };
-        /**
-         * ChatRequest
-         * @description Request model for chat endpoint.
-         */
+        /** ChatRequest */
         ChatRequest: {
             /** Query */
             query: string;
@@ -1743,10 +1695,7 @@ export interface components {
             /** Context Scope */
             context_scope?: string | null;
         };
-        /**
-         * ChatResponse
-         * @description Response model for chat endpoint.
-         */
+        /** ChatResponse */
         ChatResponse: {
             /** Answer */
             answer?: string | null;
@@ -1825,7 +1774,7 @@ export interface components {
         };
         /**
          * ConsentInfo
-         * @description Student's webcam-proctoring consent decision (granted=False = declined).
+         * @description Webcam-proctoring consent decision (granted=False means declined).
          */
         ConsentInfo: {
             /** Granted */
@@ -1837,10 +1786,7 @@ export interface components {
             /** Timestamp */
             timestamp?: string | null;
         };
-        /**
-         * CreateAssessmentRequest
-         * @description Request to create a new assessment
-         */
+        /** CreateAssessmentRequest */
         CreateAssessmentRequest: {
             /**
              * Title
@@ -1967,10 +1913,7 @@ export interface components {
             /** Document Id */
             document_id: string;
         };
-        /**
-         * DeleteStudentQuestionResponse
-         * @description Response after deleting a student question
-         */
+        /** DeleteStudentQuestionResponse */
         DeleteStudentQuestionResponse: {
             /**
              * Ok
@@ -2035,10 +1978,7 @@ export interface components {
             /** Buffer Hash */
             buffer_hash?: string | null;
         };
-        /**
-         * EvaluateBatchRequest
-         * @description Request to start batch evaluation
-         */
+        /** EvaluateBatchRequest */
         EvaluateBatchRequest: {
             /**
              * Studentids
@@ -2046,10 +1986,7 @@ export interface components {
              */
             studentIds?: string[] | null;
         };
-        /**
-         * EvaluationJobResponse
-         * @description Response after starting evaluation
-         */
+        /** EvaluationJobResponse */
         EvaluationJobResponse: {
             /**
              * Ok
@@ -2069,10 +2006,7 @@ export interface components {
             /** Message */
             message: string;
         };
-        /**
-         * EvaluationStatusResponse
-         * @description Response for evaluation job status check
-         */
+        /** EvaluationStatusResponse */
         EvaluationStatusResponse: {
             /** Jobid */
             jobId: string;
@@ -2134,10 +2068,7 @@ export interface components {
             /** Message */
             message: string;
         };
-        /**
-         * GenerateQuestionsBatchRequest
-         * @description Request to start batch question generation
-         */
+        /** GenerateQuestionsBatchRequest */
         GenerateQuestionsBatchRequest: {
             /**
              * Studentids
@@ -2145,10 +2076,7 @@ export interface components {
              */
             studentIds?: string[] | null;
         };
-        /**
-         * GenerateReportResponse
-         * @description Response after a manual report generation request.
-         */
+        /** GenerateReportResponse */
         GenerateReportResponse: {
             /**
              * Ok
@@ -2209,10 +2137,7 @@ export interface components {
             /** Hascode */
             hasCode: boolean;
         };
-        /**
-         * InstructorQuestionDetail
-         * @description Per-question detail in instructor student view
-         */
+        /** InstructorQuestionDetail */
         InstructorQuestionDetail: {
             /** Questionid */
             questionId: string;
@@ -2283,10 +2208,7 @@ export interface components {
             /** Humanscoredat */
             humanScoredAt?: string | null;
         };
-        /**
-         * InstructorStudentDetailResponse
-         * @description Per-student detailed results for instructor view
-         */
+        /** InstructorStudentDetailResponse */
         InstructorStudentDetailResponse: {
             /**
              * Ok
@@ -2369,10 +2291,7 @@ export interface components {
              */
             ok: boolean;
         };
-        /**
-         * ProctorChunkHealthResponse
-         * @description Proctoring chunk manifest for a student
-         */
+        /** ProctorChunkHealthResponse */
         ProctorChunkHealthResponse: {
             /**
              * Ok
@@ -2390,10 +2309,7 @@ export interface components {
             /** Chunks */
             chunks: components["schemas"]["ProctorChunkItem"][];
         };
-        /**
-         * ProctorChunkItem
-         * @description Single proctoring chunk entry
-         */
+        /** ProctorChunkItem */
         ProctorChunkItem: {
             /** Chunkindex */
             chunkIndex: number;
@@ -2476,10 +2392,7 @@ export interface components {
             /** Completed */
             completed: number;
         };
-        /**
-         * ProgressSummaryResponse
-         * @description Response with progress for all students
-         */
+        /** ProgressSummaryResponse */
         ProgressSummaryResponse: {
             /**
              * Ok
@@ -2492,10 +2405,7 @@ export interface components {
             students: components["schemas"]["StudentProgressItem"][];
             summary: components["schemas"]["ProgressSummary"];
         };
-        /**
-         * QuestionGenerationJobResponse
-         * @description Response after starting question generation
-         */
+        /** QuestionGenerationJobResponse */
         QuestionGenerationJobResponse: {
             /**
              * Ok
@@ -2520,10 +2430,7 @@ export interface components {
             /** Message */
             message: string;
         };
-        /**
-         * QuestionGenerationStatusResponse
-         * @description Response for generation job status check
-         */
+        /** QuestionGenerationStatusResponse */
         QuestionGenerationStatusResponse: {
             /** Jobid */
             jobId: string;
@@ -2549,7 +2456,7 @@ export interface components {
         };
         /**
          * QuestionResponse
-         * @description Individual question data (text is None for gated future questions)
+         * @description text is None for gated future questions.
          */
         QuestionResponse: {
             /** Id */
@@ -2573,10 +2480,7 @@ export interface components {
             /** Prioranswer */
             priorAnswer?: string | null;
         };
-        /**
-         * QuestionResultDetail
-         * @description Detailed result for a single question
-         */
+        /** QuestionResultDetail */
         QuestionResultDetail: {
             /** Questionid */
             questionId: string;
@@ -2618,7 +2522,7 @@ export interface components {
         };
         /**
          * RecordHumanScoreRequest
-         * @description Record a human reference score for a question (dual-scoring harness).
+         * @description Human reference score for the dual-scoring harness; kept separate from the instructor override.
          */
         RecordHumanScoreRequest: {
             /**
@@ -2637,10 +2541,7 @@ export interface components {
              */
             scoredBy?: string | null;
         };
-        /**
-         * RecordHumanScoreResponse
-         * @description Response after recording a human reference score.
-         */
+        /** RecordHumanScoreResponse */
         RecordHumanScoreResponse: {
             /**
              * Ok
@@ -2682,10 +2583,7 @@ export interface components {
             /** Roles */
             roles?: string[];
         };
-        /**
-         * ReleaseResultsResponse
-         * @description Response after releasing results to students
-         */
+        /** ReleaseResultsResponse */
         ReleaseResultsResponse: {
             /**
              * Ok
@@ -2772,10 +2670,7 @@ export interface components {
                 [key: string]: number;
             };
         };
-        /**
-         * ResultsSummaryResponse
-         * @description Response with results for all students
-         */
+        /** ResultsSummaryResponse */
         ResultsSummaryResponse: {
             /**
              * Ok
@@ -2814,7 +2709,7 @@ export interface components {
         };
         /**
          * ScoreAgreementResponse
-         * @description AI-vs-human agreement summary across all dual-scored items.
+         * @description AI-vs-human agreement across all dual-scored items.
          */
         ScoreAgreementResponse: {
             /**
@@ -2838,14 +2733,11 @@ export interface components {
              */
             items: components["schemas"]["ScoreAgreementItem"][];
         };
-        /**
-         * ScoreOverrideRequest
-         * @description Instructor override for a question score
-         */
+        /** ScoreOverrideRequest */
         ScoreOverrideRequest: {
             /**
              * Score
-             * @description Override score (0-10)
+             * @description Override score (0 to the question's max score)
              */
             score: number;
             /**
@@ -2854,10 +2746,7 @@ export interface components {
              */
             comment?: string | null;
         };
-        /**
-         * ScoreOverrideResponse
-         * @description Response after applying a score override
-         */
+        /** ScoreOverrideResponse */
         ScoreOverrideResponse: {
             /**
              * Ok
@@ -2911,10 +2800,7 @@ export interface components {
             /** Total */
             total: number;
         };
-        /**
-         * SendReminderResponse
-         * @description Response after sending a reminder email
-         */
+        /** SendReminderResponse */
         SendReminderResponse: {
             /**
              * Ok
@@ -3004,10 +2890,7 @@ export interface components {
              */
             emailSent: boolean;
         };
-        /**
-         * StudentListResponse
-         * @description Response with list of students
-         */
+        /** StudentListResponse */
         StudentListResponse: {
             /**
              * Ok
@@ -3021,10 +2904,7 @@ export interface components {
             /** Total */
             total: number;
         };
-        /**
-         * StudentProgressItem
-         * @description Individual student progress
-         */
+        /** StudentProgressItem */
         StudentProgressItem: {
             /** Studentid */
             studentId: string;
@@ -3045,10 +2925,7 @@ export interface components {
             /** Submittedat */
             submittedAt?: string | null;
         };
-        /**
-         * StudentProgressResponse
-         * @description Response with student progress data
-         */
+        /** StudentProgressResponse */
         StudentProgressResponse: {
             /** Studentid */
             studentId: string;
@@ -3075,10 +2952,7 @@ export interface components {
             /** Submittedat */
             submittedAt?: string | null;
         };
-        /**
-         * StudentQuestionItem
-         * @description A single student-specific generated question
-         */
+        /** StudentQuestionItem */
         StudentQuestionItem: {
             /** Id */
             id: string;
@@ -3097,10 +2971,7 @@ export interface components {
             /** Createdat */
             createdAt: string;
         };
-        /**
-         * StudentQuestionListResponse
-         * @description Response with all questions for one student
-         */
+        /** StudentQuestionListResponse */
         StudentQuestionListResponse: {
             /**
              * Ok
@@ -3116,10 +2987,7 @@ export interface components {
             /** Total */
             total: number;
         };
-        /**
-         * StudentQuestionResponse
-         * @description Response after creating or updating a student question
-         */
+        /** StudentQuestionResponse */
         StudentQuestionResponse: {
             /**
              * Ok
@@ -3128,10 +2996,7 @@ export interface components {
             ok: boolean;
             question: components["schemas"]["StudentQuestionItem"];
         };
-        /**
-         * StudentQuestionsResponse
-         * @description Response with list of questions for a student
-         */
+        /** StudentQuestionsResponse */
         StudentQuestionsResponse: {
             /**
              * Ok
@@ -3172,10 +3037,7 @@ export interface components {
             /** Assessmentdescription */
             assessmentDescription?: string | null;
         };
-        /**
-         * StudentResponse
-         * @description Student enrollment data
-         */
+        /** StudentResponse */
         StudentResponse: {
             /** Studentid */
             studentId: string;
@@ -3210,10 +3072,7 @@ export interface components {
              */
             enrolledAt: string;
         };
-        /**
-         * StudentResultItem
-         * @description Individual student result
-         */
+        /** StudentResultItem */
         StudentResultItem: {
             /** Studentid */
             studentId: string;
@@ -3232,10 +3091,7 @@ export interface components {
             /** Completedat */
             completedAt?: string | null;
         };
-        /**
-         * StudentResultsResponse
-         * @description Response with complete evaluation results
-         */
+        /** StudentResultsResponse */
         StudentResultsResponse: {
             /** Studentid */
             studentId: string;
@@ -3271,10 +3127,7 @@ export interface components {
             /** Questions */
             questions: components["schemas"]["QuestionResultDetail"][];
         };
-        /**
-         * SubmitAnswerRequest
-         * @description Request to submit an answer (audio, text, video, or an explicit skip) for a question
-         */
+        /** SubmitAnswerRequest */
         SubmitAnswerRequest: {
             /**
              * Question Id
@@ -3318,10 +3171,7 @@ export interface components {
              */
             mode?: string | null;
         };
-        /**
-         * SubmitAnswerResponse
-         * @description Response after submitting an answer
-         */
+        /** SubmitAnswerResponse */
         SubmitAnswerResponse: {
             /**
              * Ok
@@ -3350,10 +3200,7 @@ export interface components {
             /** Assessmentid */
             assessmentId: string;
         };
-        /**
-         * SubmitAssessmentRequest
-         * @description Request to mark assessment as complete
-         */
+        /** SubmitAssessmentRequest */
         SubmitAssessmentRequest: {
             /**
              * Assessment Id
@@ -3361,10 +3208,7 @@ export interface components {
              */
             assessment_id: string;
         };
-        /**
-         * SubmitAssessmentResponse
-         * @description Response after submitting complete assessment
-         */
+        /** SubmitAssessmentResponse */
         SubmitAssessmentResponse: {
             /**
              * Ok
@@ -3386,10 +3230,7 @@ export interface components {
             /** Totalquestions */
             totalQuestions: number;
         };
-        /**
-         * SubmitConsentRequest
-         * @description Request to record a student's webcam-proctoring consent decision.
-         */
+        /** SubmitConsentRequest */
         SubmitConsentRequest: {
             /**
              * Assessment Id
@@ -3412,10 +3253,7 @@ export interface components {
              */
             timestamp: string;
         };
-        /**
-         * SubmitConsentResponse
-         * @description Response after recording a consent decision.
-         */
+        /** SubmitConsentResponse */
         SubmitConsentResponse: {
             /**
              * Ok
@@ -3431,10 +3269,7 @@ export interface components {
             /** Recordedat */
             recordedAt: string;
         };
-        /**
-         * SubmitProctorChunkRequest
-         * @description Request to log a proctoring chunk manifest entry
-         */
+        /** SubmitProctorChunkRequest */
         SubmitProctorChunkRequest: {
             /**
              * Assessment Id
@@ -3457,10 +3292,7 @@ export interface components {
              */
             timestamp?: string | null;
         };
-        /**
-         * SubmitProctorChunkResponse
-         * @description Response after storing a proctoring chunk manifest entry
-         */
+        /** SubmitProctorChunkResponse */
         SubmitProctorChunkResponse: {
             /**
              * Ok
@@ -3474,10 +3306,7 @@ export interface components {
             /** Chunkindex */
             chunkIndex: number;
         };
-        /**
-         * UpdateBriefRequest
-         * @description Request to update the assignment brief
-         */
+        /** UpdateBriefRequest */
         UpdateBriefRequest: {
             /**
              * Brief
@@ -3485,10 +3314,7 @@ export interface components {
              */
             brief: string;
         };
-        /**
-         * UpdateStudentQuestionRequest
-         * @description Instructor edits the text (and optionally time limit) of a generated question
-         */
+        /** UpdateStudentQuestionRequest */
         UpdateStudentQuestionRequest: {
             /**
              * Text
@@ -3503,7 +3329,7 @@ export interface components {
         };
         /**
          * UploadRequest
-         * @description Body for /internal/context/upload
+         * @description Body for /internal/context/upload.
          */
         UploadRequest: {
             /**
@@ -3552,10 +3378,7 @@ export interface components {
              */
             CourseYear?: number | null;
         };
-        /**
-         * UploadStudentsRequest
-         * @description Request to upload students to an assessment
-         */
+        /** UploadStudentsRequest */
         UploadStudentsRequest: {
             /**
              * Students
@@ -3588,10 +3411,7 @@ export interface components {
              */
             fileUrl: string;
         };
-        /**
-         * UploadedStudent
-         * @description Student data for bulk upload
-         */
+        /** UploadedStudent */
         UploadedStudent: {
             /** Name */
             name: string;

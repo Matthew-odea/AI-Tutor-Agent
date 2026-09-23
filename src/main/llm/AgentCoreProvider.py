@@ -1,7 +1,4 @@
-"""
-AgentCoreProvider.py
-LLM provider using AWS Bedrock AgentCore runtime.
-"""
+"""LLM provider facade over AgentCoreClient; normalises failures to Llm* exceptions."""
 from typing import Any, Dict, List
 from src.main.agentcore_setup.bootstrap import get_runtime
 from src.main.agentcore_setup.config import BEDROCK_MODEL_CHAT, BEDROCK_MODEL_EMBED, EMBEDDING_DIM
@@ -17,9 +14,7 @@ class LlmStructuredOutputError(LlmError):
 
 
 class AgentCoreProvider:
-    # Advertises that this client can force structured (tool-use) output.
-    # Consumers gate on `is True` so a MagicMock test double does not falsely
-    # appear structured-output-capable.
+    # Consumers check `is True` so a MagicMock double is not mistaken for structured-output capable
     supports_structured_output = True
 
     def __init__(self):
@@ -27,9 +22,7 @@ class AgentCoreProvider:
         self.logger = logging.getLogger("AgentCoreProvider")
 
     def chat(self, messages: List[Dict], model_id: str = None, **kwargs) -> str:
-        """Send a chat turn. `model_id` overrides the default chat model —
-        used by the cohort report, which can afford a stronger model than the
-        per-answer evaluation path."""
+        """model_id overrides the default chat model (the cohort report uses a stronger one)."""
         model_id = model_id or BEDROCK_MODEL_CHAT
         try:
             result = self.client.chat(messages=messages, model_id=model_id, **kwargs)
@@ -49,12 +42,9 @@ class AgentCoreProvider:
         model_id: str = None,
         **kwargs,
     ) -> Dict[str, Any]:
-        """
-        Force the chat model to return structured output via a single tool call,
-        and return the tool input dict (validated by the model against the schema).
+        """Force a single tool call and return its input dict (always the default chat model).
 
-        Raises LlmStructuredOutputError if the model/transport does not produce a
-        usable tool_use block, so callers can fall back to text parsing.
+        Raises LlmStructuredOutputError on any failure so callers can fall back to text parsing.
         """
         model_id = model_id or BEDROCK_MODEL_CHAT
         tool_config = {

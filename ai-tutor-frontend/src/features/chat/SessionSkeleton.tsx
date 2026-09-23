@@ -1,7 +1,3 @@
-/**
- * Skeleton loader for session list items
- */
-
 export const SessionSkeleton = () => (
   <div className="px-3 py-3 animate-pulse">
     <div className="h-4 bg-gray-700 rounded w-3/4 mb-2"></div>
@@ -9,9 +5,6 @@ export const SessionSkeleton = () => (
   </div>
 );
 
-/**
- * Multiple skeleton loaders for initial load
- */
 export const SessionSkeletonList = ({ count = 5 }: { count?: number }) => (
   <>
     {Array.from({ length: count }).map((_, i) => (

@@ -1,7 +1,3 @@
-/**
- * API Service Layer - Handles all backend communication
- */
-
 import axios, { AxiosError } from 'axios';
 import type {
   AnswerMode,
@@ -14,48 +10,33 @@ import type {
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
-// Explicit upper bound for the bare-axios S3 PUT (the apiClient `timeout` does NOT
-// apply to module-level `axios.put`). Presigned S3 PUTs of large audio can be slow,
-// so the bound is generous — but finite, so a stalled upload aborts with
-// ECONNABORTED (which withRetry treats as retryable) instead of hanging forever.
+// The bare axios.put to S3 doesn't inherit apiClient's timeout. Generous but finite, so a
+// stall aborts with ECONNABORTED (retryable) instead of hanging.
 const S3_PUT_TIMEOUT_MS = 120000;
 
-// Retry tuning for transient failures on the submit/upload path.
-const RETRY_MAX_ATTEMPTS = 3; // 1 initial attempt + up to 2 retries
+const RETRY_MAX_ATTEMPTS = 3; // includes the initial attempt
 const RETRY_BASE_DELAY_MS = 400;
 
-// Create axios instance with default config
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 60000, // 60 second timeout (accommodates large audio uploads on slow networks)
+  timeout: 60000,
 });
 
-/**
- * True for transient failures that are worth retrying: network errors (request
- * made, no response), request timeouts (ECONNABORTED), and server 5xx. NEVER
- * true for 4xx — those are deterministic, and 401/403 are handled by the
- * token-refresh interceptor, not by re-firing the same request.
- */
+/** Network errors, timeouts and 5xx. Never 4xx: 401/403 belong to the token-refresh interceptor. */
 export function isTransientError(err: unknown): boolean {
   if (!axios.isAxiosError(err)) return false;
   const ax = err as AxiosError;
   if (ax.code === 'ECONNABORTED') return true; // timeout
   if (ax.response) {
-    return ax.response.status >= 500; // 5xx only; 4xx is non-retryable
+    return ax.response.status >= 500;
   }
-  // No response but a request was made => network-level failure.
   return Boolean(ax.request) || ax.code === 'ERR_NETWORK';
 }
 
-/**
- * Run `fn`, retrying transient failures with bounded exponential backoff + jitter.
- * The final error (after retries are exhausted, or immediately for a non-retryable
- * error) is re-thrown unchanged so callers' existing `handleApiError` path is
- * preserved verbatim.
- */
+/** Exponential backoff + jitter. The final error is re-thrown unchanged for handleApiError. */
 export async function withRetry<T>(
   fn: () => Promise<T>,
   opts?: {
@@ -74,7 +55,6 @@ export async function withRetry<T>(
       return await fn();
     } catch (err) {
       attempt += 1;
-      // Stop if we've used all attempts or the error isn't transient.
       if (attempt >= maxAttempts || !isRetryable(err)) {
         throw err;
       }
@@ -85,7 +65,6 @@ export async function withRetry<T>(
   }
 }
 
-// Attach student session token to every request if present
 apiClient.interceptors.request.use((config) => {
   const token = localStorage.getItem('studentToken');
   if (token) {
@@ -95,18 +74,9 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Response interceptor: auto-refresh the session token on 401/403.
-//
-// The session is renewed by re-exchanging the student's own invite token — the
-// same link they were emailed — which the backend honours for as long as the
-// assessment window is open. Nothing here can mint a token for a student ID alone.
-//
-// Single-flight: a module-level promise holds the in-flight exchange. The FIRST
-// request to 401/403 starts it; every concurrent 401/403 AWAITS the same promise
-// instead of starting its own (or being spuriously rejected). When it resolves,
-// every waiter re-issues with the fresh token; if it rejects, every waiter
-// rejects. Net: N concurrent 401/403s => exactly ONE exchange, all N replayed.
-// Cleared in `finally` so a later expiry can refresh again.
+// Auto-refresh on 401/403 by re-exchanging the student's own invite token (honoured while
+// the assessment window is open); nothing here can mint a token from a student id alone.
+// Single-flight: N concurrent 401/403s share one exchange and all replay (or all reject).
 let refreshPromise: Promise<string> | null = null;
 
 function refreshToken(): Promise<string> {
@@ -126,7 +96,6 @@ function refreshToken(): Promise<string> {
       localStorage.setItem('authToken', token);
       return token;
     } finally {
-      // Allow the next expiry to trigger a fresh refresh.
       refreshPromise = null;
     }
   })();
@@ -143,17 +112,15 @@ apiClient.interceptors.response.use(
       (error.response?.status === 401 || error.response?.status === 403) &&
       !originalRequest.url?.includes('/auth/student/exchange')
     ) {
-      // Renewal requires the student's stored invite token.
       if (localStorage.getItem('inviteToken')) {
         originalRequest._retried = true;
         try {
-          // Join the in-flight refresh if one exists, otherwise start it.
           const token = await refreshToken();
           originalRequest.headers = originalRequest.headers ?? {};
           originalRequest.headers['Authorization'] = `Bearer ${token}`;
           return apiClient(originalRequest);
         } catch {
-          // Token refresh also failed — fall through to normal error handling.
+          // Refresh failed: fall through and reject the original error.
         }
       }
     }
@@ -168,18 +135,15 @@ const TIME_UP_MESSAGES: Record<string, string> = {
   assessment_deadline_passed: 'The due date for this assessment has passed, so it can no longer be submitted.',
 };
 
-// Error handler
 export const handleApiError = (error: AxiosError): never => {
   if (error.response) {
-    // Server responded with an error status
-    // The backend answers every failure in the envelope {ok: false, error: {code, message}};
-    // `detail` is FastAPI's default shape and only kept as a fallback.
+    // Failures use the {ok: false, error: {code, message}} envelope; `detail` is FastAPI's fallback.
     const responseData = error.response.data as { detail?: string; error?: { code?: string; message?: string } };
     const serverMessage = responseData?.error?.message || responseData?.detail;
     let message = serverMessage || error.message;
     const windowMessage = TIME_UP_MESSAGES[responseData?.error?.code ?? ''];
 
-    // Provide clearer messages for common status codes, but preserve domain-specific detail messages
+    // Friendlier copy for window errors, bare 404s and all 403s; otherwise keep the server's message.
     if (windowMessage) {
       message = windowMessage;
     } else if (error.response.status === 404 && (!serverMessage || serverMessage === 'Not Found')) {
@@ -195,30 +159,22 @@ export const handleApiError = (error: AxiosError): never => {
     };
     throw apiError;
   } else if (error.request) {
-    // Request made but no response received (network issue)
     throw {
       message: 'Could not reach the server — please check your internet connection and try again.',
       status: 0,
     } as ApiError;
   } else {
-    // Something else went wrong
     throw {
       message: error.message || 'An unexpected error occurred',
     } as ApiError;
   }
 };
 
-/**
- * The questions response with `answerMode` narrowed: the wire types it as a
- * plain string, the UI only knows 'oral' | 'written'.
- */
+// The wire types answerMode as a plain string; the UI only knows 'oral' | 'written'.
 export type QuestionsResponse = Omit<Schemas['StudentQuestionsResponse'], 'answerMode'> & {
   answerMode: AnswerMode;
 };
 
-/**
- * Get all questions for a student's assessment
- */
 export async function getQuestions(
   studentId: string,
   assessmentId: string
@@ -233,9 +189,6 @@ export async function getQuestions(
   }
 }
 
-/**
- * Submit an audio answer for a question
- */
 export async function submitAnswer(
   studentId: string,
   questionId: string,
@@ -258,9 +211,6 @@ export async function submitAnswer(
   }
 }
 
-/**
- * Submit a text answer for a question
- */
 export async function submitTextAnswer(
   studentId: string,
   questionId: string,
@@ -282,8 +232,8 @@ export async function submitTextAnswer(
 }
 
 /**
- * Submit an explicit "skipped / no answer" marker for a question. The server
- * records it as a non-answer (zero credit) and never evaluates it as content.
+ * Records a genuine non-answer (zero credit, never evaluated as content).
+ * Older backends reject answer_type 'skipped' with 400/422; skipCurrentQuestion falls back.
  */
 export async function submitSkip(
   studentId: string,
@@ -303,19 +253,12 @@ export async function submitSkip(
   }
 }
 
-/**
- * Consent record version. Bumped whenever the wording/scope of the consent the
- * student agrees to changes, so each server-side record is unambiguous about
- * WHICH consent text was shown. Co-located with recordConsent below.
- */
+// Bump whenever the consent wording or scope changes, so each record says which text was shown.
 export const CONSENT_VERSION = '2026-06-10';
 
 /**
- * Record the student's webcam-proctoring consent decision server-side.
- *
- * A `granted: false` record is the instructor app's signal that the student
- * DECLINED recording. The caller (recordConsentDecision in the store) treats
- * this as best-effort: a failure is logged and toasted, never blocking.
+ * granted:false is the instructor app's audit signal that the student declined recording.
+ * Callers must treat failure as non-blocking (see recordConsentDecision).
  */
 export async function recordConsent(
   studentId: string,
@@ -334,9 +277,6 @@ export async function recordConsent(
   }
 }
 
-/**
- * Log a proctoring chunk manifest entry
- */
 export async function submitProctorChunk(
   studentId: string,
   assessmentId: string,
@@ -355,9 +295,6 @@ export async function submitProctorChunk(
   }
 }
 
-/**
- * Submit the complete assessment
- */
 export async function submitAssessment(
   studentId: string,
   assessmentId: string
@@ -373,9 +310,6 @@ export async function submitAssessment(
   }
 }
 
-/**
- * Get current progress for student's assessment
- */
 export async function getProgress(
   studentId: string,
   assessmentId: string
@@ -390,9 +324,6 @@ export async function getProgress(
   }
 }
 
-/**
- * Get evaluation results for completed assessment
- */
 export async function getResults(
   studentId: string,
   assessmentId: string
@@ -407,13 +338,7 @@ export async function getResults(
   }
 }
 
-/**
- * Download the results PDF for a completed assessment.
- *
- * Routed through `apiClient` so it inherits the auth-injection and 401/403
- * token-refresh interceptors (a raw `fetch` would bypass both). Returns the raw
- * PDF blob; the caller is responsible for triggering the browser download.
- */
+// Goes through apiClient (not fetch) to inherit the auth and token-refresh interceptors.
 export async function getResultsPdf(
   studentId: string,
   assessmentId: string
@@ -429,17 +354,11 @@ export async function getResultsPdf(
   }
 }
 
-/**
- * What the upload is for. The server builds the S3 key from this plus the
- * student id in the auth token — the client never names the key.
- */
+// The server builds the S3 key from this plus the student id in the auth token.
 export type UploadTarget =
   | { kind: 'audio'; questionId: string }
   | { kind: 'proctoring'; assessmentId: string; chunkIndex: number };
 
-/**
- * Get S3 presigned upload URL for a media file
- */
 export async function getUploadUrl(
   target: UploadTarget,
   contentType: string = 'audio/webm'
@@ -462,9 +381,6 @@ export async function getUploadUrl(
   }
 }
 
-/**
- * Upload audio file directly to S3
- */
 export async function uploadAudioToS3(
   uploadUrl: string,
   audioBlob: Blob,
@@ -473,9 +389,6 @@ export async function uploadAudioToS3(
   try {
     await withRetry(() =>
       axios.put(uploadUrl, audioBlob, {
-        // Explicit finite bound: the bare `axios.put` does NOT inherit apiClient's
-        // timeout. On a stall this aborts with ECONNABORTED (retried by withRetry)
-        // instead of hanging "Uploading… X%" forever.
         timeout: S3_PUT_TIMEOUT_MS,
         headers: {
           'Content-Type': audioBlob.type,

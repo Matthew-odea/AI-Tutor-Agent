@@ -60,7 +60,6 @@ export default function BulkUploadCSV({ assessmentId, onUploadSuccess }: BulkUpl
               return;
             }
 
-            // Normalize headers: lowercase and strip underscores/hyphens/spaces
             const normalizedData = results.data.map(row => {
               const normalizedRow: Record<string, string> = {};
               Object.keys(row).forEach(key => {
@@ -69,7 +68,6 @@ export default function BulkUploadCSV({ assessmentId, onUploadSuccess }: BulkUpl
               return normalizedRow;
             });
 
-            // Validate required headers
             const requiredHeaders = ['name', 'email', 'studentid', 'code'];
             const firstRow = normalizedData[0];
             const headers = Object.keys(firstRow);
@@ -80,7 +78,6 @@ export default function BulkUploadCSV({ assessmentId, onUploadSuccess }: BulkUpl
               return;
             }
 
-            // Map to ParsedStudent[] with validation
             const seenIds = new Set<string>();
             const students: ParsedStudent[] = [];
             const validationErrors: string[] = [];
@@ -163,8 +160,6 @@ export default function BulkUploadCSV({ assessmentId, onUploadSuccess }: BulkUpl
     reader.readAsText(file);
   }, []);
 
-  // `isDragReject` drives the danger-tinted drop target: without it a
-  // non-CSV drag looked identical to a valid one right up until nothing happened.
   const { getRootProps, getInputProps, isDragActive, isDragReject } = useDropzone({
     onDrop,
     accept: {
@@ -192,7 +187,6 @@ export default function BulkUploadCSV({ assessmentId, onUploadSuccess }: BulkUpl
 
       await apiService.uploadStudents(assessmentId, uploadData);
 
-      // Notify parent and navigate to question generation
       onUploadSuccess?.();
       navigate(`/assessments/${assessmentId}/generate`, { state: { uploaded: true } });
     } catch (err) {
@@ -205,7 +199,6 @@ export default function BulkUploadCSV({ assessmentId, onUploadSuccess }: BulkUpl
 
   return (
     <div className="max-w-4xl space-y-6">
-      {/* CSV Format Info */}
       <div className="bg-paper border border-hairline rounded-xl p-6">
         <h3 className="font-serif text-lg font-semibold text-ink mb-3">CSV Format Requirements</h3>
         <p className="text-slate mb-4">
@@ -229,7 +222,6 @@ export default function BulkUploadCSV({ assessmentId, onUploadSuccess }: BulkUpl
             <span><strong className="text-ink">code</strong> - Student's submitted code (single line or escaped)</span>
           </li>
           <li className="flex items-start">
-            {/* Optional column — deliberately neutral, not an accent bullet. */}
             <span aria-hidden="true" className="text-slate mr-2">•</span>
             <span><strong>assignmentFile</strong> - (Optional) Path to assignment file</span>
           </li>
@@ -252,9 +244,7 @@ Jane Smith,jane@example.com,12346,"def factorial(n):\\n    if n <= 1:\\n        
         </button>
       </div>
 
-      {/* Dropzone. react-dropzone already wires tabIndex + Enter/Space activation
-          onto the root; the explicit role/aria-label and focus ring are what make
-          that keyboard path discoverable to screen readers. */}
+      {/* react-dropzone wires tabIndex + Enter/Space; role/aria-label expose it to AT. */}
       <div
         {...getRootProps()}
         role="button"
@@ -302,9 +292,7 @@ Jane Smith,jane@example.com,12346,"def factorial(n):\\n    if n <= 1:\\n        
         )}
       </div>
 
-      {/* Parse Error. Kept bespoke rather than swapped for <ErrorMessage>: row-level
-          validation failures arrive newline-joined and are worth listing one per
-          line, which the shared single-paragraph banner can't do. */}
+      {/* Not <ErrorMessage>: row errors are newline-joined and listed one per line. */}
       {parseError && (
         <div className="bg-danger/10 border border-danger/30 rounded-xl p-4" role="alert">
           <div className="flex items-start">
@@ -338,7 +326,6 @@ Jane Smith,jane@example.com,12346,"def factorial(n):\\n    if n <= 1:\\n        
         </div>
       )}
 
-      {/* Preview Table */}
       {parsedStudents.length > 0 && (
         <div className="bg-paper border border-hairline rounded-xl overflow-hidden">
           <div className="p-4 border-b border-hairline">
@@ -365,8 +352,7 @@ Jane Smith,jane@example.com,12346,"def factorial(n):\\n    if n <= 1:\\n        
                 </tr>
               </thead>
               <tbody className="divide-y divide-hairline">
-                {/* Each row may be followed by its own expanded-code row, so the pair
-                    is what carries the key — not the <tr>. */}
+                {/* Fragment carries the key: each row may have an expanded-code row. */}
                 {parsedStudents.map((student, index) => (
                   <Fragment key={index}>
                     <tr className="hover:bg-ink/5">
@@ -408,7 +394,6 @@ Jane Smith,jane@example.com,12346,"def factorial(n):\\n    if n <= 1:\\n        
         </div>
       )}
 
-      {/* Action Buttons */}
       {parsedStudents.length > 0 && (
         <div className="flex items-center gap-4">
           <button

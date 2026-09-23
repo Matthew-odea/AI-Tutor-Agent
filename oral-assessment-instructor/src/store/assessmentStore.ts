@@ -8,7 +8,6 @@ import type {
 } from '../../../shared/types/assessment';
 
 interface AssessmentStore {
-  // State
   assessments: Assessment[];
   selectedAssessment: Assessment | null;
   students: Student[];
@@ -18,7 +17,6 @@ interface AssessmentStore {
   isLoading: boolean;
   error: string | null;
 
-  // Actions
   setAssessments: (assessments: Assessment[]) => void;
   addAssessment: (assessment: Assessment) => void;
   setSelectedAssessment: (assessment: Assessment | null) => void;
@@ -33,7 +31,6 @@ interface AssessmentStore {
 }
 
 export const useAssessmentStore = create<AssessmentStore>((set) => ({
-  // Initial state
   assessments: [],
   selectedAssessment: null,
   students: [],
@@ -43,7 +40,6 @@ export const useAssessmentStore = create<AssessmentStore>((set) => ({
   isLoading: false,
   error: null,
 
-  // Actions
   setAssessments: (assessments) => set({ assessments }),
   
   addAssessment: (assessment) =>

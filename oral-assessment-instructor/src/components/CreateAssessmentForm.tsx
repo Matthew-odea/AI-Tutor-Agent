@@ -12,14 +12,11 @@ const PRESETS: Record<
   Exclude<AssessmentType, 'custom'>,
   Pick<CreateAssessmentRequest, 'proctored' | 'allowReview' | 'feedbackRelease' | 'autoEvaluate'>
 > = {
-  // Auto-evaluate on both: the exam scores automatically but you release results
-  // manually; formative scores and shows feedback immediately.
+  // Both auto-evaluate; the exam still needs a manual results release.
   'proctored-exam': { proctored: true, allowReview: false, feedbackRelease: 'manual', autoEvaluate: true },
   'formative-practice': { proctored: false, allowReview: true, feedbackRelease: 'immediate', autoEvaluate: true },
 };
 
-// Shared control styling — one radius (rounded-xl), hairline borders, ink/5 fill.
-// Kept as constants so the eleven inputs below can't drift apart again.
 const INPUT_CLASS =
   'w-full px-4 py-2 bg-ink/5 border border-hairline rounded-xl text-ink placeholder-slate focus:border-accent focus:ring-2 focus:ring-accent focus:outline-none';
 const NUMBER_INPUT_CLASS = `${INPUT_CLASS} tabular-nums`;
@@ -45,7 +42,7 @@ export default function CreateAssessmentForm() {
     scheduledWindowEnd: undefined,
     answerMode: 'oral',
     preparationTime: 60,
-    // Behaviour flags — default to the "Proctored exam" preset, i.e. today's behaviour.
+    // Behaviour flags default to the "Proctored exam" preset.
     proctored: true,
     allowReview: false,
     feedbackRelease: 'manual',
@@ -60,8 +57,7 @@ export default function CreateAssessmentForm() {
   const initialFormData = useRef(formData);
   const hasSubmitted = useRef(false);
 
-  // `error` is app-wide store state, so a failure from whichever page the
-  // instructor came from would otherwise render as a banner on a pristine form.
+  // `error` is app-wide store state; clear any left over from the previous page.
   useEffect(() => {
     setError(null);
   }, [setError]);
@@ -79,7 +75,6 @@ export default function CreateAssessmentForm() {
     setAssessmentType('custom');
   };
 
-  // Warn on unsaved changes
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
       if (hasSubmitted.current) return;
@@ -108,7 +103,7 @@ export default function CreateAssessmentForm() {
     } else {
       const dueDate = new Date(formData.dueDate);
       const today = new Date();
-      // Compare date portions only (strip time) so selecting tomorrow never fails
+      // Date-only comparison so choosing today is valid.
       const dueDateOnly = new Date(dueDate.getFullYear(), dueDate.getMonth(), dueDate.getDate());
       const todayOnly = new Date(today.getFullYear(), today.getMonth(), today.getDate());
       if (dueDateOnly < todayOnly) {
@@ -170,7 +165,6 @@ export default function CreateAssessmentForm() {
       addAssessment(assessment);
       setSelectedAssessment(assessment);
 
-      // Navigate to upload students with success message
       hasSubmitted.current = true;
       navigate(`/assessments/${assessment.id}/upload`, { state: { created: assessment.title } });
     } catch (err) {
@@ -193,7 +187,6 @@ export default function CreateAssessmentForm() {
         : value,
     }));
 
-    // Clear error for this field
     if (errors[name as keyof CreateAssessmentRequest]) {
       setErrors((prev) => ({ ...prev, [name]: undefined }));
     }
@@ -208,16 +201,13 @@ export default function CreateAssessmentForm() {
     }));
   };
 
-  // The advanced panel is forced open for a custom config, so aria-expanded has
-  // to follow what's actually rendered rather than just the toggle's own state.
+  // Custom config forces the panel open; aria-expanded must reflect that.
   const advancedOpen = showAdvanced || assessmentType === 'custom';
 
   return (
     <form onSubmit={handleSubmit} className="max-w-2xl space-y-6">
-      {/* Submit failure — previously the store error was set but never shown. */}
       {error && <ErrorMessage error={error} onDismiss={() => setError(null)} />}
 
-      {/* Title */}
       <div>
         <label htmlFor="title" className={LABEL_CLASS}>
           Assessment Title *
@@ -240,7 +230,6 @@ export default function CreateAssessmentForm() {
         )}
       </div>
 
-      {/* Description */}
       <div>
         <label htmlFor="description" className={LABEL_CLASS}>
           Description
@@ -256,7 +245,6 @@ export default function CreateAssessmentForm() {
         />
       </div>
 
-      {/* Course */}
       <div>
         <label htmlFor="course" className={LABEL_CLASS}>
           Course *
@@ -279,7 +267,6 @@ export default function CreateAssessmentForm() {
         )}
       </div>
 
-      {/* Due Date */}
       <div>
         <label htmlFor="dueDate" className={LABEL_CLASS}>
           Display Deadline *
@@ -304,7 +291,6 @@ export default function CreateAssessmentForm() {
         )}
       </div>
 
-      {/* Access Mode */}
       <fieldset aria-describedby="accessMode-help">
         <legend className={LEGEND_CLASS}>Student Access</legend>
         <div className="flex space-x-4">
@@ -336,7 +322,6 @@ export default function CreateAssessmentForm() {
         </p>
       </fieldset>
 
-      {/* Scheduled Window (shown only when scheduled mode is selected) */}
       {formData.accessMode === 'scheduled' && (
         <div className="bg-ink/5 border border-hairline rounded-xl p-4 space-y-4">
           <h3 className="text-sm font-semibold text-ink">Scheduled Access Window</h3>
@@ -383,7 +368,6 @@ export default function CreateAssessmentForm() {
         </div>
       )}
 
-      {/* Total Questions */}
       <div>
         <label htmlFor="totalQuestions" className={LABEL_CLASS}>
           Number of Questions *
@@ -412,7 +396,6 @@ export default function CreateAssessmentForm() {
         )}
       </div>
 
-      {/* Answer Mode */}
       <fieldset aria-describedby="answerMode-help">
         <legend className={LEGEND_CLASS}>Answer Mode *</legend>
         <div className="flex space-x-4">
@@ -444,7 +427,6 @@ export default function CreateAssessmentForm() {
         </p>
       </fieldset>
 
-      {/* Preparation Time (oral only) */}
       {formData.answerMode === 'oral' && (
         <div>
           <label htmlFor="preparationTime" className={LABEL_CLASS}>
@@ -468,8 +450,6 @@ export default function CreateAssessmentForm() {
           <p id="preparationTime-help" className={HELP_CLASS}>
             0-300 seconds (0-5 minutes). Time students have to read the question before recording begins. Set to 0 to start recording immediately.
           </p>
-          {/* Validation set this key but nothing rendered it, so an out-of-range
-              value blocked submit with no visible explanation. */}
           {errors.preparationTime && (
             <p id="preparationTime-error" role="alert" className={ERROR_CLASS}>
               {errors.preparationTime}
@@ -478,7 +458,6 @@ export default function CreateAssessmentForm() {
         </div>
       )}
 
-      {/* Time Limit */}
       <div>
         <label htmlFor="timeLimit" className={LABEL_CLASS}>
           Time Limit per Question (minutes)
@@ -506,7 +485,6 @@ export default function CreateAssessmentForm() {
         )}
       </div>
 
-      {/* Assessment Type (presets) */}
       <fieldset>
         <legend className={LEGEND_CLASS}>Assessment Type</legend>
         <div className="flex flex-col gap-2">
@@ -552,7 +530,6 @@ export default function CreateAssessmentForm() {
         </div>
       </fieldset>
 
-      {/* Advanced settings — per-flag override */}
       <div>
         <button
           type="button"
@@ -565,7 +542,6 @@ export default function CreateAssessmentForm() {
         </button>
         {advancedOpen && (
           <div id="advanced-settings" className="mt-3 bg-ink/5 border border-hairline rounded-xl p-4 space-y-4">
-            {/* Proctoring */}
             <fieldset>
               <legend className="block text-sm font-medium text-ink mb-1">Webcam proctoring</legend>
               <div className="flex space-x-4">
@@ -579,7 +555,6 @@ export default function CreateAssessmentForm() {
                 </label>
               </div>
             </fieldset>
-            {/* Answer review */}
             <fieldset aria-describedby="allowReview-help">
               <legend className="block text-sm font-medium text-ink mb-1">Answer review</legend>
               <div className="flex space-x-4">
@@ -594,7 +569,6 @@ export default function CreateAssessmentForm() {
               </div>
               <p id="allowReview-help" className="mt-1 text-xs text-slate">Applies to written assessments.</p>
             </fieldset>
-            {/* Feedback release */}
             <fieldset>
               <legend className="block text-sm font-medium text-ink mb-1">Feedback release</legend>
               <div className="flex space-x-4">
@@ -608,7 +582,6 @@ export default function CreateAssessmentForm() {
                 </label>
               </div>
             </fieldset>
-            {/* Automatic AI evaluation */}
             <fieldset aria-describedby="autoEvaluate-help">
               <legend className="block text-sm font-medium text-ink mb-1">Automatic AI evaluation</legend>
               <div className="flex space-x-4">
@@ -667,7 +640,6 @@ export default function CreateAssessmentForm() {
         )}
       </div>
 
-      {/* Buttons */}
       <div className="flex items-center gap-4 pt-4">
         <button
           type="submit"

@@ -26,7 +26,6 @@ interface EditState {
   timeLimit: string;
 }
 
-/** Shared chip shape — soft tint + hairline-weight border, one radius. */
 const CHIP_BASE = 'px-2 py-0.5 text-xs border rounded-full';
 
 const DIFFICULTY_COLORS: Record<string, string> = {
@@ -50,7 +49,7 @@ const PRIMARY_BUTTON_CLASS =
 const SECONDARY_BUTTON_CLASS =
   'bg-ink/5 text-ink rounded-xl font-medium hover:bg-ink/10 transition-colors';
 
-/** Minimum question length, enforced server-side too. */
+/** Also enforced server-side. */
 const MIN_QUESTION_LENGTH = 10;
 
 export default function QuestionEditor() {
@@ -65,14 +64,11 @@ export default function QuestionEditor() {
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editState, setEditState] = useState<EditState>({ text: '', timeLimit: '' });
-  // Length validation lives next to the field it belongs to (wired via
-  // aria-invalid/aria-describedby) rather than in the page-level error banner,
-  // which is reserved for API failures.
+  // Field-level; the page-level error banner is reserved for API failures.
   const [editError, setEditError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  // Two-step inline confirm, as in AssessmentList: the id of the question whose
-  // delete has been armed but not yet confirmed. Never a browser dialog.
+  // Id of the question whose delete is armed but not yet confirmed.
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const [showAddForm, setShowAddForm] = useState(false);
@@ -110,9 +106,7 @@ export default function QuestionEditor() {
 
   useEffect(() => {
     if (assessmentId && studentId) {
-      // Intentional: load questions when the route params resolve. loadData
-      // toggles loading/error and populates the questions — an effect-driven
-      // fetch, not a render cascade.
+      // Effect-driven fetch, not a render cascade.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       loadData();
     }
@@ -164,8 +158,7 @@ export default function QuestionEditor() {
     }
   };
 
-  // Confirmation is the caller's job — the Confirm button below is the second
-  // step, so this runs unguarded.
+  // Unguarded: the inline Confirm button is the confirmation step.
   const deleteQuestion = async (questionId: string) => {
     setDeletingId(questionId);
     setError(null);
@@ -238,7 +231,6 @@ export default function QuestionEditor() {
     >
       {error && <ErrorMessage error={error} onDismiss={() => setError(null)} />}
 
-      {/* Question list */}
       {questions.length === 0 && (
         <div className="bg-paper border border-hairline rounded-xl p-12 text-center">
           <h2 className="font-serif text-lg font-semibold text-ink">No questions yet</h2>
@@ -344,9 +336,7 @@ export default function QuestionEditor() {
             </div>
 
             {!isLocked && editingId !== q.id && (
-              /* Two-step inline confirm — no modal and no browser dialog for a
-                 destructive action, and both steps name the question for screen
-                 readers. Same pattern as AssessmentList. */
+              /* Two-step inline confirm, same pattern as AssessmentList. */
               confirmDeleteId === q.id ? (
                 <div className="flex items-center gap-2 shrink-0">
                   <button
@@ -402,7 +392,6 @@ export default function QuestionEditor() {
         </div>
       ))}
 
-      {/* Add question */}
       {!isLocked && (
         showAddForm ? (
           <div className="bg-paper border border-hairline rounded-xl p-5 space-y-4">

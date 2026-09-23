@@ -1,19 +1,4 @@
-"""
-Structured logging utilities for the AI Tutor API.
-
-In production (LOG_FORMAT=json) all records are emitted as single-line JSON objects
-with a consistent schema:
-
-  {
-    "timestamp": "2026-03-18T12:34:56.789Z",
-    "level": "INFO",
-    "logger": "src.main.controllers.assessment_router",
-    "message": "...",
-    ...extra fields from LogRecord.extra...
-  }
-
-In development the default Python formatter is used for human-readable output.
-"""
+"""Logging setup: single-line JSON records when LOG_FORMAT=json (prod), plain text otherwise."""
 from __future__ import annotations
 
 import json
@@ -24,7 +9,6 @@ from datetime import datetime, timezone
 
 
 class _JsonFormatter(logging.Formatter):
-    """Emit each log record as a single-line JSON object."""
 
     def format(self, record: logging.LogRecord) -> str:
         payload: dict = {
@@ -34,7 +18,7 @@ class _JsonFormatter(logging.Formatter):
             "logger": record.name,
             "message": record.getMessage(),
         }
-        # Merge any extra fields attached via logger.info("...", extra={...})
+        # Anything not a standard LogRecord attribute came from extra={...}
         for key, value in record.__dict__.items():
             if key not in (
                 "name", "msg", "args", "levelname", "levelno", "pathname",
@@ -52,13 +36,7 @@ class _JsonFormatter(logging.Formatter):
 
 
 def configure_logging() -> None:
-    """
-    Configure root logger based on LOG_FORMAT env var.
-
-    LOG_FORMAT=json  → JSON output (production)
-    LOG_FORMAT=text  → human-readable (default for local dev)
-    LOG_LEVEL        → override log level (default INFO)
-    """
+    """Env: LOG_FORMAT=json|text (default text), LOG_LEVEL (default INFO)."""
     log_format = os.getenv("LOG_FORMAT", "text").lower()
     log_level_name = os.getenv("LOG_LEVEL", "INFO").upper()
     log_level = getattr(logging, log_level_name, logging.INFO)
@@ -76,11 +54,10 @@ def configure_logging() -> None:
         )
 
     root = logging.getLogger()
-    # Remove any existing handlers (e.g. from pytest / uvicorn default setup)
+    # Replace handlers pre-installed by uvicorn/pytest so records are not emitted twice
     root.handlers.clear()
     root.addHandler(handler)
     root.setLevel(log_level)
 
-    # Silence noisy third-party loggers in production
     for noisy in ("boto3", "botocore", "urllib3", "httpx", "neo4j"):
         logging.getLogger(noisy).setLevel(logging.WARNING)

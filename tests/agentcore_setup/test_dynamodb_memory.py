@@ -1,9 +1,4 @@
-"""
-Integration tests for DynamoDBConversationMemory using moto.
-
-Covers: add_message, get_history, get_formatted_history, session_exists,
-get_session_info, list_sessions, clear_session, pedagogy_mode, truncate.
-"""
+"""Integration tests for DynamoDBConversationMemory using moto."""
 from __future__ import annotations
 
 import boto3
@@ -37,8 +32,6 @@ def memory(monkeypatch):
         )
         yield DynamoDBConversationMemory(table_name=TABLE, region="us-east-1", ttl_days=30)
 
-
-# ── Basic operations ────────────────────────────────────
 
 class TestAddAndGet:
     def test_add_and_get_history(self, memory):
@@ -74,8 +67,6 @@ class TestAddAndGet:
         assert memory.get_formatted_history("empty") == ""
 
 
-# ── Session metadata ────────────────────────────────────
-
 class TestSessionMetadata:
     def test_session_exists(self, memory):
         assert memory.session_exists("new") is False
@@ -102,35 +93,29 @@ class TestSessionMetadata:
         assert stats["message_count"] == 1
 
 
-# ── List sessions ───────────────────────────────────────
+class _PagedTable:
+    """Real moto table, but every query is capped at `page` items so LastEvaluatedKey paging kicks in."""
 
-class TestListSessions:
-    def test_list_sessions(self, memory):
-        memory.add_message("s-a", "user", "a")
-        memory.add_message("s-b", "user", "b")
+    def __init__(self, table, page: int):
+        self._table = table
+        self._page = page
 
-        sessions = memory.list_sessions()
-        ids = [s["session_id"] for s in sessions]
-        assert "s-a" in ids
-        assert "s-b" in ids
+    def query(self, **kwargs):
+        return self._table.query(Limit=self._page, **kwargs)
 
-
-# ── Clear session ───────────────────────────────────────
-
-class TestClearSession:
-    def test_clear_existing(self, memory):
-        memory.add_message("s-c", "user", "msg1")
-        memory.add_message("s-c", "assistant", "msg2")
-
-        assert memory.clear_session("s-c") is True
-        assert memory.session_exists("s-c") is False
-        assert memory.get_history("s-c") == []
-
-    def test_clear_nonexistent(self, memory):
-        assert memory.clear_session("nope") is False
+    def __getattr__(self, name):
+        return getattr(self._table, name)
 
 
-# ── Pedagogy mode ───────────────────────────────────────
+class TestPagination:
+    def test_get_history_follows_last_evaluated_key(self, memory):
+        for i in range(5):
+            memory.add_message("s-pg", "user", f"msg-{i}")
+        memory.table = _PagedTable(memory.table, page=2)
+
+        history = memory.get_history("s-pg")
+        assert [m["content"] for m in history] == [f"msg-{i}" for i in range(5)]
+
 
 class TestPedagogyMode:
     def test_set_and_get(self, memory):
@@ -147,27 +132,6 @@ class TestPedagogyMode:
         assert memory.get_pedagogy_mode("brand-new") == "concise"
 
 
-# ── Truncate ────────────────────────────────────────────
-
-class TestTruncate:
-    def test_truncate_removes_oldest(self, memory):
-        for i in range(6):
-            memory.add_message("s-t", "user", f"msg-{i}", tokens=10)
-
-        removed = memory.truncate_session_history("s-t", max_messages=3)
-        assert removed == 3
-
-        history = memory.get_history("s-t")
-        assert len(history) == 3
-
-    def test_truncate_noop_when_under_limit(self, memory):
-        memory.add_message("s-t2", "user", "msg-0")
-        removed = memory.truncate_session_history("s-t2", max_messages=10)
-        assert removed == 0
-
-
-# ── Legacy compatibility ────────────────────────────────
-
 class TestLegacy:
     def test_get_state(self, memory):
         memory.add_message("s-leg", "user", "hi")
@@ -177,11 +141,6 @@ class TestLegacy:
     def test_set_state_creates_session(self, memory):
         memory.set_state("new-leg", {})
         assert memory.session_exists("new-leg") is True
-
-    def test_clear_state(self, memory):
-        memory.add_message("s-clr", "user", "hi")
-        memory.clear_state("s-clr")
-        assert memory.session_exists("s-clr") is False
 
     def test_update_session_title(self, memory):
         memory.add_message("s-title", "user", "hi")

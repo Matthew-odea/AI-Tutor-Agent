@@ -1,12 +1,8 @@
-"""
-DTO for chat history response.
-"""
 from pydantic import BaseModel
 from typing import List, Optional
 
 
 class ChatMessage(BaseModel):
-    """Individual message in conversation history."""
     role: str  # "user" or "assistant"
     content: str
     timestamp: str
@@ -15,7 +11,6 @@ class ChatMessage(BaseModel):
 
 
 class ChatHistoryResponse(BaseModel):
-    """Response model for retrieving chat history."""
     session_id: str
     messages: List[ChatMessage]
     total_messages: int

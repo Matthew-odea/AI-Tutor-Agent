@@ -3,9 +3,7 @@ from typing import Optional
 from pydantic import BaseModel, Field
 
 class UploadRequest(BaseModel):
-    """
-    Body for /internal/context/upload
-    """
+    """Body for /internal/context/upload."""
     DocumentName: str = Field(..., min_length=1, description="Stable identifier for the document (e.g. slug)")
     Description: str = Field(..., min_length=1, description="Human-readable title")
     Text: str = Field(..., min_length=1, description="Raw text/content to ingest")

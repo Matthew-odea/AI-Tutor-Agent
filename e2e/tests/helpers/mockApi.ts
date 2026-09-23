@@ -1,15 +1,6 @@
 /**
- * Reusable API mock helpers for Playwright tests.
- *
- * These intercept the Axios calls made by the frontend apps and return
- * deterministic fixture data — no real backend or AWS credentials required.
- *
- * Usage:
- *   import { setupMockApi } from './helpers/mockApi';
- *   test('...', async ({ page }) => {
- *     await setupMockApi(page, { studentId: 'stu-1', assessmentId: 'asmt-1' });
- *     ...
- *   });
+ * page.route() mocks for the frontends' Axios calls, returning deterministic
+ * fixtures. Use setupStudentMockApi / setupInstructorMockApi.
  */
 
 import { Page } from '@playwright/test';
@@ -26,10 +17,7 @@ export interface MockContext {
 // The glob matches the path portion regardless of which base URL is in use.
 const G = '**/api';
 
-/**
- * Build a mock JWT with a valid exp claim so AuthGate doesn't reject it.
- * This is NOT cryptographically signed — just structurally valid.
- */
+/** Unsigned but structurally valid JWT with a future exp, so AuthGate accepts it. */
 export function mockJwt(payload: Record<string, unknown> = {}): string {
   const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
   const body = btoa(
@@ -590,7 +578,7 @@ export async function setupInstructorMockApi(
   });
 }
 
-// ─── Legacy compat — keeps existing tests working ────────────────────
+// Unused by current specs; kept as an alias for setupStudentMockApi.
 
 export async function setupMockApi(page: Page, ctx: MockContext): Promise<void> {
   await setupStudentMockApi(page, ctx);

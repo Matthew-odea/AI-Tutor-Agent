@@ -1,9 +1,4 @@
-"""
-EvaluationWorkflowRunner: Runs the DynamoDB-backed evaluation workflow.
-
-For each student, reads questions + answers from DynamoDB, evaluates each via LLM,
-and stores evaluation results back in DynamoDB.
-"""
+"""Evaluates one student's answers per call: transcribe pending media, score each Q/A via the engine, store results."""
 from __future__ import annotations
 
 import logging
@@ -30,7 +25,7 @@ class EvaluationWorkflowRunner:
         try:
             logger.info("[Job %s] Starting DynamoDB evaluation for student %s", job_id, student_id)
 
-            # Pre-pass: transcribe audio/video answers that don't yet have a transcript
+            # Best-effort: a transcription failure must not block scoring the other answers
             if self.transcription_service is not None:
                 try:
                     n = self.transcription_service.transcribe_pending_answers(student_id, assessment_id)
@@ -44,16 +39,13 @@ class EvaluationWorkflowRunner:
 
             questions_data = self.repository.read_questions(student_id, assessment_id)
             answers_data = self.repository.read_answers(student_id, assessment_id)
-            # For text answers, populate 'transcript' from 'textContent' so the
-            # engine doesn't receive an empty transcript.
+            # The engine only reads 'transcript'; written answers store text in 'textContent'
             for ans in answers_data:
                 if ans.get("answerType") == "text" and not ans.get("transcript"):
                     ans["transcript"] = ans.get("textContent", "")
             qa_pairs = self.match_questions_and_answers(questions_data, answers_data)
             total_questions = len(qa_pairs)
 
-            # Read assessment metadata once for rubric, course context, and the
-            # configurable scoring (max score per question / grade cutoffs).
             metadata = self._read_assessment_metadata(assessment_id)
             rubric = metadata.get("rubric") or ""
             course_context = self._course_context_from_metadata(metadata)
@@ -71,10 +63,7 @@ class EvaluationWorkflowRunner:
                 try:
                     logger.info("[Job %s] Evaluating question %d/%d", job_id, index + 1, total_questions)
                     if answer_type == "skipped":
-                        # A skipped question is a deterministic zero — it is never
-                        # sent to the LLM. Store a valid 0-score evaluation so the
-                        # student's results show it as answered-with-zero rather
-                        # than pending or flagged for review.
+                        # Deterministic zero, never sent to the LLM; stored so results show 0 rather than pending
                         evaluation = {
                             "question_id": question_id,
                             "correctness_score": 0,
@@ -100,8 +89,7 @@ class EvaluationWorkflowRunner:
                     self.repository.store_evaluation(student_id, assessment_id, question_id, evaluation)
                     self._set_progress(job_id, student_id, assessment_id, index + 1, total_questions, "evaluating")
                 except Exception as error:
-                    # Never surface a raw error to the student: store a valid,
-                    # zero-score evaluation explicitly flagged for instructor review.
+                    # Never surface a raw error to the student: store a zero flagged for instructor review
                     logger.error("[Job %s] Error evaluating question %d: %s", job_id, index + 1, error)
                     flagged = {
                         "question_id": question_id,
@@ -167,7 +155,6 @@ class EvaluationWorkflowRunner:
         return qa_pairs
 
     def _read_assessment_metadata(self, assessment_id: str) -> Dict[str, Any]:
-        """Read the assessment METADATA item, or {} if not available."""
         try:
             resp = self.repository.table.get_item(
                 Key={"PK": f"ASSESSMENT#{assessment_id}", "SK": "METADATA"}
@@ -179,7 +166,6 @@ class EvaluationWorkflowRunner:
 
     @staticmethod
     def _course_context_from_metadata(metadata: Dict[str, Any]) -> str:
-        """Build the course-context string (course name + description) from metadata."""
         course_name = metadata.get("courseName") or ""
         description = metadata.get("description") or ""
         parts = [p for p in [course_name, description] if p]

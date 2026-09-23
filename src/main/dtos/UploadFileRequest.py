@@ -1,6 +1,3 @@
-"""
-DTO for PDF file upload request.
-"""
 from fastapi import UploadFile, File, Form
 from pydantic import BaseModel
 from typing import Optional

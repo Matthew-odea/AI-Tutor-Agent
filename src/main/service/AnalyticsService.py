@@ -51,6 +51,7 @@ class AnalyticsService:
             return 0
 
         accepted = 0
+        # Excess events beyond 100 per request are dropped silently
         for raw_event in events[:100]:
             event_name = str(raw_event.get("event_name") or "").strip()
             if not event_name:

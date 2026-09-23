@@ -1,26 +1,3 @@
-/**
- * Custom hook for managing chat interactions with the AI tutor
- *
- * Provides functionality for sending messages, managing chat state,
- * clearing history, and handling session management.
- *
- * @returns Object containing:
- *   - messages: Array of chat messages
- *   - sessionId: Current session ID (null for new sessions)
- *   - isLoading: Loading state during API calls
- *   - error: Error message (if any)
- *   - sendMessage: Function to send a user message
- *   - clearChat: Function to clear chat history
- *
- * @example
- * ```tsx
- * const { messages, sendMessage, isLoading } = useChat();
- *
- * const handleSubmit = async (text: string) => {
- *   await sendMessage(text);
- * };
- * ```
- */
 import { useCallback } from "react";
 import { useChatStore } from "../store/chatStore";
 import {
@@ -35,6 +12,7 @@ import {
   trackSessionCreated,
 } from "../utils/analytics";
 
+/** Chat-mode send flow. Lazily creates the workspace and view session on the first message. */
 export const useChat = () => {
   const {
     messages,
@@ -69,7 +47,6 @@ export const useChat = () => {
         Boolean(editorContext),
       );
 
-      // Add user message immediately
       const userMessage: Message = {
         role: "user",
         content: normalized,
@@ -97,7 +74,6 @@ export const useChat = () => {
           ...editorContext,
         });
 
-        // Add assistant response
         const assistantMessage: Message = {
           role: "assistant",
           content: response.answer,
@@ -114,12 +90,10 @@ export const useChat = () => {
       } catch (err) {
         console.error("Failed to send message:", err);
 
-        // Check if it's a model/server error
         let userFriendlyMessage =
           "I'm sorry, I can't handle that right now. Please try again in a moment.";
 
         if (err instanceof Error) {
-          // Check for specific error types
           if (
             err.message.includes("Network Error") ||
             err.message.includes("fetch")
@@ -146,7 +120,6 @@ export const useChat = () => {
 
         setError(userFriendlyMessage);
 
-        // Add friendly error message to chat
         const errorMsg: Message = {
           role: "assistant",
           content: userFriendlyMessage,

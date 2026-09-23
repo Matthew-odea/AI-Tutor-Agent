@@ -2,7 +2,6 @@ import { defineConfig, type PluginOption } from 'vite'
 import react from '@vitejs/plugin-react'
 import { visualizer } from 'rollup-plugin-visualizer'
 
-// https://vite.dev/config/
 export default defineConfig({
   plugins: [
     react(),
@@ -17,7 +16,6 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          // Split vendor code
           'vendor-react': ['react', 'react-dom', 'react-router-dom'],
           'vendor-zustand': ['zustand'],
           'vendor-monaco': ['@monaco-editor/react'],

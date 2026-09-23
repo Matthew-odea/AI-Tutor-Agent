@@ -1,7 +1,3 @@
-/**
- * ProgressTracker - Visual progress indicator for assessment
- */
-
 import { calculatePercentage } from '../utils/helpers';
 
 interface ProgressTrackerProps {
@@ -10,12 +6,8 @@ interface ProgressTrackerProps {
   answeredCount: number;
   questionIds?: string[];
   answeredQuestionIds?: Set<string>;
-  // Questions resolved by a skip (time expired, nothing submitted). Rendered
-  // with a distinct neutral marker — NOT the green check used for real answers.
-  // Optional: when omitted, the tracker behaves exactly as before.
   skippedQuestionIds?: Set<string>;
-  // When provided (review mode), each indicator becomes a button that navigates to
-  // that question. When omitted the tracker is display-only, exactly as before.
+  // Review mode only: indicators become navigation buttons.
   onNavigate?: (index: number) => void;
 }
 
@@ -32,7 +24,6 @@ export default function ProgressTracker({
 
   return (
     <div className="bg-paper rounded-xl border border-hairline p-4">
-      {/* Progress Bar */}
       <div className="flex justify-between text-sm text-slate mb-2">
         <span>Progress</span>
         <span className="font-medium tabular-nums">
@@ -50,14 +41,12 @@ export default function ProgressTracker({
         />
       </div>
 
-      {/* Question Indicators */}
       <div className="flex flex-wrap gap-2">
         {Array.from({ length: totalQuestions }, (_, i) => {
           const qId = questionIds?.[i] ?? '';
           const isCurrent = i === currentIndex;
-          // Skipped takes visual precedence over answered (but not over current):
-          // a time-expired skip must never wear the green "answered" check, even
-          // if the server's authoritative answered list happens to include the id.
+          // Skipped beats answered: the server's answered list includes skips, and a skip
+          // must never wear the green check.
           const isSkipped = !!skippedQuestionIds && skippedQuestionIds.has(qId);
           const isAnswered = answeredQuestionIds && questionIds
             ? answeredQuestionIds.has(qId)
@@ -85,7 +74,6 @@ export default function ProgressTracker({
               `;
 
           const indicatorContent = !isCurrent && isSkipped ? (
-            /* Skipped — neutral dash, deliberately NOT the answered check */
             <svg className="w-4 h-4" fill="none" viewBox="0 0 20 20" stroke="currentColor">
               <path strokeLinecap="round" strokeWidth={2} d="M5 10h10" />
             </svg>
@@ -101,7 +89,6 @@ export default function ProgressTracker({
             i + 1
           );
 
-          // Navigable (review mode) → button; otherwise display-only div (unchanged).
           return onNavigate ? (
             <button
               key={i}

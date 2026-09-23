@@ -1,6 +1,3 @@
-/**
- * Individual message bubble component - Premium design
- */
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { HTMLAttributes, ReactNode } from "react";
@@ -12,18 +9,13 @@ interface MessageBubbleProps {
   showAvatars?: boolean;
 }
 
-// Clean up markdown formatting issues
+// Tidy model markdown outside fenced code blocks: collapse blank lines and keep inline code inline.
 const normalizeInlineMarkdown = (text: string): string => {
-  return (
-    text
-      // Remove excessive blank lines (more than 2)
-      .replace(/\n{3,}/g, "\n\n")
-      // Keep inline code from becoming standalone lines
-      .replace(/\n\s*(\*\*`[^`\n]+`\*\*|`[^`\n]+`)\s*\n/g, " $1 ")
-      .replace(/\n\s*(\*\*`[^`\n]+`\*\*|`[^`\n]+`)\s+(?=\S)/g, " $1 ")
-      // Remove newlines inside inline code (defensive)
-      .replace(/`([^`\n]+)\n([^`]+)`/g, "`$1 $2`")
-  );
+  return text
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\n\s*(\*\*`[^`\n]+`\*\*|`[^`\n]+`)\s*\n/g, " $1 ")
+    .replace(/\n\s*(\*\*`[^`\n]+`\*\*|`[^`\n]+`)\s+(?=\S)/g, " $1 ")
+    .replace(/`([^`\n]+)\n([^`]+)`/g, "`$1 $2`");
 };
 
 const cleanMarkdown = (text: string): string => {
@@ -52,7 +44,6 @@ export const MessageBubble = ({
 }: MessageBubbleProps) => {
   const isUser = message.role === "user";
   const isError = message.isError;
-  // Clean markdown for assistant messages
   const cleanedContent = !isUser
     ? cleanMarkdown(message.content)
     : message.content;
@@ -66,7 +57,6 @@ export const MessageBubble = ({
       <div
         className={`flex ${showAvatars ? "space-x-3" : "space-x-0"} ${isUser ? "max-w-2xl ml-auto" : "max-w-5xl w-full"}`}
       >
-        {/* Avatar for assistant */}
         {!isUser && showAvatars && (
           <div
             className="flex-shrink-0 w-8 h-8 rounded-full bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center shadow-md"
@@ -76,7 +66,6 @@ export const MessageBubble = ({
           </div>
         )}
 
-        {/* Message Content */}
         <div
           className={`rounded-2xl px-3 py-2.5 shadow-message transition-all duration-200 hover:shadow-message-hover ${
             isUser
@@ -123,11 +112,10 @@ export const MessageBubble = ({
                   ),
                   p: ({ children }) => {
                     const text = String(children).trim();
-                    // If paragraph is just punctuation, don't wrap
+                    // Bare punctuation or lone inline code: don't wrap in <p>, which would break it onto its own line.
                     if (text.length === 1 && /[.,!?;:]/.test(text)) {
                       return <>{children}</>;
                     }
-                    // If paragraph is just inline code or bold inline code, don't wrap
                     if (/^(\*\*`[^`]+`\*\*|`[^`]+`)$/.test(text)) {
                       return <>{children}</>;
                     }
@@ -161,7 +149,6 @@ export const MessageBubble = ({
                         </code>
                       );
                     }
-                    // Block code - pass to CodeBlock component
                     return (
                       <CodeBlock className={className} {...props}>
                         {children}
@@ -169,8 +156,7 @@ export const MessageBubble = ({
                     );
                   },
                   pre: ({ children }: PreRendererProps) => {
-                    // Just return children directly to prevent double wrapping
-                    // The CodeBlock component already has its own <pre> tag
+                    // CodeBlock renders its own <pre>; avoid double wrapping.
                     return <>{children}</>;
                   },
                   ul: ({ children }) => (
@@ -223,7 +209,6 @@ export const MessageBubble = ({
           )}
         </div>
 
-        {/* Avatar for user */}
         {isUser && showAvatars && (
           <div className="flex-shrink-0 w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center shadow-md">
             <span className="text-white text-sm font-semibold">You</span>

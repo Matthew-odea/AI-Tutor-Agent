@@ -1,14 +1,7 @@
-"""
-TranscriptionService — downloads audio/video from S3, transcribes via Deepgram,
-and writes the transcript back to the DynamoDB answer item.
+"""Downloads audio/video answers from S3, transcribes via Deepgram, writes transcript back to the ANSWER# item.
 
-Called as a pre-pass inside EvaluationWorkflowRunner.evaluate_from_dynamodb
-before the evaluation engine runs, so that audio/video answers have a
-populated 'transcript' field when the LLM evaluator reads them.
-
-Retry policy: 3 attempts with exponential backoff (1s, 2s, 4s) for transient
-Deepgram/network failures. Permanent failures (bad file, missing key) are not
-retried.
+Runs as a pre-pass in EvaluationWorkflowRunner.evaluate_from_dynamodb so the evaluator sees a transcript.
+Up to 3 attempts with 1s/2s backoff; an unparseable URL or missing S3 key is not retried.
 """
 
 from __future__ import annotations
@@ -41,27 +34,12 @@ class TranscriptionService:
         deepgram_service: Optional[DeepgramTranscribeService] = None,
         region: str = "us-east-1",
     ):
-        """
-        Args:
-            table: boto3 DynamoDB Table resource (oral_assessments table)
-            s3_client: boto3 S3 client; created from env if not supplied
-            deepgram_service: DeepgramTranscribeService; created from env if not supplied
-            region: AWS region for S3 client when auto-created
-        """
         self.table = table
         self.s3 = s3_client or boto3.client("s3", region_name=region)
         self.deepgram = deepgram_service or DeepgramTranscribeService()
 
-    # ─────────────────────────────────────────────────────────────
-    # Public API
-    # ─────────────────────────────────────────────────────────────
-
     def transcribe_pending_answers(self, student_id: str, assessment_id: str) -> int:
-        """
-        Transcribe all audio/video answers for a student that lack a transcript.
-
-        Returns the number of answers successfully transcribed.
-        """
+        """Transcribe audio/video answers that lack a transcript. Returns the number transcribed."""
         pk = f"STUDENT#{student_id}#ASSESSMENT#{assessment_id}"
         from boto3.dynamodb.conditions import Key
         response = self.table.query(
@@ -75,7 +53,6 @@ class TranscriptionService:
             if answer_type not in ("audio", "video"):
                 continue
             if answer.get("transcript"):
-                # already transcribed — skip
                 continue
 
             question_id = answer.get("questionId", answer.get("SK", "").replace("ANSWER#", ""))
@@ -100,18 +77,10 @@ class TranscriptionService:
 
         return transcribed
 
-    # ─────────────────────────────────────────────────────────────
-    # Internal helpers
-    # ─────────────────────────────────────────────────────────────
-
     def _transcribe_url_with_retry(
         self, url: str, student_id: str, question_id: str
     ) -> Optional[dict]:
-        """Download S3 file and call Deepgram with retry.
-
-        Returns {"transcript": str, "confidence": Optional[float]} on success, or
-        None if all attempts fail or the media is missing.
-        """
+        """Return {"transcript", "confidence"}, or None if the media is missing or all attempts fail."""
         bucket, key = _parse_s3_url(url)
         if not bucket or not key:
             logger.error(
@@ -181,9 +150,7 @@ class TranscriptionService:
         status: str,
         confidence: Optional[float] = None,
     ) -> None:
-        """Write transcript, transcript_status, and (when available) transcript
-        confidence back to the DynamoDB answer item. The confidence is later read
-        by the evaluation engine to flag low-confidence transcripts for review."""
+        """transcriptConfidence is read by the evaluation engine to flag low-confidence transcripts."""
         update_expr = "SET transcript = :t, transcript_status = :s"
         values = {":t": transcript, ":s": status}
         if confidence is not None:
@@ -202,20 +169,8 @@ class TranscriptionService:
             )
 
 
-# ─────────────────────────────────────────────────────────────────
-# URL parsing
-# ─────────────────────────────────────────────────────────────────
-
 def _parse_s3_url(url: str) -> tuple[str, str]:
-    """
-    Parse bucket and key from an S3 URL.
-
-    Supports:
-      - https://<bucket>.s3.<region>.amazonaws.com/<key>
-      - https://<bucket>.s3.amazonaws.com/<key>
-      - s3://<bucket>/<key>
-    Returns ("", "") if parsing fails.
-    """
+    """(bucket, key) from s3://, virtual-hosted or path-style S3 URLs; ("", "") if unparseable."""
     if not url:
         return "", ""
 
@@ -226,13 +181,13 @@ def _parse_s3_url(url: str) -> tuple[str, str]:
             return parsed.netloc, parsed.path.lstrip("/")
 
         host = parsed.hostname or ""
-        # virtual-hosted style: <bucket>.s3[.<region>].amazonaws.com
+        # <bucket>.s3[.<region>].amazonaws.com
         if host.endswith(".amazonaws.com") and ".s3" in host:
             bucket = host.split(".s3")[0]
             key = parsed.path.lstrip("/")
             return bucket, key
 
-        # path-style: s3.amazonaws.com/<bucket>/<key>  (rare, legacy)
+        # Legacy path-style: s3[.<region>].amazonaws.com/<bucket>/<key>
         if host in ("s3.amazonaws.com",) or host.startswith("s3.") and host.endswith(".amazonaws.com"):
             parts = parsed.path.lstrip("/").split("/", 1)
             if len(parts) == 2:

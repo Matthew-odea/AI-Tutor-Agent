@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { runTimerExpiry, type TimerExpiryDeps } from '../utils/timerExpiry';
 import type { Question } from '../types';
 
-// ── Mock the network + upload layers so the store never touches a real backend ──
 vi.mock('../services/api', () => ({
   getStudentToken: vi.fn().mockResolvedValue('token'),
   getQuestions: vi.fn().mockResolvedValue({
@@ -44,9 +43,7 @@ const baseQuestion: Question = {
   timeLimit: 120,
 };
 
-// ────────────────────────────────────────────────────────────────────────────
-// runTimerExpiry — the pure decision logic extracted from handleTimerExpire.
-// ────────────────────────────────────────────────────────────────────────────
+// runTimerExpiry
 function makeDeps(overrides: Partial<TimerExpiryDeps> = {}): TimerExpiryDeps {
   return {
     inFlight: false,
@@ -125,9 +122,7 @@ describe('runTimerExpiry', () => {
   });
 });
 
-// ────────────────────────────────────────────────────────────────────────────
 // Store skip/submit paths — proves the actual POST shapes, not just the decision.
-// ────────────────────────────────────────────────────────────────────────────
 describe('assessmentStore expiry paths', () => {
   beforeEach(() => {
     vi.clearAllMocks();

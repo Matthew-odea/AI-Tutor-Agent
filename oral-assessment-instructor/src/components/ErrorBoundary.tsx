@@ -1,16 +1,3 @@
-/**
- * ErrorBoundary - Catches React errors and displays fallback UI
- *
- * Ported from the student app (same props, same default export). Mounted as the
- * outermost element inside BrowserRouter in App.tsx, so a render crash on any
- * instructor screen shows this card instead of a blank white page.
- *
- * The student version additionally warns about an unsubmitted answer held in its
- * store; the instructor app has no equivalent in-memory artefact (its forms post
- * on submit), so recovery here is just "clear the error and re-render" with a
- * hard reload as the fallback.
- */
-
 import React, { Component } from 'react';
 import type { ReactNode } from 'react';
 import { useAssessmentStore } from '../store/assessmentStore';
@@ -39,12 +26,9 @@ export default class ErrorBoundary extends Component<Props, State> {
     console.error('ErrorBoundary caught an error:', error, errorInfo);
   }
 
-  // Soft recovery: clear the error and re-render children WITHOUT a full page
-  // reload, which would wipe all in-memory Zustand state (the loaded assessment
-  // list, the selected assessment, any fetched results). A hard reload remains
-  // available as a fallback.
+  // Soft recovery: re-render without a reload, which would wipe in-memory Zustand state.
   handleTryRecover = () => {
-    // Read imperatively — a class component can't use the Zustand hook.
+    // Class component: read the store imperatively, not via the hook.
     useAssessmentStore.getState().setError?.(null);
     this.setState({ hasError: false, error: null });
   };

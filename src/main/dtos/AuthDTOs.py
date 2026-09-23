@@ -47,8 +47,6 @@ class ResetPasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=8)
 
 
-# --- Student invite auth ---
-
 class StudentInviteExchangeRequest(BaseModel):
     invite_token: str = Field(..., min_length=20)
 
@@ -60,8 +58,6 @@ class StudentInviteExchangeResponse(BaseModel):
     student_id: str
     assessment_id: str
 
-
-# --- Instructor refresh tokens ---
 
 class RefreshTokenResponse(BaseModel):
     access_token: str

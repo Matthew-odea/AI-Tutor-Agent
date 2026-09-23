@@ -109,6 +109,7 @@ class S3UploadService:
                 Params={
                     "Bucket": self.bucket_name,
                     "Key": key,
+                    # Signed into the URL: the client's PUT must send this exact Content-Type.
                     "ContentType": content_type,
                 },
                 ExpiresIn=3600,

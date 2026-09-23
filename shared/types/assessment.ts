@@ -1,7 +1,6 @@
 /**
- * Instructor-app names for API shapes. Every alias points into ./api.ts, which is
- * generated from the backend's OpenAPI schema (./shared/generate-api-types.sh), so
- * a backend DTO change breaks the frontend type-check instead of the page.
+ * Instructor-app names for API shapes, aliased onto ./api.ts (generated from the backend's
+ * OpenAPI schema by ./shared/generate-api-types.sh), so a DTO change breaks the type-check.
  */
 
 import type { components } from './api';
@@ -15,11 +14,7 @@ export type UploadedStudent = Schemas['UploadedStudent'];
 export type StudentProgress = Schemas['StudentProgressItem'];
 export type AssessmentResults = Schemas['StudentResultItem'];
 
-/**
- * A question-generation job as the UI tracks it: the 202 kickoff response until
- * the first poll replaces it with the generation-status response. Only the poll
- * carries `startedAt` / `completedAt` / `error`.
- */
+/** The 202 kickoff response until the first poll replaces it; only the poll carries startedAt/completedAt/error. */
 export type QuestionGenerationJob =
   | Schemas['QuestionGenerationJobResponse']
   | Schemas['QuestionGenerationStatusResponse'];

@@ -1,11 +1,5 @@
-"""
-Student answer submission: text answers, audio answers, validation.
-
-Covers:
-- Text answer submission (answer_type='text')
-- Audio answer still works with new optional fields
-- timeLimit exposed in questions response
-- Submit answer requires either audio_url or text_content depending on type
+"""Student router answer submission: text and audio answers, timeLimit in the questions
+response, and the per-type audio_url/text_content requirement.
 """
 
 from unittest.mock import MagicMock, patch
@@ -19,10 +13,6 @@ from src.main.auth.models import AuthPrincipal
 from src.main.controllers.controller_dependencies import get_oral_assessment_service
 from src.main.service.OralAssessmentService import OralAssessmentServiceError
 
-
-# ─────────────────────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────────────────────
 
 _STUDENT = AuthPrincipal(user_id="s-1", roles=["student"], source="jwt", assessment_id="a-1")
 _INSTRUCTOR = AuthPrincipal(user_id="inst-1", roles=["instructor"], source="jwt")
@@ -69,9 +59,7 @@ def _mock_svc(**kwargs):
     return svc
 
 
-# ─────────────────────────────────────────────────────────────
-# GET questions — timeLimit exposed
-# ─────────────────────────────────────────────────────────────
+# GET questions: timeLimit exposed
 
 def test_get_questions_includes_time_limit():
     svc = _mock_svc(questions=[_QUESTION_WITH_LIMIT])
@@ -94,9 +82,7 @@ def test_get_questions_time_limit_null_when_not_set():
     assert resp.json()["questions"][0]["timeLimit"] is None
 
 
-# ─────────────────────────────────────────────────────────────
-# POST answer — audio (existing flow still works)
-# ─────────────────────────────────────────────────────────────
+# POST answer: audio
 
 def test_submit_audio_answer_returns_200():
     svc = _mock_svc()
@@ -143,9 +129,7 @@ def test_submit_audio_answer_default_type():
     assert call_kwargs["answer_type"] == "audio"
 
 
-# ─────────────────────────────────────────────────────────────
-# POST answer — text
-# ─────────────────────────────────────────────────────────────
+# POST answer: text
 
 def test_submit_text_answer_returns_200():
     svc = _mock_svc(
@@ -185,7 +169,6 @@ def test_submit_text_answer_returns_200():
 
 
 def test_submit_answer_missing_assessment_id_rejected():
-    """assessment_id is now required — omitting it returns 422."""
     svc = _mock_svc()
     client = _build_client(svc=svc)
 
@@ -203,7 +186,6 @@ def test_submit_answer_missing_assessment_id_rejected():
 
 
 def test_submit_answer_assessment_id_forwarded_to_service():
-    """assessment_id from the request body is forwarded to the service."""
     svc = _mock_svc()
     client = _build_client(principal=AuthPrincipal(user_id="s-1", roles=["student"], source="jwt", assessment_id="a-99"), svc=svc)
 
@@ -258,9 +240,7 @@ def test_submit_text_answer_service_error_returns_400():
     assert resp.json()["error"]["code"] == "submit_answer_failed"
 
 
-# ─────────────────────────────────────────────────────────────
 # Auth
-# ─────────────────────────────────────────────────────────────
 
 def test_submit_answer_wrong_student_forbidden():
     """Student s-1 cannot submit answers as s-2."""

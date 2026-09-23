@@ -33,7 +33,6 @@ class ApiService {
       },
     });
 
-    // Add request interceptor for auth token if needed
     this.client.interceptors.request.use((config) => {
       const token = localStorage.getItem('authToken');
       if (token) {
@@ -42,7 +41,6 @@ class ApiService {
       return config;
     });
 
-    // Add response interceptor for error handling
     this.client.interceptors.response.use(
       (response) => response,
       (error) => {
@@ -150,11 +148,7 @@ class ApiService {
     return response.data.report;
   }
 
-  /**
-   * Fetch the one-page report as a blob. Both endpoints need the auth header, so
-   * they go through the axios client rather than a plain <a href> the browser
-   * would request unauthenticated.
-   */
+  // Fetched via axios (not a plain <a href>) because the endpoint needs the auth header.
   async downloadAssessmentReport(assessmentId: string, format: 'pdf' | 'html'): Promise<Blob> {
     const response = await this.client.get(`/api/assessment/${assessmentId}/report.${format}`, {
       responseType: 'blob',
@@ -177,7 +171,7 @@ class ApiService {
     return response.data.students || [];
   }
 
-  // Sprint 8: Results Dashboards
+  // Results dashboards
 
   async getStudentDetail(
     assessmentId: string,
@@ -210,7 +204,7 @@ class ApiService {
     return response.data;
   }
 
-  // Dual-scoring validity harness: record a human reference score for a question.
+  // Human reference score for the dual-scoring validity harness (separate from grade override).
   async recordHumanScore(
     assessmentId: string,
     studentId: string,
@@ -250,8 +244,7 @@ class ApiService {
     return response.data;
   }
 
-  // Resend a single student's invite — mints a fresh single-use link (new token,
-  // new 7-day expiry) and emails it. For students whose link expired or was used.
+  // Mints a fresh single-use link (new token, new 7-day expiry) and emails it.
   async resendInvite(
     assessmentId: string,
     studentId: string,
@@ -311,7 +304,7 @@ class ApiService {
     return stream;
   }
 
-  // EPIC-3-3: Question preview and editing
+  // Question preview and editing
   async listStudentQuestions(
     assessmentId: string,
     studentId: string

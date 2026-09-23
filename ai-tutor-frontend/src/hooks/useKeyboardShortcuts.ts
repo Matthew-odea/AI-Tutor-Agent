@@ -1,6 +1,3 @@
-/**
- * Keyboard shortcuts hook for accessibility and power users
- */
 import { useEffect } from "react";
 
 interface KeyboardShortcut {
@@ -13,20 +10,7 @@ interface KeyboardShortcut {
   description: string;
 }
 
-/**
- * Hook to register keyboard shortcuts
- *
- * @param shortcuts - Array of keyboard shortcut configurations
- * @param enabled - Whether shortcuts are enabled (default: true)
- *
- * @example
- * ```tsx
- * useKeyboardShortcuts([
- *   { key: 'k', ctrl: true, action: handleNewChat, description: 'New chat' },
- *   { key: 'Enter', ctrl: true, action: handleSend, description: 'Send message' }
- * ])
- * ```
- */
+/** `ctrl: true` also matches Cmd on Mac. Modifiers not set on a shortcut must not be held. */
 export const useKeyboardShortcuts = (
   shortcuts: KeyboardShortcut[],
   enabled: boolean = true,
@@ -60,9 +44,7 @@ export const useKeyboardShortcuts = (
   }, [shortcuts, enabled]);
 };
 
-/**
- * Get shortcut display string (e.g., "Ctrl+K" or "⌘K" on Mac)
- */
+/** e.g. "Ctrl+K", or "⌘K" on Mac. */
 export const getShortcutDisplay = (
   shortcut: Omit<KeyboardShortcut, "action" | "description">,
 ): string => {

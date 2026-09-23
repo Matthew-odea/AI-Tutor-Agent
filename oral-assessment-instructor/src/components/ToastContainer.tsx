@@ -1,9 +1,4 @@
-/**
- * ToastContainer — renders every live toast from the toastStore.
- *
- * Ported from the student app. Mounted once, globally, in App.tsx; pages never
- * render it themselves, they just push messages into the store.
- */
+/** Mounted once in App.tsx; pages push into toastStore and never render this. */
 import { useEffect } from 'react'
 import { useToastStore } from '../store/toastStore'
 import type { Toast, ToastType } from '../store/toastStore'

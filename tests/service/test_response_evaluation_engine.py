@@ -85,7 +85,7 @@ _REQUIRED_KEYS = (
 )
 
 
-# ── parsing (existing behaviour, total_score now optional) ──────────────────
+# Parsing
 
 def test_parse_evaluation_response_from_json_fence():
     engine = _engine(DummyAgent())
@@ -108,7 +108,7 @@ def test_parse_evaluation_response_total_score_no_longer_required():
     assert "total_score" not in parsed  # supplied later by normalization
 
 
-# ── grade boundaries / configurable cutoffs (Task 6) ────────────────────────
+# Grade boundaries and configurable cutoffs
 
 def test_calculate_grade_boundaries():
     assert ResponseEvaluationEngine.calculate_grade(90) == "Excellent"
@@ -124,7 +124,7 @@ def test_calculate_grade_with_custom_cutoffs():
     assert ResponseEvaluationEngine.calculate_grade(39, cutoffs) == "Unsatisfactory"
 
 
-# ── Task 2: structured output, fallback, clamping, total enforcement ────────
+# Structured output, text fallback, clamping, server-enforced total
 
 def test_structured_output_used_when_supported():
     agent = StructuredAgent(structured={
@@ -215,7 +215,7 @@ def test_structured_returns_empty_payload_falls_back():
     assert ev["total_score"] == 4
 
 
-# ── Task 4: unusable audio → needs_review, never silent zero ────────────────
+# Unusable audio is flagged for review, never silently zeroed
 
 def test_empty_transcript_is_flagged_not_silently_zeroed():
     agent = StructuredAgent(structured={"correctness_score": 5, "understanding_score": 5, "feedback": "x"})

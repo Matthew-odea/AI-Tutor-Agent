@@ -1,7 +1,3 @@
-/**
- * Type definitions for session-related entities
- */
-
 export interface SessionInfo {
   session_id: string;
   message_count: number;

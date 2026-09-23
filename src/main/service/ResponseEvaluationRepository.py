@@ -45,7 +45,6 @@ class ResponseEvaluationRepository:
         total_questions: int,
         status: str = "evaluating",
     ) -> None:
-        """Write (or overwrite) the EVAL_PROGRESS marker for a student's evaluation run."""
         percentage = round(questions_evaluated / total_questions * 100, 1) if total_questions > 0 else 0.0
         self.table.put_item(Item={
             "PK": f"STUDENT#{student_id}#ASSESSMENT#{assessment_id}",
@@ -64,7 +63,6 @@ class ResponseEvaluationRepository:
         student_id: str,
         assessment_id: str,
     ) -> Optional[Dict[str, Any]]:
-        """Read the EVAL_PROGRESS item, or None if not present."""
         resp = self.table.get_item(
             Key={
                 "PK": f"STUDENT#{student_id}#ASSESSMENT#{assessment_id}",
@@ -80,13 +78,8 @@ class ResponseEvaluationRepository:
         question_id: str,
         evaluation: Dict[str, Any],
     ) -> None:
-        """Write the AI evaluation for one question.
-
-        An update that sets only the AI-owned attributes, never a read-then-put:
-        the instructor override (instructorScore / instructorComment) and the
-        human reference scores are written by their own update paths, and a
-        re-evaluation must not be able to wipe them — neither when the read
-        fails nor when an override lands between the read and the write.
+        """Writes the AI evaluation via update_item setting only AI-owned attributes, so a re-evaluation
+        can never wipe the instructor override or human reference scores (no read-then-put race).
         """
         fields: Dict[str, Any] = {
             "questionId": question_id,
@@ -100,9 +93,8 @@ class ResponseEvaluationRepository:
             "strengths": evaluation.get("strengths", []),
             "weaknesses": evaluation.get("weaknesses", []),
             "suggestedImprovements": evaluation.get("suggested_improvements", []),
-            "evaluatedAt": datetime.now(timezone.utc).isoformat() + "Z",
-            # Review / confidence flags (Tasks 2, 4, 5). Always written so the
-            # instructor and release gate can reason about evaluation quality.
+            "evaluatedAt": datetime.now(timezone.utc).isoformat(),
+            # Always written so the instructor view and release gate can rely on them.
             "needsReview": bool(evaluation.get("needs_review", False)),
             "reviewReasons": list(evaluation.get("review_reasons", []) or []),
             "evaluationMethod": evaluation.get("evaluation_method", "text"),
@@ -138,16 +130,13 @@ class ResponseEvaluationRepository:
         human_understanding_score: int,
         scored_by: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Record (or update) a HUMAN reference score for the dual-scoring validity
-        harness. This is deliberately SEPARATE from ``instructorScore`` (the grade
-        override): the human reference score is captured for every dual-scored item
-        — including those where the human agrees with the AI — so AI-vs-human
-        agreement is measured on an unbiased sample and does not change the
-        student's grade.
+        """Record a human reference score for the dual-scoring validity harness.
+
+        Deliberately separate from instructorScore (the grade override): it is captured even when the
+        human agrees with the AI, so agreement is measured on an unbiased sample, and it never changes the grade.
         """
         human_total = int(human_correctness_score) + int(human_understanding_score)
-        scored_at = datetime.now(timezone.utc).isoformat() + "Z"
+        scored_at = datetime.now(timezone.utc).isoformat()
         self.table.update_item(
             Key={
                 "PK": f"STUDENT#{student_id}#ASSESSMENT#{assessment_id}",

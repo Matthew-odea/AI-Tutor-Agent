@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-import time
 from typing import Any, Callable, Dict, List
+
+from src.main.utils.DynamoBatchGet import batch_get_items
 
 
 class InstructorAssessmentProgressAggregator:
@@ -14,43 +15,17 @@ class InstructorAssessmentProgressAggregator:
         if not students:
             return []
 
-        # Build keys for batch get
-        table_name = self.table.table_name
         keys = [
             {"PK": f"STUDENT#{s['studentId']}#ASSESSMENT#{assessment_id}", "SK": "PROGRESS"}
             for s in students
         ]
 
-        # BatchGetItem supports max 100 keys per call
         progress_map: Dict[str, Dict[str, Any]] = {}
-        for i in range(0, len(keys), 100):
-            batch = keys[i : i + 100]
-            response = self.table.meta.client.batch_get_item(
-                RequestItems={table_name: {"Keys": batch}}
-            )
-            for item in response.get("Responses", {}).get(table_name, []):
-                # Extract studentId from PK: "STUDENT#<id>#ASSESSMENT#<aid>"
-                pk = item["PK"]
-                student_id = pk.split("#")[1]
-                progress_map[student_id] = item
+        for item in batch_get_items(self.table, keys):
+            # PK is STUDENT#<id>#ASSESSMENT#<aid>
+            student_id = item["PK"].split("#")[1]
+            progress_map[student_id] = item
 
-            # Handle unprocessed keys (throttling) with exponential backoff
-            unprocessed = response.get("UnprocessedKeys", {}).get(table_name, {}).get("Keys", [])
-            attempt = 0
-            max_retries = 3
-            while unprocessed and attempt < max_retries:
-                time.sleep(0.1 * (2 ** attempt))
-                retry = self.table.meta.client.batch_get_item(
-                    RequestItems={table_name: {"Keys": unprocessed}}
-                )
-                for item in retry.get("Responses", {}).get(table_name, []):
-                    pk = item["PK"]
-                    student_id = pk.split("#")[1]
-                    progress_map[student_id] = item
-                unprocessed = retry.get("UnprocessedKeys", {}).get(table_name, {}).get("Keys", [])
-                attempt += 1
-
-        # Build response
         progress_list: List[Dict[str, Any]] = []
         for student in students:
             student_id = student["studentId"]

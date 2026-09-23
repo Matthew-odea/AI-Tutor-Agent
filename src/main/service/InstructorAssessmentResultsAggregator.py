@@ -6,10 +6,11 @@ from typing import Any, Callable, Dict, List, Optional
 from boto3.dynamodb.conditions import Key
 
 from src.main.service.ScoringConfig import ScoringConfig
+from src.main.utils.DynamoBatchGet import batch_get_items
 
 
 def _effective_score(eval_item: Dict[str, Any]) -> int:
-    """Return instructorScore if set, else AI score, else 0."""
+    """Instructor override wins over the AI score."""
     if eval_item.get("instructorScore") is not None:
         return int(eval_item["instructorScore"])
     score = eval_item.get("totalScore")
@@ -29,53 +30,21 @@ class InstructorAssessmentResultsAggregator:
         self.get_students = get_students
         self._presign_url = presign_url or (lambda url: url)
 
-    # ------------------------------------------------------------------
-    # Batch helpers
-    # ------------------------------------------------------------------
-
     def _batch_get_enrollments(
         self, assessment_id: str, student_ids: List[str]
     ) -> Dict[str, Dict[str, Any]]:
-        """Fetch enrollment items via BatchGetItem (100-key pages)."""
-        table_name = self.table.table_name
         keys = [
             {"PK": f"ASSESSMENT#{assessment_id}", "SK": f"STUDENT#{sid}"}
             for sid in student_ids
         ]
         enrollment_map: Dict[str, Dict[str, Any]] = {}
-        for i in range(0, len(keys), 100):
-            batch = keys[i : i + 100]
-            response = self.table.meta.client.batch_get_item(
-                RequestItems={table_name: {"Keys": batch}}
-            )
-            for item in response.get("Responses", {}).get(table_name, []):
-                sid = item["SK"].replace("STUDENT#", "")
-                enrollment_map[sid] = item
-
-            # Handle unprocessed keys (throttling)
-            unprocessed = (
-                response.get("UnprocessedKeys", {})
-                .get(table_name, {})
-                .get("Keys", [])
-            )
-            while unprocessed:
-                retry = self.table.meta.client.batch_get_item(
-                    RequestItems={table_name: {"Keys": unprocessed}}
-                )
-                for item in retry.get("Responses", {}).get(table_name, []):
-                    sid = item["SK"].replace("STUDENT#", "")
-                    enrollment_map[sid] = item
-                unprocessed = (
-                    retry.get("UnprocessedKeys", {})
-                    .get(table_name, {})
-                    .get("Keys", [])
-                )
+        for item in batch_get_items(self.table, keys):
+            enrollment_map[item["SK"].replace("STUDENT#", "")] = item
         return enrollment_map
 
     def _query_evaluations(
         self, student_id: str, assessment_id: str
     ) -> List[Dict[str, Any]]:
-        """Query evaluation items for a single student (used inside thread pool)."""
         pk = f"STUDENT#{student_id}#ASSESSMENT#{assessment_id}"
         resp = self.table.query(
             KeyConditionExpression=Key("PK").eq(pk) & Key("SK").begins_with("EVALUATION#")
@@ -83,7 +52,7 @@ class InstructorAssessmentResultsAggregator:
         return resp.get("Items", [])
 
     def _get_assessment_metadata(self, assessment_id: str) -> Dict[str, Any]:
-        """Read the assessment METADATA item (for scoring config), or {} if absent."""
+        """Best-effort: {} (default scoring config) on any error."""
         try:
             resp = self.table.get_item(
                 Key={"PK": f"ASSESSMENT#{assessment_id}", "SK": "METADATA"}
@@ -91,10 +60,6 @@ class InstructorAssessmentResultsAggregator:
             return resp.get("Item") or {}
         except Exception:
             return {}
-
-    # ------------------------------------------------------------------
-    # get_assessment_results  — was N+1, now batched + concurrent
-    # ------------------------------------------------------------------
 
     def get_assessment_results(self, assessment_id: str) -> List[Dict[str, Any]]:
         students = self.get_students(assessment_id)
@@ -105,10 +70,9 @@ class InstructorAssessmentResultsAggregator:
 
         scoring = ScoringConfig.from_metadata(self._get_assessment_metadata(assessment_id))
 
-        # 1) BatchGetItem for all enrollment records (ceil(N/100) calls)
         enrollment_map = self._batch_get_enrollments(assessment_id, student_ids)
 
-        # 2) Concurrent evaluation queries (max 20 workers)
+        # One query per student (evaluations live under per-student PKs), so fan out.
         evaluations_map: Dict[str, List[Dict[str, Any]]] = {}
         with ThreadPoolExecutor(max_workers=20) as pool:
             futures = {
@@ -119,7 +83,6 @@ class InstructorAssessmentResultsAggregator:
                 sid = futures[future]
                 evaluations_map[sid] = future.result()
 
-        # 3) Assemble results
         results_list: List[Dict[str, Any]] = []
         for student in students:
             student_id = student["studentId"]
@@ -167,21 +130,14 @@ class InstructorAssessmentResultsAggregator:
 
         return results_list
 
-    # ------------------------------------------------------------------
-    # get_student_detail  — was 5 sequential queries, now 1 query + 1 get
-    # ------------------------------------------------------------------
-
     def get_student_detail(self, assessment_id: str, student_id: str) -> Dict[str, Any]:
-        """Return per-question details for one student in the instructor view."""
         pk = f"STUDENT#{student_id}#ASSESSMENT#{assessment_id}"
         scoring = ScoringConfig.from_metadata(self._get_assessment_metadata(assessment_id))
 
-        # Single query for ALL items under this PK (questions, answers,
-        # evaluations, and proctoring chunks all share the same partition).
+        # Questions, answers, evaluations, proctoring chunks and consent share this partition.
         all_items_resp = self.table.query(KeyConditionExpression=Key("PK").eq(pk))
         all_items = all_items_resp.get("Items", [])
 
-        # Bucket items by SK prefix
         questions_map: Dict[str, Dict[str, Any]] = {}
         answers_map: Dict[str, Dict[str, Any]] = {}
         evaluations_map: Dict[str, Dict[str, Any]] = {}
@@ -201,7 +157,6 @@ class InstructorAssessmentResultsAggregator:
             elif sk == "CONSENT":
                 consent_item = item
 
-        # Proctoring chunk health
         chunks.sort(key=lambda c: int(c.get("chunkIndex", 0)))
         chunk_indexes = {int(c.get("chunkIndex", 0)) for c in chunks}
         max_index = max(chunk_indexes, default=-1)
@@ -235,12 +190,13 @@ class InstructorAssessmentResultsAggregator:
             effective = instructor_score if instructor_score is not None else (ai_score if ai_score is not None else 0)
             q_max = int(evaluation.get("maxScore", scoring.max_score_per_question)) if evaluation.get("maxScore") is not None else scoring.max_score_per_question
 
+            # Unevaluated questions are excluded from the denominator, not scored as 0.
             if evaluation:
                 total_score += effective
                 max_score += q_max
 
-            # Human reference score (dual-scoring validity harness) — separate from
-            # the instructor override and does not affect the grade.
+            # Human reference score for the dual-scoring harness: independent of the
+            # instructor override and never affects the grade.
             human_correctness = int(evaluation["humanCorrectnessScore"]) if evaluation.get("humanCorrectnessScore") is not None else None
             human_understanding = int(evaluation["humanUnderstandingScore"]) if evaluation.get("humanUnderstandingScore") is not None else None
             human_total = int(evaluation["humanTotalScore"]) if evaluation.get("humanTotalScore") is not None else None
@@ -268,12 +224,10 @@ class InstructorAssessmentResultsAggregator:
                 "understandingScore": int(evaluation.get("understandingScore", 0)) if evaluation.get("understandingScore") is not None else 0,
                 "instructorComment": evaluation.get("instructorComment"),
                 "evaluatedAt": evaluation.get("evaluatedAt"),
-                # Review flags (Tasks 4 & 5) — carry the AI's quality signals to the instructor.
                 "needsReview": bool(evaluation.get("needsReview", False)),
                 "reviewReasons": _as_list(evaluation.get("reviewReasons")),
                 "evaluationMethod": evaluation.get("evaluationMethod"),
                 "transcriptConfidence": float(confidence) if confidence is not None else None,
-                # Human reference score (Task 3 dual-scoring).
                 "humanCorrectnessScore": human_correctness,
                 "humanUnderstandingScore": human_understanding,
                 "humanTotalScore": human_total,
@@ -284,7 +238,6 @@ class InstructorAssessmentResultsAggregator:
         percentage = round((total_score / max_score * 100), 1) if max_score > 0 else 0
         grade = scoring.grade(percentage)
 
-        # Fetch enrollment for name/email/submittedAt (different PK, so separate call)
         enrollment_resp = self.table.get_item(
             Key={"PK": f"ASSESSMENT#{assessment_id}", "SK": f"STUDENT#{student_id}"}
         )
@@ -302,8 +255,7 @@ class InstructorAssessmentResultsAggregator:
             "submittedAt": enrollment.get("submittedAt"),
             "questions": question_details,
             "proctoring": proctoring,
-            # Proctoring consent decision (None if the student never recorded one).
-            # granted=False is the authoritative "declined recording" signal.
+            # None = no decision recorded; granted=False is the authoritative "declined recording" signal.
             "consent": {
                 "granted": bool(consent_item.get("granted")),
                 "consentVersion": consent_item.get("consentVersion"),
@@ -312,12 +264,8 @@ class InstructorAssessmentResultsAggregator:
             } if consent_item else None,
         }
 
-    # ------------------------------------------------------------------
-    # Cross-student aggregates (Tasks 3 & 5)
-    # ------------------------------------------------------------------
-
     def _query_all_evaluations(self, assessment_id: str):
-        """Return (students, {student_id: [evaluation_items]}) for the assessment."""
+        """Return (students, {student_id: [evaluation_items]})."""
         students = self.get_students(assessment_id)
         student_ids = [s["studentId"] for s in students]
         evaluations_map: Dict[str, List[Dict[str, Any]]] = {}
@@ -333,12 +281,9 @@ class InstructorAssessmentResultsAggregator:
         return students, evaluations_map
 
     def compute_score_agreement(self, assessment_id: str) -> Dict[str, Any]:
-        """
-        AI-vs-human agreement across all dual-scored items (Task 3 validity harness).
+        """AI total vs independent human reference total across dual-scored items.
 
-        Compares the AI total score against the recorded human total score on the
-        same 0-10 scale. The instructor *override* score is deliberately ignored
-        here — agreement is measured against the independent human reference score.
+        The instructor override score is deliberately ignored; it is not an independent rating.
         """
         _, evaluations_map = self._query_all_evaluations(assessment_id)
         items: List[Dict[str, Any]] = []
@@ -383,11 +328,9 @@ class InstructorAssessmentResultsAggregator:
         }
 
     def get_flagged_evaluations(self, assessment_id: str, divergence_threshold: int = 3) -> Dict[str, Any]:
-        """
-        Evaluations worth a human glance before/at release (Task 5):
-          - needs_review (unusable transcript or structured-output fallback), or
-          - a large divergence between the correctness and understanding scores.
-        Returns a count plus a per-item list (no student names — keyed by id).
+        """Evaluations with needsReview/reviewReasons, or |correctness - understanding| >= divergence_threshold.
+
+        Items are keyed by id only; no student names.
         """
         _, evaluations_map = self._query_all_evaluations(assessment_id)
         flagged: List[Dict[str, Any]] = []
