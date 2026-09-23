@@ -45,6 +45,7 @@ export default function GenerateQuestions() {
       // external store; runs only when the store id matches (no fetch needed).
       setBrief(selectedAssessment.assignmentBrief);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on which assessment is open; re-seeding on every brief change would overwrite the instructor's unsaved edits
   }, [assessmentId, selectedAssessment?.id]);
 
   const handleSaveBrief = async () => {

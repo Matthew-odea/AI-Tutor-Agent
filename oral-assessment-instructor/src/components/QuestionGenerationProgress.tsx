@@ -21,39 +21,39 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
   const pollDelayRef = useRef(3000);
   const JOB_KEY = `genJob:${assessmentId}`;
 
-  // Restore job from localStorage on mount (survives page refresh)
+  // On opening an assessment, drop any job the global store holds for a different
+  // assessment (it used to be shown here as this one's), then restore this
+  // assessment's in-flight job from localStorage (survives page refresh).
   useEffect(() => {
-    if (!generationJob) {
-      try {
-        const stored = localStorage.getItem(JOB_KEY);
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (parsed.status === 'pending' || parsed.status === 'running') {
-            setGenerationJob(parsed);
-          }
-        }
-      } catch { /* ignore parse errors */ }
-    }
-  }, []);
+    if (useAssessmentStore.getState().generationJob?.assessmentId === assessmentId) return;
+    let restored = null;
+    try {
+      const stored = localStorage.getItem(JOB_KEY);
+      const parsed = stored ? JSON.parse(stored) : null;
+      if (parsed?.status === 'pending' || parsed?.status === 'running') restored = parsed;
+    } catch { /* ignore parse errors */ }
+    setGenerationJob(restored);
+  }, [assessmentId, JOB_KEY, setGenerationJob]);
 
-  // Persist job to localStorage whenever it changes
+  // Persist this assessment's job to localStorage whenever it changes
   useEffect(() => {
-    if (generationJob) {
+    if (generationJob?.assessmentId === assessmentId) {
       localStorage.setItem(JOB_KEY, JSON.stringify(generationJob));
     }
-  }, [generationJob]);
+  }, [generationJob, assessmentId, JOB_KEY]);
 
   // Holds the latest scheduleNextPoll so the recursive re-schedule inside the
   // setTimeout callback can call it without referencing the const before it is
   // assigned (the ref is populated synchronously below, on every render).
   const scheduleNextPollRef = useRef<() => void>(() => {});
 
+  const jobId = generationJob?.jobId;
   const scheduleNextPoll = useCallback(() => {
-    if (!generationJob?.jobId) return;
+    if (!jobId) return;
 
     const timeout = setTimeout(async () => {
       try {
-        const updatedJob = await apiService.getQuestionGenerationStatus(assessmentId, generationJob.jobId);
+        const updatedJob = await apiService.getQuestionGenerationStatus(assessmentId, jobId);
         setGenerationJob(updatedJob);
 
         // Stop polling if job is complete or failed
@@ -72,7 +72,7 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
     }, pollDelayRef.current);
 
     setPollingInterval(timeout);
-  }, [assessmentId, generationJob?.jobId]);
+  }, [assessmentId, jobId, setGenerationJob]);
 
   // Keep the ref pointing at the latest scheduleNextPoll so the recursive
   // re-schedule inside the setTimeout callback always invokes the current one.
@@ -97,7 +97,7 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
 
   // Track elapsed time while job is running
   useEffect(() => {
-    if (generationJob && (generationJob.status === 'pending' || generationJob.status === 'running')) {
+    if (generationJob?.status === 'pending' || generationJob?.status === 'running') {
       // Intentional: lazily stamp the job start time on the first running tick;
       // guarded by !jobStartTime so it fires once per job, not a render cascade.
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -131,6 +131,10 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
       setPollingInterval(null);
       pollDelayRef.current = 3000; // reset backoff
     }
+    // Keyed on status alone on purpose: startPolling and pollingInterval change on
+    // every scheduled poll, and re-running this then would only hit the
+    // "already polling" guard. The closure is fresh each time status changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [generationJob?.status]);
 
   // Load students when job completes so we can show per-student question links
@@ -140,7 +144,7 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
         .then(s => setStudents(Array.isArray(s) ? s : []))
         .catch(() => { /* non-critical */ });
     }
-  }, [generationJob?.status]);
+  }, [generationJob?.status, assessmentId, students.length]);
 
   const handleStartGeneration = async () => {
     // Prevent duplicate generation if a job is already in progress

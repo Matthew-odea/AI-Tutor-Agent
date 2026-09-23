@@ -116,6 +116,7 @@ export default function QuestionEditor() {
       // eslint-disable-next-line react-hooks/set-state-in-effect
       loadData();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadData is recreated each render but only reads assessmentId/studentId, which are the deps
   }, [assessmentId, studentId]);
 
   const startEdit = (q: StudentQuestion) => {

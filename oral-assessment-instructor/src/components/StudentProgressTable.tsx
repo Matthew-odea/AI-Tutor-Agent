@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { apiService } from '../services/api';
 import { useAssessmentStore } from '../store/assessmentStore';
@@ -39,10 +39,8 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
   const { progress, setProgress, students, setStudents, setLoading, setError } = useAssessmentStore();
   const addToast = useToastStore((s) => s.addToast);
 
-  const [filteredProgress, setFilteredProgress] = useState<StudentProgressWithInfo[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
-  const [pollingInterval, setPollingInterval] = useState<NodeJS.Timeout | null>(null);
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [evaluatingSingle, setEvaluatingSingle] = useState<Record<string, boolean>>({});
   const [sendingReminder, setSendingReminder] = useState<string | null>(null);
@@ -113,24 +111,7 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
     }
   };
 
-  const startPolling = () => {
-    if (pollingInterval) {
-      clearInterval(pollingInterval);
-    }
-    const interval = setInterval(async () => {
-      try {
-        const progressData = await apiService.getAssessmentProgress(assessmentId);
-        setProgress(Array.isArray(progressData) ? progressData : []);
-        setLastUpdated(new Date());
-        setSecondsSinceUpdate(0);
-      } catch (err) {
-        console.error('Error polling progress:', err);
-      }
-    }, 10_000);
-    setPollingInterval(interval);
-  };
-
-  const applyFilters = () => {
+  const filteredProgress = useMemo<StudentProgressWithInfo[]>(() => {
     // Ensure progress is an array
     const progressArray = Array.isArray(progress) ? progress : [];
     const studentsArray = Array.isArray(students) ? students : [];
@@ -166,8 +147,8 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
       );
     }
 
-    setFilteredProgress(filtered);
-  };
+    return filtered;
+  }, [progress, students, statusFilter, searchQuery]);
 
   // Load initial data (reset stale data first to avoid showing previous assessment's state)
   useEffect(() => {
@@ -175,31 +156,26 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
     setStudents([]);
     loadProgressData();
     loadStudents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the loaders are recreated each render but only read assessmentId, which is the dep; store setters are stable
   }, [assessmentId]);
 
-  // Poll for progress updates every 10s
+  // Poll for progress updates every 10s. The handle lives in the effect so the
+  // cleanup clears the interval it started (it used to read a stale null from
+  // state and never clear, so polling outlived the page and kept overwriting the
+  // shared progress store with this assessment's students).
   useEffect(() => {
-    // Intentional: startPolling subscribes to an external timer and stores its
-    // handle via setPollingInterval — effect-driven subscription setup, not a
-    // render cascade.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    startPolling();
-    return () => {
-      if (pollingInterval) {
-        clearInterval(pollingInterval);
-        setPollingInterval(null);
+    const interval = setInterval(async () => {
+      try {
+        const progressData = await apiService.getAssessmentProgress(assessmentId);
+        setProgress(Array.isArray(progressData) ? progressData : []);
+        setLastUpdated(new Date());
+        setSecondsSinceUpdate(0);
+      } catch (err) {
+        console.error('Error polling progress:', err);
       }
-    };
-  }, [assessmentId]);
-
-  // Apply filters when data changes
-  useEffect(() => {
-    // Intentional: derive filteredProgress from progress/students/filters when
-    // any of them change. Single setState per data change, guarded by the dep
-    // array, so it settles in one pass rather than cascading.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    applyFilters();
-  }, [progress, students, statusFilter, searchQuery]);
+    }, 10_000);
+    return () => clearInterval(interval);
+  }, [assessmentId, setProgress]);
 
   // Tick the "last updated" counter (and current time) every second
   useEffect(() => {
@@ -216,9 +192,13 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
     if (evalStreams.current[studentId]) evalStreams.current[studentId].close();
     const es = apiService.openStudentEvaluationProgressStream(assessmentId, studentId);
     evalStreams.current[studentId] = es;
+    // Tracked per stream: the evalProgress state this closure captured is from
+    // before the evaluation started, so reading it in onerror never saw 'evaluating'.
+    let lastStatus: string | undefined;
     es.onmessage = (event) => {
       try {
         const data: EvalProgress = JSON.parse(event.data);
+        lastStatus = data.status;
         setEvalProgress(prev => ({ ...prev, [studentId]: data }));
         if (data.status === 'completed') {
           // Persist to localStorage so Evaluate button stays hidden after refresh
@@ -241,8 +221,7 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
       es.close();
       delete evalStreams.current[studentId];
       // Re-open the stream after a brief delay if evaluation was still in progress
-      const lastProgress = evalProgress[studentId];
-      if (lastProgress && lastProgress.status === 'evaluating') {
+      if (lastStatus === 'evaluating') {
         setTimeout(() => openEvalProgressStream(studentId), 3000);
       }
     };
@@ -250,8 +229,10 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
 
   // Close all eval streams on unmount
   useEffect(() => {
+    // The ref's object is never replaced (only its keys change), so this is the same map at cleanup.
+    const streams = evalStreams.current;
     return () => {
-      Object.values(evalStreams.current).forEach(es => es.close());
+      Object.values(streams).forEach(es => es.close());
     };
   }, []);
 
@@ -259,8 +240,9 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
     // Ensure progress is an array
     const progressArray = Array.isArray(progress) ? progress : [];
 
+    // Same "finished" test as the Evaluate All (N) count and the per-row Evaluate button.
     const completedStudents = progressArray
-      .filter(p => p.status === 'completed')
+      .filter(p => p.status === 'completed' || p.status === 'submitted')
       .map(p => p.studentId);
 
     if (completedStudents.length === 0) {

@@ -40,6 +40,7 @@ export default function UploadStudents() {
     if (assessmentId && assessmentId !== selectedAssessment?.id) {
       loadAssessment(assessmentId);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetch only when the route id changes; loadAssessment is recreated each render and uses only stable setters
   }, [assessmentId]);
 
   useEffect(() => {
@@ -47,6 +48,7 @@ export default function UploadStudents() {
     if (state?.created) {
       addToast(`Assessment "${state.created}" created successfully.`, 'success');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one toast on arrival from the create form, not on later navigation state changes
   }, []);
 
   const handleEdImport = async () => {

@@ -60,6 +60,7 @@ export default function StudentResultDetail() {
 
   useEffect(() => {
     if (assessmentId && studentId) loadDetail();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadDetail is recreated each render but only reads assessmentId/studentId, which are the deps
   }, [assessmentId, studentId]);
 
   useEffect(() => {
@@ -119,7 +120,8 @@ export default function StudentResultDetail() {
       // A failed save is transient — toast it instead of replacing the whole
       // page with the full-page error state.
       addToast(err instanceof Error ? err.message : 'Failed to save override', 'error');
-    } finally {
+      // Only on failure: after a successful save the entry was deleted above, and
+      // re-creating it here left the form open with an empty score box.
       setOverrideStates(prev => ({ ...prev, [questionId]: { ...prev[questionId], saving: false } }));
     }
   };

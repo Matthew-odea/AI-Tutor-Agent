@@ -29,6 +29,7 @@ export default function ViewResults() {
     if (assessmentId && assessmentId !== selectedAssessment?.id) {
       loadAssessment(assessmentId);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetch only when the route id changes; loadAssessment is recreated each render and uses only stable setters
   }, [assessmentId]);
 
   // Full-page loading / error state — AppShell is only mounted once there is an

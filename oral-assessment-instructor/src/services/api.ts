@@ -264,12 +264,6 @@ class ApiService {
     return response.data;
   }
 
-  openEvaluationStatusStream(assessmentId: string, jobId: string): EventSource {
-    const token = localStorage.getItem('authToken');
-    const url = `${API_BASE_URL}/api/assessment/${assessmentId}/evaluation-status-stream/${jobId}${token ? `?token=${token}` : ''}`;
-    return new EventSource(url);
-  }
-
   openStudentEvaluationProgressStream(assessmentId: string, studentId: string): EventSource {
     const token = localStorage.getItem('authToken');
     const url = `${API_BASE_URL}/api/assessment/${assessmentId}/students/${studentId}/evaluation-progress${token ? `?token=${token}` : ''}`;
