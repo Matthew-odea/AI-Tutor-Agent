@@ -157,7 +157,16 @@ export default function CreateAssessmentForm() {
       setLoading(true);
       setError(null);
 
-      const assessment = await apiService.createAssessment(formData);
+      // datetime-local values carry no timezone, and the server reads a bare time as
+      // UTC — an instructor in Sydney got a window 10-11 hours late. new Date() reads
+      // them as the browser's local time, so toISOString() sends the instant they meant.
+      const toUtc = (v?: string | null) => (v ? new Date(v).toISOString() : v);
+      const assessment = await apiService.createAssessment({
+        ...formData,
+        dueDate: toUtc(formData.dueDate) ?? '',
+        scheduledWindowStart: toUtc(formData.scheduledWindowStart),
+        scheduledWindowEnd: toUtc(formData.scheduledWindowEnd),
+      });
       addAssessment(assessment);
       setSelectedAssessment(assessment);
 
