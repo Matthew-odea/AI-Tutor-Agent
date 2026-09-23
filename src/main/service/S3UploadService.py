@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+from urllib.parse import urlparse
 
 import boto3
 from botocore.exceptions import ClientError
@@ -78,6 +79,21 @@ def build_upload_key(
         return f"proctoring/{assessment}/{owner}/chunk_{chunk_index:06d}.{extension}"
 
     raise S3UploadServiceError(f"Unsupported upload kind: {kind}")
+
+
+def assert_owned_upload(url: str, prefix: str, label: str) -> None:
+    """Refuse a media URL that does not point under `prefix`.
+
+    Students hand back the fileUrl they uploaded to, and it is stored and later
+    presigned for GET by key alone (host ignored) — for the instructor, and for the
+    student on their results page. Without this a student could store another
+    student's key, e.g. the guessable proctoring/{assessment}/{student}/chunk_000000,
+    and be handed a download link for it. The key is parsed the same way the
+    presigners parse it.
+    """
+    key = urlparse(url or "").path.lstrip("/")
+    if not key.startswith(prefix) or ".." in key:
+        raise ValueError(f"{label} is not an upload belonging to this student")
 
 
 class S3UploadService:

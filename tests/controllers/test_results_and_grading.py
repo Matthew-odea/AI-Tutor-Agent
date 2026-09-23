@@ -36,7 +36,7 @@ from src.main.service.OralAssessmentResultsAggregator import OralAssessmentResul
 # ─────────────────────────────────────────────────────────────
 
 _INSTRUCTOR = AuthPrincipal(user_id="i-1", roles=["instructor"], source="jwt")
-_STUDENT = AuthPrincipal(user_id="s-1", roles=["student"], source="jwt")
+_STUDENT = AuthPrincipal(user_id="s-1", roles=["student"], source="jwt", assessment_id="a-1")
 
 
 def _assessment_client(instructor_svc=None, principal=_INSTRUCTOR):

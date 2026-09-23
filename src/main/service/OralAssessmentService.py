@@ -24,6 +24,7 @@ from src.main.service.OralAssessmentProgressTracker import OralAssessmentProgres
 from src.main.service.OralAssessmentQuestionAccess import OralAssessmentQuestionAccess
 from src.main.service.OralAssessmentAnswerSubmission import OralAssessmentAnswerSubmission
 from src.main.service.OralAssessmentResultsAggregator import OralAssessmentResultsAggregator
+from src.main.service.S3UploadService import assert_owned_upload
 
 logger = logging.getLogger(__name__)
 
@@ -388,6 +389,10 @@ class OralAssessmentService:
             OralAssessmentServiceError: If assessment window is closed or DB error
         """
         try:
+            for label, url in (("audio_url", audio_url), ("video_url", video_url)):
+                if url:
+                    # build_upload_key writes answer media under audio/{uploader}/.
+                    assert_owned_upload(url, f"audio/{student_id}/", label)
             # Single METADATA read, reused for the window check + the review flag.
             meta = self._get_assessment_metadata(assessment_id)
             allow_review = bool(meta.get("allowReview", False))
@@ -426,6 +431,10 @@ class OralAssessmentService:
         timestamp: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Store a proctoring chunk manifest entry in DynamoDB."""
+        try:
+            assert_owned_upload(chunk_url, f"proctoring/{assessment_id}/{student_id}/", "chunk_url")
+        except ValueError as e:
+            raise OralAssessmentServiceError(str(e))
         try:
             result = self.answer_submission.submit_proctor_chunk(
                 student_id=student_id,

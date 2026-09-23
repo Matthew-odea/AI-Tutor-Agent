@@ -330,6 +330,7 @@ def test_user_admin_routes_are_unchanged():
     ]
     auth = MagicMock()
     auth.list_users.side_effect = lambda: AuthService.list_users(SimpleNamespace(auth_users_table=table))
+    auth.set_user_roles.return_value = ["instructor"]
     client, _ = _client(deps={get_auth_service: auth})
 
     assert client.get("/api/auth/users").json() == {
@@ -340,7 +341,7 @@ def test_user_admin_routes_are_unchanged():
         ],
     }
     roles = client.put("/api/auth/users/a@example.edu/roles", json={"roles": ["Instructor", "bogus"]}).json()
-    assert roles == {"ok": True, "email": "a@example.edu", "roles": ["Instructor", "bogus"]}
+    assert roles == {"ok": True, "email": "a@example.edu", "roles": ["instructor"]}
     assert client.post("/api/auth/logout").json() == {"ok": True}
 
 

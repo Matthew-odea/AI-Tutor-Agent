@@ -2,6 +2,7 @@ import pytest
 from fastapi import HTTPException
 
 from src.main.auth.models import AuthPrincipal
+from src.main.controllers.api_errors import ApiError
 from src.main.controllers import controller_helpers as helpers
 
 
@@ -43,10 +44,10 @@ def test_assert_instructor_access_denies_roleless_x_user_id_principal():
 
 
 def test_assert_assessment_owner_denies_x_user_id_principal_without_owner_metadata():
-    with pytest.raises(HTTPException) as error:
+    with pytest.raises(ApiError) as error:
         helpers._assert_assessment_owner(AuthPrincipal(user_id="u2", roles=[], source="x-user-id"), {})
 
-    assert error.value.status_code == 403
+    assert error.value.status_code == 404
 
 
 def test_assert_instructor_access_denies_student():
@@ -56,14 +57,21 @@ def test_assert_instructor_access_denies_student():
     assert error.value.status_code == 403
 
 
-def test_assert_student_access_allows_same_user_or_admin():
-    helpers._assert_student_access(AuthPrincipal(user_id="s1", roles=["student"], source="jwt"), "s1")
-    helpers._assert_student_access(AuthPrincipal(user_id="admin", roles=["admin"], source="jwt"), "s1")
+def test_assert_student_access_allows_own_session_token_or_admin():
+    session = AuthPrincipal(user_id="s1", roles=["student"], source="jwt", assessment_id="a1")
+    helpers._assert_student_access(session, "s1", "a1")
+    helpers._assert_student_access(AuthPrincipal(user_id="admin", roles=["admin"], source="jwt"), "s1", "a1")
 
 
-def test_assert_student_access_denies_other_student():
+@pytest.mark.parametrize("principal", [
+    AuthPrincipal(user_id="s2", roles=["student"], source="jwt", assessment_id="a1"),  # another student
+    AuthPrincipal(user_id="s1", roles=["student"], source="jwt", assessment_id="a2"),  # token for another assessment
+    AuthPrincipal(user_id="s1", roles=["student"], source="jwt"),  # login token whose subject equals the student id
+    AuthPrincipal(user_id="i1", roles=["instructor"], source="jwt"),  # instructors use /api/assessment/{id}/...
+])
+def test_assert_student_access_denies_everyone_else(principal):
     with pytest.raises(HTTPException) as error:
-        helpers._assert_student_access(AuthPrincipal(user_id="s2", roles=["student"], source="jwt"), "s1")
+        helpers._assert_student_access(principal, "s1", "a1")
 
     assert error.value.status_code == 403
 
@@ -85,7 +93,7 @@ def test_assert_assessment_owner_denies_non_owner():
     principal = AuthPrincipal(user_id="u2", roles=["instructor"], source="jwt")
     assessment = {"createdBy": "u1"}
 
-    with pytest.raises(HTTPException) as error:
+    with pytest.raises(ApiError) as error:
         helpers._assert_assessment_owner(principal, assessment)
 
-    assert error.value.status_code == 403
+    assert error.value.status_code == 404

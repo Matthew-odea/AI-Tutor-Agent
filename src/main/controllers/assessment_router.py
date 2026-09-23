@@ -7,7 +7,7 @@ import re
 import asyncio
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, Response
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, Request, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from src.main.auth.dependencies import get_auth_service, require_auth_principal
@@ -24,6 +24,7 @@ from src.main.controllers.controller_dependencies import (
 from src.main.controllers.controller_helpers import (
     _assert_assessment_owner,
     _assert_instructor_access,
+    _assessment_not_found,
 )
 from src.main.dtos.InstructorAssessmentDTOs import (
     AddStudentQuestionRequest,
@@ -83,7 +84,42 @@ from src.main.service.ResponseEvaluationRepository import ResponseEvaluationRepo
 logger = logging.getLogger(__name__)
 
 
-assessment_router = APIRouter(prefix="/api/assessment", tags=["assessment"])
+async def _require_owned_assessment(
+    request: Request,
+    principal: AuthPrincipal = Depends(require_auth_principal),
+    svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
+) -> None:
+    """Router-wide guard for every /api/assessment/{id}/... route, present and future.
+
+    Only the assessment's owner (or an admin) gets past it, and a {jobId} must be a
+    job of that assessment. A missing assessment and someone else's answer the same
+    404, so a caller cannot probe which ids exist. Everything else under {id} —
+    students, questions, grades, footage, reports — is keyed by the assessment id,
+    so owning the assessment is what scopes it.
+    """
+    assessment_id = request.path_params.get("id")
+    if assessment_id is None:
+        return  # /create and /list: no assessment named, the route scopes by caller
+    _assert_instructor_access(principal)
+    loop = asyncio.get_event_loop()
+    try:
+        assessment = await loop.run_in_executor(None, lambda: svc.get_assessment(assessment_id))
+    except InstructorAssessmentServiceError:
+        raise _assessment_not_found()
+    _assert_assessment_owner(principal, assessment)
+
+    job_id = request.path_params.get("jobId")
+    if job_id is not None:
+        job = await loop.run_in_executor(None, lambda: get_batch_job_manager().get_job(job_id))
+        if not job or job.get("assessment_id") != assessment_id:
+            raise ApiError(status_code=404, code="job_not_found", message=f"Job {job_id} not found")
+
+
+assessment_router = APIRouter(
+    prefix="/api/assessment",
+    tags=["assessment"],
+    dependencies=[Depends(_require_owned_assessment)],
+)
 
 
 @assessment_router.post("/create", response_model=AssessmentResponse, status_code=201)

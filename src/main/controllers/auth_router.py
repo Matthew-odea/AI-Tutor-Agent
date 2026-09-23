@@ -165,6 +165,5 @@ def set_user_roles(
     """Set roles for a user. Admin-only — an instructor cannot grant themselves admin."""
     if "admin" not in _principal.roles:
         raise ApiError(status_code=403, code="forbidden", message="Admin access required")
-    roles = request.roles
-    auth_service.set_user_roles(email, roles)
-    return {"ok": True, "email": email, "roles": roles}
+    saved = auth_service.set_user_roles(email, request.roles)
+    return {"ok": True, "email": email, "roles": saved}

@@ -529,8 +529,10 @@ class AuthService:
             logger.exception("Failed to list users")
             return []
 
-    def set_user_roles(self, email: str, roles: List[str]) -> None:
-        """Overwrite a user's roles list in DynamoDB and in-memory cache."""
+    def set_user_roles(self, email: str, roles: List[str]) -> List[str]:
+        """Overwrite a user's roles list in DynamoDB and in-memory cache.
+
+        Unknown roles are dropped and the rest lower-cased; returns what was saved."""
         normalized = self._normalize_email(email)
         if not normalized:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid email")
@@ -557,6 +559,7 @@ class AuthService:
         cached = self._login_users.get(normalized)
         if cached:
             cached["roles"] = cleaned
+        return cleaned
 
     def authenticate_credentials(self, email: str, password: str) -> AuthPrincipal:
         normalized_email = self._normalize_email(email)

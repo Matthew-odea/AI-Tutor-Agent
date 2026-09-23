@@ -8,6 +8,16 @@ Every route needs an auth dependency: `Depends(require_auth_principal)`, `Depend
 
 Don't authorize off the `X-User-Id` header — it's accepted in some request signatures for backward compatibility, but `AuthService.resolve_principal()` ignores its value entirely and requires a valid `Authorization: Bearer <jwt>`.
 
+## Authenticated is not authorized
+
+A route that names a tenant's thing — an assessment, student, question, job, S3 key, workspace — must also check the caller may touch *that* one. `tests/controllers/test_route_ownership.py` is the gate: it finds every route with an id in its path, query or body, calls it across the tenant line with real tokens on moto, and fails if the call is not refused (or the route is not in its `NOT_TENANT_SCOPED` allowlist with a reason). Where the checks live:
+
+- `/api/assessment/{id}/...` — `_require_owned_assessment`, a router-wide dependency in `assessment_router.py`. It covers every route under `{id}`, including new ones: owner or admin only, a `{jobId}` must belong to that assessment, and a missing assessment and someone else's return the same 404 so ids can't be probed.
+- `/api/student/{student_id}/...` — `_assert_student_access`: only the invite-exchanged session token for exactly that student and assessment (or an admin). Instructors don't use these routes; a login token whose subject equals a student id is not a student session.
+- Media URLs a student sends back (`audio_url`, `video_url`, `chunk_url`) must sit under that student's own upload prefix — `assert_owned_upload` in `S3UploadService.py` — because they are later presigned for download by key.
+
+Take identity from the verified `AuthPrincipal`, never from an id in the body.
+
 ## Don't write your own try/except ladder
 
 `api_errors.py` registers global exception handlers for `ApiError`, `RequestValidationError`, `HTTPException`, and bare `Exception`. Every response — success or failure — already comes back as:

@@ -24,7 +24,7 @@ from src.main.service.OralAssessmentService import OralAssessmentServiceError
 # Helpers
 # ─────────────────────────────────────────────────────────────
 
-_STUDENT = AuthPrincipal(user_id="s-1", roles=["student"], source="jwt")
+_STUDENT = AuthPrincipal(user_id="s-1", roles=["student"], source="jwt", assessment_id="a-1")
 
 
 def _build_client(principal=_STUDENT, svc=None) -> TestClient:
@@ -172,7 +172,7 @@ def test_submit_proctor_chunk_returns_200():
 
 def test_submit_proctor_chunk_forwards_all_fields():
     svc = _mock_svc()
-    client = _build_client(svc=svc)
+    client = _build_client(principal=AuthPrincipal(user_id="s-1", roles=["student"], source="jwt", assessment_id="a-99"), svc=svc)
 
     client.post(
         "/api/student/s-1/proctoring-chunk",

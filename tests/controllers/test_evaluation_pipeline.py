@@ -33,7 +33,7 @@ from src.main.service.EvaluationWorkflowRunner import EvaluationWorkflowRunner
 # ─────────────────────────────────────────────────────────────
 
 _INSTRUCTOR = AuthPrincipal(user_id="i-1", roles=["instructor"], source="jwt")
-_STUDENT = AuthPrincipal(user_id="s-1", roles=["student"], source="jwt")
+_STUDENT = AuthPrincipal(user_id="s-1", roles=["student"], source="jwt", assessment_id="a-1")
 
 
 def _assessment_client(instructor_svc=None, dispatcher=None, principal=_INSTRUCTOR):
@@ -130,13 +130,14 @@ class TestEvaluateBatchSQS:
         _, kwargs = dispatcher.enqueue_evaluation_batch.call_args
         assert kwargs["students"] == [{"studentId": "s-1"}]
 
-    def test_non_owner_returns_403(self):
+    def test_non_owner_gets_the_same_404_as_a_missing_assessment(self):
         instructor_svc = _mock_instructor_svc(
             assessment={"id": "a-1", "title": "T", "createdBy": "other-user", "autoEvaluate": False, "rubric": None}
         )
         client = _assessment_client(instructor_svc=instructor_svc)
         resp = client.post("/api/assessment/a-1/evaluate-batch", json={})
-        assert resp.status_code == 403
+        assert resp.status_code == 404
+        assert resp.json()["error"]["code"] == "assessment_not_found"
 
 
 # ─────────────────────────────────────────────────────────────
