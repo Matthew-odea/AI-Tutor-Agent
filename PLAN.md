@@ -39,12 +39,22 @@ has been built ahead of your answer.
 9. **Your system Python.** An agent installed `requirements.txt` into
    `/Library/Frameworks/Python.framework/Versions/3.13` instead of a virtualenv. Leave it, or
    uninstall those packages?
+10. **Re-running evaluation after release.** `evaluate-batch` has no guard, so an instructor
+    re-running it after results are released silently changes AI scores students have already
+    seen (instructor overrides are kept). Late submitters still need evaluating after release, so
+    it can't simply be blocked. Options: skip students who already have evaluations unless the
+    instructor ticks "re-evaluate"; or refuse re-evaluation of released students only.
+    *Recommend the first.*
 
 **Things only you can do** (need the project's AWS credentials or a real device)
 
 - Put the project `.env` at the repo root and run `./scripts/prod_checks.sh` — see "Three that a
   script answers" below. Check 1 matters most: if `AUTH_USERS_JSON` or `AUTH_LOGIN_PASSWORD`
   holds a plaintext password, that login has been broken since PR #8 deployed.
+- Apply `sqs:ChangeMessageVisibility` to the EC2 role's SQS policy (now in both
+  `terraform/*/main.tf`, not applied). Until it is, the job-queue heartbeat and retry backoff
+  fail with AccessDenied — logged only — and a failed job waits the full 900 s before retrying.
+  The live Sydney resources are in no terraform state, so this may need the console.
 - Confirm the 8 Apr Sydney migration captured everything from us-east-1.
 - Record on Safari (it produces `video/mp4`) and play a chunk back from the instructor app.
 

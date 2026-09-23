@@ -234,6 +234,9 @@ resource "aws_iam_role_policy" "ec2_sqs" {
           "sqs:SendMessage",
           "sqs:ReceiveMessage",
           "sqs:DeleteMessage",
+          # Heartbeat and retry backoff in SQSJobDispatcher. Without it both are
+          # AccessDenied, logged only, and retries wait the full visibility timeout.
+          "sqs:ChangeMessageVisibility",
           "sqs:GetQueueAttributes",
         ]
         Resource = [
