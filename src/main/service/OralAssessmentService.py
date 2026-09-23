@@ -206,9 +206,10 @@ class OralAssessmentService:
             allow_review = bool(assessment_meta.get("allowReview", False))
 
             student_items = self.question_access.get_student_questions(student_id, assessment_id)
-            bank_items = self.question_access.get_bank_questions(assessment_id)
+            # BANK_QUESTION# items are no longer read: the feature was removed and the only
+            # prod items (2026-09-23) sit in an unanswered draft smoke-test assessment.
 
-            if not student_items and not bank_items:
+            if not student_items:
                 logger.warning(f"No questions found for assessment {assessment_id}")
                 return {"questions": [], "currentQuestionIndex": 0,
                         "answerMode": answer_mode,
@@ -222,7 +223,6 @@ class OralAssessmentService:
             # Build the full ordered question list (always same sort)
             all_questions = self.question_access.to_student_question_view(
                 student_items,
-                bank_items,
                 student_id=student_id,
                 assessment_id=assessment_id,
                 assessment_time_limit=assessment_time_limit,
