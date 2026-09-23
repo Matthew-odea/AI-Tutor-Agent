@@ -128,6 +128,20 @@ class TestGetStudentQuestions:
         assert result["answerMode"] == "oral"
         assert result["assessmentTitle"] == "Test Assessment"
 
+    def test_legacy_bank_questions_are_not_served(self, dynamo_env):
+        # Marking only reads the student's own QUESTION# items, so serving a
+        # BANK_QUESTION# would give the student a question that never gets marked.
+        table = dynamo_env
+        _seed_assessment(table)
+        _seed_enrollment(table)
+        _seed_questions(table, count=2)
+        table.put_item(Item={"PK": "ASSESSMENT#a-1", "SK": "BANK_QUESTION#b-1", "id": "b-1", "text": "legacy"})
+        svc = _create_service(table)
+
+        result = svc.get_student_questions("s-1", "a-1")
+        assert len(result["questions"]) == 2
+        assert "b-1" not in [q["id"] for q in result["questions"]]
+
     def test_unenrolled_student_raises(self, dynamo_env):
         table = dynamo_env
         _seed_assessment(table)
