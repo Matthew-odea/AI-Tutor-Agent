@@ -6,7 +6,7 @@ import re
 
 import asyncio
 
-from fastapi import APIRouter, Body, Depends, Response
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from src.main.auth.dependencies import get_auth_service, require_auth_principal
@@ -931,6 +931,7 @@ async def override_question_score(
 @assessment_router.put("/{id}/release-results", response_model=ReleaseResultsResponse)
 async def release_results(
     id: str,
+    background: BackgroundTasks,
     svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
@@ -942,8 +943,10 @@ async def release_results(
         _assert_assessment_owner(_principal, assessment)
         result = await loop.run_in_executor(None, lambda: svc.release_results(id))
 
-        # Send notification emails to all submitted students (non-blocking)
-        import threading
+        # Email every submitted student after the response is sent. A BackgroundTask,
+        # not a daemon thread: a redeploy killed daemon threads mid-send, so released
+        # results silently never reached some students. One bad address is logged
+        # and skipped; it must not fail the instructor's release.
         def _notify_students():
             try:
                 students = svc.get_assessment_students(id)
@@ -952,6 +955,7 @@ async def release_results(
                 from_email = os.getenv("INVITE_FROM_EMAIL") or os.getenv("AUTH_PASSWORD_RESET_FROM_EMAIL", "")
                 ses_region = os.getenv("AUTH_PASSWORD_RESET_SES_REGION", "") or os.getenv("AWS_DEFAULT_REGION", "us-east-1")
                 if not from_email:
+                    logger.warning("No INVITE_FROM_EMAIL configured; release notifications for %s not sent", id)
                     return
                 import boto3
                 ses = boto3.client("ses", region_name=ses_region)
@@ -977,7 +981,7 @@ async def release_results(
                         logger.warning(f"Failed to notify {s['studentId']}: {e}")
             except Exception as e:
                 logger.warning(f"Failed to send release notifications: {e}")
-        threading.Thread(target=_notify_students, daemon=True).start()
+        background.add_task(_notify_students)
 
         return ReleaseResultsResponse(ok=True, **result)
     except InstructorAssessmentServiceError as error:

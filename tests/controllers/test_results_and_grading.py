@@ -371,6 +371,45 @@ class TestReleaseResultsEndpoint:
 
         svc.release_results.assert_called_once_with("a-1")
 
+    def test_release_emails_students_from_background_tasks_and_skips_bad_addresses(self, monkeypatch):
+        """Calls the handler directly so the mechanism is asserted, not the timing.
+
+        Notifications used to go out from a daemon thread, which a redeploy killed
+        mid-send. A revert to a thread leaves `background.tasks` empty and fails here.
+        One failing address must be logged and skipped, not stop the rest.
+        """
+        import asyncio
+
+        from fastapi import BackgroundTasks
+
+        from src.main.controllers.assessment_router import release_results
+
+        monkeypatch.setenv("INVITE_FROM_EMAIL", "noreply@example.com")
+        svc = _mock_instructor_svc()
+        svc.release_results.return_value = {"assessmentId": "a-1", "resultsReleased": True}
+        svc.get_assessment_students.return_value = [
+            {"studentId": "s-bad", "status": "submitted", "email": "bad@example.com"},
+            {"studentId": "s-draft", "status": "in_progress", "email": "draft@example.com"},
+            {"studentId": "s-ok", "status": "submitted", "email": "ok@example.com"},
+        ]
+        background = BackgroundTasks()
+
+        with patch("boto3.client") as mock_client:
+            ses = mock_client.return_value
+            ses.send_email.side_effect = [Exception("MessageRejected"), {"MessageId": "m-1"}]
+
+            resp = asyncio.run(release_results("a-1", background, svc=svc, _principal=_INSTRUCTOR))
+
+            assert resp.ok is True
+            # Registered, deferred, and nothing has been sent yet.
+            assert len(background.tasks) == 1
+            ses.send_email.assert_not_called()
+
+            asyncio.run(background())
+
+        sent_to = [c.kwargs["Destination"]["ToAddresses"] for c in ses.send_email.call_args_list]
+        assert sent_to == [["bad@example.com"], ["ok@example.com"]]
+
 
 # ─────────────────────────────────────────────────────────────
 # EPIC-6-3: student results gated

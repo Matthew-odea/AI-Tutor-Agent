@@ -9,9 +9,8 @@ from __future__ import annotations
 import os
 import uuid
 import logging
-import threading
 from datetime import datetime, timedelta, timezone
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 import boto3
 from botocore.exceptions import ClientError
@@ -125,38 +124,6 @@ class DynamoDBJobStore:
             )
         except ClientError as exc:
             logger.error("Failed to increment progress for job %s: %s", job_id, exc)
-
-    def run_batch_job(
-        self,
-        job_id: str,
-        items: List[Any],
-        process_func: Callable[[Any], bool],
-        on_complete: Optional[Callable[[str], None]] = None,
-    ) -> None:
-        """
-        Run job in a background daemon thread.
-        State is written to DynamoDB so it survives a server restart.
-        If the server dies mid-job, the job stays in 'running' state in DynamoDB
-        which is visible to the instructor as stalled — safe to re-trigger.
-        """
-        def _run() -> None:
-            try:
-                self.update_status(job_id, "running")
-                for item in items:
-                    try:
-                        success = process_func(item)
-                        self.increment_progress(job_id, success=bool(success))
-                    except Exception as exc:
-                        logger.error("[Job %s] Error processing item: %s", job_id, exc)
-                        self.increment_progress(job_id, success=False)
-                self.update_status(job_id, "completed")
-                if on_complete:
-                    on_complete(job_id)
-            except Exception as exc:
-                logger.error("[Job %s] Fatal job error: %s", job_id, exc)
-                self.update_status(job_id, "failed", error=str(exc))
-
-        threading.Thread(target=_run, daemon=True, name=f"job-{job_id[:8]}").start()
 
     # ------------------------------------------------------------------
     # Internal helpers
