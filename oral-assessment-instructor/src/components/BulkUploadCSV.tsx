@@ -190,7 +190,7 @@ export default function BulkUploadCSV({ assessmentId, onUploadSuccess }: BulkUpl
         assignmentFile: s.assignmentFile,
       }));
 
-      await apiService.uploadStudents({ assessmentId, students: uploadData });
+      await apiService.uploadStudents(assessmentId, uploadData);
 
       // Notify parent and navigate to question generation
       onUploadSuccess?.();

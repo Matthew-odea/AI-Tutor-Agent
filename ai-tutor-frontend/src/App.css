@@ -9,7 +9,10 @@
 
 /* Smooth transitions */
 * {
-  transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    color 0.2s ease,
+    border-color 0.2s ease;
 }
 
 .editor-addition {
@@ -23,7 +26,9 @@
 .editor-deletion-zone {
   background-color: rgba(244, 63, 94, 0.12);
   color: #9f1239;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
   font-size: 12px;
   line-height: 1.5;
   padding: 2px 8px;

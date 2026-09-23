@@ -1,20 +1,78 @@
 # Remediation plan — 2026-09-21
 
-**Status: active. Phases 0, 1, 2 and most of 3 landed 2026-09-22/23, uncommitted.**
-Working plan from a full-repo audit. Decisions below were made deliberately; do not
-re-litigate them without a reason.
-
-Verification at time of writing: `make check` green — backend 679 passed, ai-tutor-frontend
-12, instructor 2, student 209. Coverage 75% against a CI gate of 68.
-`tests/controllers/test_route_auth.py` green: 10 open routes, all on the allowlist with a
-stated reason. Routes 96 → 84.
-
-Net across everything so far: **3,528 source and test lines removed** (source −3,528,
-tests −675, docs −927), 95 files touched. The backend test count fell from 759 to 679
-because tests for deleted code went with it; coverage rose because what went was untested.
+**Status: active.** Phases 0–2 merged to `main` in PR #8 (2026-09-23) and deployed. Follow-up
+work is on `chore/e2e-and-followups`, PR #10, unmerged — merging to `main` deploys to production.
+Decisions below were made deliberately; do not re-litigate them without a reason.
 
 **Delete this file when Phase 4 completes.** A stale plan is worse than no plan —
 this repo already learned that the hard way (see "Why this file has an expiry").
+
+---
+
+## Questions waiting on you
+
+Numbered so you can answer by number. Where I have a recommendation it is marked; nothing here
+has been built ahead of your answer.
+
+**Decisions**
+
+1. **Existing proctoring footage.** Until PR #10, only the first 30 s of each session was
+   playable, and a refresh overwrote a session's earliest footage. Sessions whose chunk 0
+   survived can be salvaged by concatenating their chunks in order. Salvage, leave, or delete?
+   And does anyone who has relied on this footage (misconduct reviews) need to be told?
+2. **Assessments created before the timezone fix** have scheduled windows stored 10–11 hours
+   late. Migrate them, or leave them? *Recommend:* migrate only those whose window has not yet
+   closed — past windows are history either way.
+3. **Is the due date binding?** Today: the session token allows answers until due + 1 h, final
+   submit refuses at due, and the instructor form says it enforces nothing. A student can answer
+   everything and be refused at submit, and only submitted students are evaluated. Options:
+   (a) not binding, (b) binding on answers too, (c) a grace period matching the token's 1 h.
+   *Recommend (c).*
+4. **Submit after the scheduled window closes** is allowed today. Allow, grace period, or
+   auto-submit at close? *Recommend:* allow — every answer was already accepted inside the window.
+5. **Per-question time limits** are browser-only. Enforce server-side? It needs a record of when
+   each question was shown, plus an allowance for upload delay and offline resend.
+6. **Extensions for individual students** — needed? Nothing in the data supports them today.
+7. **Retention window.** Does UNSW state one? 12 months proctoring / 24 months audio is a
+   judgement call until confirmed, and blocks the S3 lifecycle rules in Phase 4.
+8. ~~**Stale us-east-1 DynamoDB tables**~~ — **answered: deleted 2026-09-23** after verification.
+9. **Your system Python.** An agent installed `requirements.txt` into
+   `/Library/Frameworks/Python.framework/Versions/3.13` instead of a virtualenv. Leave it, or
+   uninstall those packages?
+10. **Re-running evaluation after release.** `evaluate-batch` has no guard, so an instructor
+    re-running it after results are released silently changes AI scores students have already
+    seen (instructor overrides are kept). Late submitters still need evaluating after release, so
+    it can't simply be blocked. Options: skip students who already have evaluations unless the
+    instructor ticks "re-evaluate"; or refuse re-evaluation of released students only.
+    *Recommend the first.*
+
+11. **Who may delete RAG context documents?** Any logged-in instructor can delete any document
+    in the chat tutor's context store (`InternalEndpoints.py`), because documents record no
+    owner. Options: admin-only, or record an uploader and restrict to them. *Recommend admin-only*
+    — it is one role check and the corpus is shared course material.
+
+**Pre-merge checks — resolved 2026-09-23**
+
+- [x] `./scripts/prod_checks.sh` run against prod. Check 1 **CLEAR** (neither bootstrap set — safe
+      to deploy). Check 2: **1** instructor override exists (one student, one assessment) — that
+      student was shown the un-overridden score; follow up. Check 3: **2** `BANK_QUESTION#` items
+      exist in one assessment — keep `get_bank_questions`. Check 4: 11 media URLs checked, **0**
+      foreign. The first run under-reported checks 2–3 (paginated counts) and missed 9 legacy
+      `AudioUrl` rows; both fixed in the script.
+- [x] `sqs:ChangeMessageVisibility` applied by CLI to inline policy `ai-tutor-sqs-jobs` on
+      `ai-tutor-ec2-ssm-role` — the policy that actually grants SQS; neither terraform module
+      declares it. Verified with `simulate-principal-policy`.
+- [x] Assessment bucket (`chat9021-assessment-files`, **us-east-1**): no versioning ever, no
+      CloudTrail trail in any region, no access logging, no object lock. Replacement is
+      undetectable directly. No object has been written since 2026-04-09 05:28 UTC (18 `audio/`,
+      45 `proctoring/`), so nothing was replaced after that; 2026-03-29 → 04-09 has no audit trail.
+      The only lifecycle rule targets `recordings/`, which is empty — nothing actually expires.
+- [x] 8 Apr migration verified by key-hash comparison: nothing written to us-east-1 after cutover;
+      `chat_sessions` and `auth_users` fully captured; `oral_assessments` missing only 41 items —
+      two complete draft test assessments, almost certainly deleted in Sydney post-migration.
+      **The three us-east-1 tables were deleted 2026-09-23** (answers question 8).
+- [x] PITR enabled on live Sydney `oral_assessments` — it had no PITR and no backups at all.
+- [ ] Record on Safari (it produces `video/mp4`) and play a chunk back from the instructor app.
 
 ---
 
@@ -80,8 +138,17 @@ Two traps:
 - [x] Delete the `X-User-Id` authorization branches (`controller_helpers.py:74-76`, `:103-104`)
 - [x] **Route-auth test** — enumerate `app.routes` dynamically, assert each carries an auth
       dependency, check against a short explicit `PUBLIC_ROUTES` allowlist
-- [ ] Verify proctoring chunks reassemble into watchable footage. If they don't, stop
-      collecting until they do. **Still open — needs real S3 objects, so it needs you.**
+- [x] Verify proctoring chunks reassemble into watchable footage. **They did not.** One
+      `MediaRecorder` with a 30 s timeslice gave only chunk 0 a WebM header, so every later
+      "view" link in the instructor app opened an undecodable file; a refresh or camera re-grant
+      restarted numbering at 0 and overwrote the earliest footage; the final chunk was dropped on
+      stop. Reproduced in headless Chromium + ffprobe. Fixed in `proctoring.ts`: one recorder per
+      chunk, numbering persisted across refresh, final chunk uploaded.
+- [ ] **Footage already in S3 is mostly unwatchable.** Chunks 1+ of each session can be salvaged
+      by concatenating them after that session's chunk 0 — only where no refresh overwrote chunk 0.
+      Decide whether to salvage, and tell whoever relies on it (misconduct reviews).
+- [ ] Still untested: Safari (records `video/mp4`), inline playback from a presigned URL, and one
+      attempt on two devices (per-device counters can still collide — server-assigned indexes fix it).
 
 Also landed, found during the work rather than in the audit:
 - [x] `assessment_router.py:150` listed *every* instructor's assessments unfiltered when the
@@ -165,25 +232,40 @@ load-bearing, not cosmetic.
       DTOs (`Question.generatedAt` is `createdAt` on the wire; `QuestionGenerationJob.createdAt`
       and `EvaluationJob.createdAt` are both `startedAt`). No component reads them, so nothing is
       broken — but the generator cannot see a mismatch in a hand-written type.
-- [ ] Import `shared/types/api.ts` from the frontends. Until something reads it, the drift job
-      shows a diff rather than breaking a build, so it warns but does not gate.
+- [x] Import `shared/types/api.ts` from the student and instructor apps. A renamed DTO field now
+      fails `npm run type-check`. Doing it surfaced that `type-check` had been `tsc --noEmit`
+      against solution tsconfigs, which checks zero files, and that the instructor app sent
+      `student_ids` where the backend reads `studentIds`, so choosing specific students for
+      generation or evaluation was silently ignored.
 - [x] Rename the six sprint-numbered test files by domain
 - [~] npm workspaces — **attempted and reverted deliberately.** Hoisting to a root lockfile
       broke `npm ci` in each frontend, which is exactly what both deploy workflows run. A tidy
       monorepo is not worth a broken deploy. Revisit only alongside the deploy workflows.
 
+## Assessment timing — enforcement
+
+The server already enforces the scheduled window on question fetch, answer and skip, and the due
+date on final submit; those now return specific 409 codes the student app explains. Found along
+the way and fixed: the instructor form sent `datetime-local` values with no timezone and the server
+read them as UTC, so a Sydney instructor's window opened and closed 10-11 hours late. New
+assessments now send UTC instants. The open decisions are questions 2–6 at the top of this file.
+
+
 ## Phase 4 — operational
 
 - [ ] **Import live Sydney tables into terraform state** — highest infra risk
 - [ ] Untangle `terraform/assessment`: live queue, dead tables
-- [ ] Verify the 8 Apr migration captured everything, then decide on the stale us-east-1 tables
+- [x] Verify the 8 Apr migration captured everything, then decide on the stale us-east-1 tables
+      — verified and deleted 2026-09-23. `terraform/assessment` state still references them.
+- [ ] PITR on Sydney `chat_sessions` and `auth_users` (only `oral_assessments` has it)
+- [ ] Bucket versioning + a CloudTrail S3 data-event trail on `chat9021-assessment-files`
 - [ ] S3 lifecycle: `proctoring/` 365 days, `audio/` 730 days. DynamoDB TTL to match.
       Analytics events currently have no retention at all.
 - [x] Replace the per-submit daemon threads with `BackgroundTasks` (`student_router.py`) —
       **already done before this round; the audit was stale.** Now held by a test that asserts
       the work is registered on `BackgroundTasks` and still unrun when the handler returns.
-- [ ] `assessment_router.py:946` still spawns a daemon thread for `_notify_students` — the last
-      live instance of the pattern, same redeploy exposure.
+- [x] `_notify_students` in `release_results` moved onto `BackgroundTasks`; three uncalled
+      thread-spawning methods deleted.
 - [x] Exclude `needs_review` evaluations from the score denominator — done, see Phase 0.
 - [ ] Dry run on last term's data: bulk release-results + `get_score_agreement`.
       One exercise validates both the release gate and the Nova Lite choice.
@@ -192,9 +274,9 @@ load-bearing, not cosmetic.
 
 ## Open — not decisions, facts to confirm
 
-### Three that a script answers
+### Four that a script answers
 
-Run **`./scripts/prod_checks.sh`**. All three are read-only counts and parameter names against
+Run **`./scripts/prod_checks.sh`**. All four are read-only counts and parameter names against
 production — nothing is written, and no student data is returned. It prints which AWS account it
 reached first, because this machine's default profile belongs to a different organisation and an
 AccessDenied there looks exactly like "no data".
@@ -204,12 +286,12 @@ AccessDenied there looks exactly like "no data".
 | 1 | Is `AUTH_USERS_JSON` or `AUTH_LOGIN_PASSWORD` set in `/ai-tutor/prod/`? | **Blocks deploy.** The plaintext password fallback is gone. No stored DynamoDB password can be plaintext — every write path hashes — but these two env bootstraps are the one remaining source. If either holds a plaintext value, that login stops working the moment this ships. |
 | 2 | Have instructors ever overridden a grade? | Whether real grades were misreported. The student view read `totalScore` and ignored `instructorScore`; the instructor view honoured it. So an overridden grade showed corrected to the instructor and uncorrected to the student. Fixed 2026-09-22. Non-zero means go back and check what those students saw. |
 | 3 | Do any `BANK_QUESTION#` items exist? | Whether ten more lines can go. The question-bank write path is deleted but `OralAssessmentQuestionAccess.get_bank_questions` still reads it. Zero means delete the read; non-zero means those assessments depend on it. |
+| 4 | Does any stored answer or proctoring chunk point outside its own student's folder? | Whether a student was ever shown another student's recording. Until 2026-09-23 the client chose its own S3 key and stored URLs were presigned by key alone. Non-zero means find those rows before deciding who to tell. Only counts are printed. |
 
 ### The rest — no script can answer these
 
 - The institutional retention window, if UNSW states one. 12/24 months is a judgement call
   until confirmed.
-- Whether the Sydney migration captured everything from us-east-1.
 - Whether proctoring footage reassembles into watchable video (blocks the last Phase 0 item).
 - ~~`should_generate_on_submit` read-modify-write contention~~ — **this audit item was wrong.**
   It is a COUNT plus `claim_milestone()`, a conditional `update_item` that catches

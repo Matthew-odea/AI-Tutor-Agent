@@ -31,7 +31,10 @@ export const SessionSkeleton = () => {
   return (
     <div className="animate-pulse space-y-2 p-4">
       {[...Array(5)].map((_, i) => (
-        <div key={i} className="flex items-start space-x-3 p-3 rounded-lg bg-gray-100">
+        <div
+          key={i}
+          className="flex items-start space-x-3 p-3 rounded-lg bg-gray-100"
+        >
           <div className="flex-shrink-0 w-5 h-5 bg-gray-300 rounded"></div>
           <div className="flex-1 space-y-2">
             <div className="h-4 bg-gray-300 rounded w-3/4"></div>

@@ -3,10 +3,20 @@
  *
  * Flow:
  *  1. startProctoring(stream) — attach the live camera stream, begin chunked recording
- *  2. Every 30 seconds MediaRecorder fires ondataavailable → uploadChunk()
+ *  2. Every 30 seconds a fresh MediaRecorder takes over and the previous one is
+ *     stopped; its single blob → uploadChunk()
  *  3. uploadChunk uploads to S3 (presigned URL) then POSTs manifest to backend
- *  4. stopProctoring() stops the recorder and uploads any remaining data
+ *  4. stopProctoring() stops the recorder and uploads the final partial chunk
  *  5. onPermissionRevoked callback fires if any track ends unexpectedly
+ *
+ * Why one recorder per chunk, not MediaRecorder.start(timeslice): with a timeslice
+ * only the first blob carries the WebM header, so chunks 1..n cannot be played on
+ * their own and a lost or overwritten chunk 0 makes the whole session unplayable.
+ * A recorder per chunk makes every S3 object a complete, standalone video file.
+ *
+ * Chunk indexes are persisted per student+assessment in localStorage so a new
+ * recorder after a refresh or camera re-grant continues numbering instead of
+ * restarting at 0 and overwriting the earlier footage's S3 keys.
  */
 
 import { getUploadUrl, uploadAudioToS3, submitProctorChunk } from './api';
@@ -38,7 +48,9 @@ interface PendingChunk {
 
 export class ProctoringRecorder {
   private mediaRecorder: MediaRecorder | null = null;
-  private chunkIndex = 0;
+  private rotateTimer: ReturnType<typeof setInterval> | null = null;
+  private lastStop: Promise<void> = Promise.resolve();
+  private memoryIndex = 0;
   private options: ProctoringOptions;
   private uploadQueue: Promise<void> = Promise.resolve();
   private stopped = false;
@@ -59,10 +71,6 @@ export class ProctoringRecorder {
     if (this.mediaRecorder) return; // already started
 
     const mimeType = this.getSupportedMimeType();
-
-    this.mediaRecorder = new MediaRecorder(stream, {
-      mimeType: mimeType || undefined,
-    });
 
     // Watch for tracks ending (permission revoked by OS/browser).
     // Debounce before declaring revocation: a track can momentarily fire
@@ -85,30 +93,70 @@ export class ProctoringRecorder {
       };
     });
 
-    this.mediaRecorder.ondataavailable = (event) => {
-      if (event.data.size > 0 && !this.stopped) {
-        const index = this.chunkIndex++;
-        const blob = new Blob([event.data], { type: mimeType || 'video/webm' });
-        // Queue uploads sequentially to avoid race conditions on chunk_index
-        this.uploadQueue = this.uploadQueue.then(() =>
-          this.uploadChunk(blob, index)
-        );
-      }
-    };
+    this.mediaRecorder = this.recordChunk(stream, mimeType);
+    // Start the next recorder before stopping the previous one, so there is no gap.
+    this.rotateTimer = setInterval(() => {
+      // Ended stream (camera revoked): the current recorder stops itself and its
+      // chunk still uploads; a new MediaRecorder would throw on an inactive stream.
+      if (!stream.active) return;
+      const previous = this.mediaRecorder;
+      this.mediaRecorder = this.recordChunk(stream, mimeType);
+      this.stopRecorder(previous);
+    }, CHUNK_INTERVAL_MS);
+  }
 
-    // timeslice causes ondataavailable every 30s while recording
-    this.mediaRecorder.start(CHUNK_INTERVAL_MS);
+  /** Record one chunk with its own MediaRecorder (no timeslice → one complete file). */
+  private recordChunk(stream: MediaStream, mimeType: string): MediaRecorder {
+    const index = this.claimChunkIndex();
+    const recorder = new MediaRecorder(stream, { mimeType: mimeType || undefined });
+    recorder.ondataavailable = (event) => {
+      if (event.data.size === 0) return;
+      const blob = new Blob([event.data], { type: mimeType || 'video/webm' });
+      // Queue uploads sequentially so chunks reach S3 in capture order.
+      this.uploadQueue = this.uploadQueue.then(() => this.uploadChunk(blob, index));
+    };
+    recorder.start();
+    return recorder;
+  }
+
+  private stopRecorder(recorder: MediaRecorder | null): void {
+    if (!recorder || recorder.state === 'inactive') return;
+    // dataavailable fires before stop, so once this resolves the chunk is queued.
+    this.lastStop = new Promise((resolve) =>
+      recorder.addEventListener('stop', () => resolve(), { once: true })
+    );
+    recorder.stop();
+  }
+
+  /**
+   * Next chunk index, persisted so a later recorder for the same student+assessment
+   * (refresh, camera re-grant) never reuses an index and overwrites an S3 key.
+   * ponytail: per-browser counter; a second device on the same attempt can still
+   * collide — move index assignment server-side if that ever happens.
+   */
+  private claimChunkIndex(): number {
+    const key = `proctor_next_chunk_${this.options.studentId}_${this.options.assessmentId}`;
+    let index = this.memoryIndex;
+    try {
+      index = Math.max(index, Number(localStorage.getItem(key)) || 0);
+      localStorage.setItem(key, String(index + 1));
+    } catch {
+      // Storage unavailable: in-memory numbering still holds for this instance.
+    }
+    this.memoryIndex = index + 1;
+    return index;
   }
 
   stop(): void {
     this.stopped = true;
-    if (this.mediaRecorder && this.mediaRecorder.state !== 'inactive') {
-      this.mediaRecorder.stop();
-    }
+    if (this.rotateTimer) clearInterval(this.rotateTimer);
+    this.rotateTimer = null;
+    this.stopRecorder(this.mediaRecorder);
   }
 
-  /** Wait for all in-flight uploads to complete, then attempt one buffer flush. */
+  /** Wait for the final chunk and all in-flight uploads, then attempt one buffer flush. */
   async drain(): Promise<void> {
+    await this.lastStop;
     await this.uploadQueue;
     await this.flushFailedBuffer();
   }

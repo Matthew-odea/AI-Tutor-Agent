@@ -26,9 +26,11 @@ production.
 ```bash
 # Any frontend (from that frontend's directory)
 npm run validate     # type-check + lint + test:run — exists in all three frontends
-npm run type-check   # tsc --noEmit only
+npm run type-check   # tsc -b — builds every referenced tsconfig
 npm run build        # tsc -b (or tsc + vite build) — the actual production build
 ```
+
+`type-check` was `tsc --noEmit` until 2026-09-23, which against these solution-style tsconfigs (`"files": []` plus references) checks zero files — it passed on anything. Don't change it back.
 
 `npm run validate` exists in **all three** frontends, not just `ai-tutor-frontend` — `ai-tutor-frontend`'s version additionally runs `format:check`, which the other two don't have.
 
@@ -101,6 +103,13 @@ Copy `.env.example` to `.env`. Required vars:
 - `AUTH_JWT_SECRET`
 - `DYNAMODB_TABLE_NAME`, `DYNAMODB_AUTH_USERS_TABLE`
 - `BEDROCK_MODEL_CHAT`, `BEDROCK_MODEL_EMBED`
+
+### AWS CLI (maintainer's machine)
+The AWS CLI is authenticated for account 339712753655 — use it directly instead of asking for credentials. Two identities, **both with IAM write, so every call is production-capable**:
+- **`default` profile** → IAM user `claude_user`. Use `env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY aws ... --profile default` if `.env` vars are exported.
+- **`.env` credentials** → IAM user `bedrock-user` (DynamoDB, SSM, Bedrock, S3, IAM).
+
+Region split (deliberate, see `docs/ARCHITECTURE.md`): EC2 + live DynamoDB in `ap-southeast-2`; SQS/Bedrock/SES and the assessment S3 bucket in `us-east-1`.
 
 ## Never do this
 

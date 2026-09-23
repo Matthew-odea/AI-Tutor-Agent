@@ -1,26 +1,26 @@
-import { StrictMode, Suspense, lazy } from 'react'
-import { createRoot } from 'react-dom/client'
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import { HelmetProvider } from 'react-helmet-async'
-import './index.css'
-import { ErrorBoundary } from './shared/ErrorBoundary.tsx'
-import { initErrorTracking } from './utils/errorTracking'
-import { initAnalytics } from './utils/analytics'
-import { initPerformanceTracking } from './utils/performance'
-import { AnalyticsWrapper } from './shared/AnalyticsWrapper'
-import { PageLoader } from './shared/PageLoader'
+import { StrictMode, Suspense, lazy } from "react";
+import { createRoot } from "react-dom/client";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { HelmetProvider } from "react-helmet-async";
+import "./index.css";
+import { ErrorBoundary } from "./shared/ErrorBoundary.tsx";
+import { initErrorTracking } from "./utils/errorTracking";
+import { initAnalytics } from "./utils/analytics";
+import { initPerformanceTracking } from "./utils/performance";
+import { AnalyticsWrapper } from "./shared/AnalyticsWrapper";
+import { PageLoader } from "./shared/PageLoader";
 
 // Initialize monitoring services
-initErrorTracking()
-initAnalytics()
-initPerformanceTracking()
+initErrorTracking();
+initAnalytics();
+initPerformanceTracking();
 
 // Lazy load routes for code splitting
-const App = lazy(() => import('./App.tsx'))
-const PrivacyPolicy = lazy(() => import('./pages/PrivacyPolicy.tsx'))
-const TermsOfService = lazy(() => import('./pages/TermsOfService.tsx'))
+const App = lazy(() => import("./App.tsx"));
+const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy.tsx"));
+const TermsOfService = lazy(() => import("./pages/TermsOfService.tsx"));
 
-createRoot(document.getElementById('root')!).render(
+createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <HelmetProvider>
       <ErrorBoundary>
@@ -38,4 +38,4 @@ createRoot(document.getElementById('root')!).render(
       </ErrorBoundary>
     </HelmetProvider>
   </StrictMode>,
-)
+);

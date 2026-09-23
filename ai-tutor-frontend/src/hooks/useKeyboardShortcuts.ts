@@ -1,7 +1,7 @@
 /**
  * Keyboard shortcuts hook for accessibility and power users
  */
-import { useEffect } from 'react';
+import { useEffect } from "react";
 
 interface KeyboardShortcut {
   key: string;
@@ -15,10 +15,10 @@ interface KeyboardShortcut {
 
 /**
  * Hook to register keyboard shortcuts
- * 
+ *
  * @param shortcuts - Array of keyboard shortcut configurations
  * @param enabled - Whether shortcuts are enabled (default: true)
- * 
+ *
  * @example
  * ```tsx
  * useKeyboardShortcuts([
@@ -29,17 +29,19 @@ interface KeyboardShortcut {
  */
 export const useKeyboardShortcuts = (
   shortcuts: KeyboardShortcut[],
-  enabled: boolean = true
+  enabled: boolean = true,
 ) => {
   useEffect(() => {
     if (!enabled) return;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       for (const shortcut of shortcuts) {
-        const ctrlMatch = shortcut.ctrl ? (event.ctrlKey || event.metaKey) : !event.ctrlKey && !event.metaKey;
+        const ctrlMatch = shortcut.ctrl
+          ? event.ctrlKey || event.metaKey
+          : !event.ctrlKey && !event.metaKey;
         const shiftMatch = shortcut.shift ? event.shiftKey : !event.shiftKey;
         const altMatch = shortcut.alt ? event.altKey : !event.altKey;
-        
+
         if (
           event.key.toLowerCase() === shortcut.key.toLowerCase() &&
           ctrlMatch &&
@@ -53,29 +55,33 @@ export const useKeyboardShortcuts = (
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [shortcuts, enabled]);
 };
 
 /**
  * Get shortcut display string (e.g., "Ctrl+K" or "⌘K" on Mac)
  */
-export const getShortcutDisplay = (shortcut: Omit<KeyboardShortcut, 'action' | 'description'>): string => {
-  const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().includes('MAC');
+export const getShortcutDisplay = (
+  shortcut: Omit<KeyboardShortcut, "action" | "description">,
+): string => {
+  const isMac =
+    typeof navigator !== "undefined" &&
+    navigator.platform.toUpperCase().includes("MAC");
   const parts: string[] = [];
-  
+
   if (shortcut.ctrl) {
-    parts.push(isMac ? '⌘' : 'Ctrl');
+    parts.push(isMac ? "⌘" : "Ctrl");
   }
   if (shortcut.shift) {
-    parts.push(isMac ? '⇧' : 'Shift');
+    parts.push(isMac ? "⇧" : "Shift");
   }
   if (shortcut.alt) {
-    parts.push(isMac ? '⌥' : 'Alt');
+    parts.push(isMac ? "⌥" : "Alt");
   }
-  
+
   parts.push(shortcut.key.toUpperCase());
-  
-  return parts.join(isMac ? '' : '+');
+
+  return parts.join(isMac ? "" : "+");
 };

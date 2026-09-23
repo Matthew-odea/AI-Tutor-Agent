@@ -2,6 +2,7 @@ import { useParams, useLocation, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { useAssessmentStore } from '../store/assessmentStore';
 import { apiService } from '../services/api';
+import type { Schemas } from '../../../shared/types/assessment';
 import AppShell from '../components/AppShell';
 import BulkUploadCSV from '../components/BulkUploadCSV';
 import ErrorMessage from '../components/ErrorMessage';
@@ -19,7 +20,7 @@ export default function UploadStudents() {
   const [edToken, setEdToken] = useState('');
   const [challengeId, setChallengeId] = useState('');
   const [isImporting, setIsImporting] = useState(false);
-  const [importResult, setImportResult] = useState<{ count: number; students: { studentId: string; name: string; hasCode: boolean }[] } | null>(null);
+  const [importResult, setImportResult] = useState<{ count: number; students: Schemas['ImportedStudentSummary'][] } | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
 
   const loadAssessment = async (id: string) => {
@@ -39,6 +40,7 @@ export default function UploadStudents() {
     if (assessmentId && assessmentId !== selectedAssessment?.id) {
       loadAssessment(assessmentId);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetch only when the route id changes; loadAssessment is recreated each render and uses only stable setters
   }, [assessmentId]);
 
   useEffect(() => {
@@ -46,6 +48,7 @@ export default function UploadStudents() {
     if (state?.created) {
       addToast(`Assessment "${state.created}" created successfully.`, 'success');
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one toast on arrival from the create form, not on later navigation state changes
   }, []);
 
   const handleEdImport = async () => {

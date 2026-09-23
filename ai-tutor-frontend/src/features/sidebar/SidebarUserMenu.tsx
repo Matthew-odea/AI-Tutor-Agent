@@ -1,5 +1,5 @@
-import React from 'react';
-import type { RefObject } from 'react';
+import React from "react";
+import type { RefObject } from "react";
 
 interface SidebarUserMenuProps {
   isUserMenuOpen: boolean;
@@ -24,10 +24,15 @@ export const SidebarUserMenu: React.FC<SidebarUserMenuProps> = ({
   onOpenTermsOfService,
   onLogout,
 }) => (
-  <div className={`relative w-full ${showDetails ? '' : 'flex justify-center'}`} ref={userMenuRef}>
+  <div
+    className={`relative w-full ${showDetails ? "" : "flex justify-center"}`}
+    ref={userMenuRef}
+  >
     <button
       className={`flex items-center rounded-lg hover:bg-gray-800 transition-colors ${
-        showDetails ? 'w-full gap-3 px-2 py-2' : 'w-10 h-10 justify-center p-0 mx-auto'
+        showDetails
+          ? "w-full gap-3 px-2 py-2"
+          : "w-10 h-10 justify-center p-0 mx-auto"
       }`}
       onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
       aria-label="User menu"
@@ -37,8 +42,12 @@ export const SidebarUserMenu: React.FC<SidebarUserMenuProps> = ({
       </span>
       {showDetails && (
         <span className="min-w-0 text-left">
-          <span className="block text-xs uppercase tracking-wide text-gray-400">Signed in</span>
-          <span className="block text-sm font-medium text-gray-100 truncate">{userEmail}</span>
+          <span className="block text-xs uppercase tracking-wide text-gray-400">
+            Signed in
+          </span>
+          <span className="block text-sm font-medium text-gray-100 truncate">
+            {userEmail}
+          </span>
         </span>
       )}
     </button>
@@ -48,8 +57,8 @@ export const SidebarUserMenu: React.FC<SidebarUserMenuProps> = ({
         <button
           type="button"
           onClick={() => {
-            setIsUserMenuOpen(false)
-            onOpenPrivacyPolicy()
+            setIsUserMenuOpen(false);
+            onOpenPrivacyPolicy();
           }}
           className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
         >
@@ -58,8 +67,8 @@ export const SidebarUserMenu: React.FC<SidebarUserMenuProps> = ({
         <button
           type="button"
           onClick={() => {
-            setIsUserMenuOpen(false)
-            onOpenTermsOfService()
+            setIsUserMenuOpen(false);
+            onOpenTermsOfService();
           }}
           className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
         >
@@ -68,8 +77,8 @@ export const SidebarUserMenu: React.FC<SidebarUserMenuProps> = ({
         <button
           type="button"
           onClick={() => {
-            setIsUserMenuOpen(false)
-            onLogout()
+            setIsUserMenuOpen(false);
+            onLogout();
           }}
           className="w-full text-left px-4 py-2 text-sm text-rose-600 hover:bg-gray-50"
         >

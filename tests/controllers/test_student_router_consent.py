@@ -18,7 +18,7 @@ from src.main.controllers.controller_dependencies import get_oral_assessment_ser
 from src.main.service.OralAssessmentService import OralAssessmentServiceError
 
 
-_STUDENT = AuthPrincipal(user_id="s-1", roles=["student"], source="jwt")
+_STUDENT = AuthPrincipal(user_id="s-1", roles=["student"], source="jwt", assessment_id="a-1")
 
 
 def _build_client(principal=_STUDENT, svc=None) -> TestClient:
@@ -66,7 +66,7 @@ def test_record_consent_returns_200():
 
 def test_record_consent_forwards_all_fields():
     svc = _mock_svc()
-    client = _build_client(svc=svc)
+    client = _build_client(principal=AuthPrincipal(user_id="s-1", roles=["student"], source="jwt", assessment_id="a-99"), svc=svc)
 
     client.post(
         "/api/student/s-1/consent",

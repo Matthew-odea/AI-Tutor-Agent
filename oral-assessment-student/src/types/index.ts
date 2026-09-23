@@ -1,107 +1,34 @@
 /**
- * TypeScript type definitions for Student Assessment application
+ * Types for the student app.
+ *
+ * API shapes are aliases onto shared/types/api.ts, which is generated from the
+ * backend's OpenAPI schema (./shared/generate-api-types.sh). A backend DTO
+ * change therefore breaks `npm run type-check` here instead of the page at runtime.
+ * Anything declared locally below is a client-only shape that never crosses the wire.
  */
 
-export interface Question {
-  id: string;
-  text?: string;
-  codeContext?: string;
-  assessmentId: string;
-  studentId: string;
-  difficulty?: string;
-  topic?: string;
-  questionNumber?: number;
-  questionType?: 'specific' | 'general';
-  timeLimit?: number; // per-question time limit in seconds (null = assessment default)
-  createdAt: string;
-  /**
-   * Optional server-stamped time (ISO 8601, server clock) at which the backend
-   * first served this question to this student. ASSUMED BACKEND CONTRACT
-   * introduced by the client — GET /api/student/{id}/assessment/{aid}/questions
-   * MAY return it, so all consumers MUST work when it is `undefined`. When
-   * present, QuestionTimer anchors the per-question countdown to it so the clock
-   * is authoritative across refreshes; when absent, the client falls back to a
-   * locally persisted anchor (sessionStorage `qtimer_start_*`). The backend is
-   * out of scope here — no endpoint is added or called.
-   */
-  questionStartedAt?: string;
-  /**
-   * The student's previously-submitted text answer for this question. Only populated
-   * in review (allowReview) mode so the UI can pre-fill it when navigating back.
-   */
-  priorAnswer?: string;
-}
+import type { components } from '../../../shared/types/api';
 
-export interface Answer {
-  questionId: string;
-  audioUrl: string;
-  duration: number;
-  transcript?: string;
-  submittedAt?: string;
-}
+export type Schemas = components['schemas'];
 
-export interface Progress {
-  studentId: string;
-  assessmentId: string;
-  totalQuestions: number;
-  answeredQuestions: number;
-  percentage: number;
-  status: 'not-started' | 'in-progress' | 'submitted';
-  startedAt?: string;
-  submittedAt?: string;
-  /**
-   * Authoritative list of question ids the student has actually answered.
-   * BACKEND CONTRACT introduced by the client — the FastAPI backend on :8000
-   * may not send it yet, so all consumers MUST work when this is `undefined`
-   * (see `loadProgress` in store/assessmentStore.ts: it falls back to the
-   * legacy "first N by array order" heuristic). When present, the client
-   * prefers this list over the heuristic so Next/Submit gate on real answer
-   * identity, not array position. Server should return it from
-   *   GET /api/student/{studentId}/assessment/{assessmentId}/progress
-   * as `answeredQuestionIds` (camel) or `answered_question_ids` (snake).
-   */
-  answeredQuestionIds?: string[];
-}
+/** GET /api/student/{id}/assessment/{aid}/questions → questions[] */
+export type Question = Schemas['QuestionResponse'];
 
-export interface QuestionResult {
-  questionId: string;
-  questionNumber: number;
-  questionText: string;
-  questionType: string;
-  audioUrl: string;
-  transcript?: string;
-  correctnessScore: number;
-  understandingScore: number;
-  // `null` when the question wasn't graded (server sends null for ungraded items).
-  totalScore: number | null;
-  maxScore?: number;
-  feedback: string;
-  strengths?: string[];
-  weaknesses?: string[];
-  suggestedImprovements?: string[];
-  /**
-   * Per-question status. BACKEND CONTRACT introduced by the client — the server
-   * may not send it yet, so all rendering MUST work when this is `undefined`
-   * (see `deriveResultStatus` in utils/resultHelpers for the client fallback).
-   * Server should set: 'skipped' for skipped questions, 'grading-failed' when
-   * evaluation errored, 'not-attempted' for unanswered, and 'graded' (or omit)
-   * for normal results.
-   */
-  status?: 'graded' | 'skipped' | 'not-attempted' | 'grading-failed';
-}
+/** GET /api/student/{id}/assessment/{aid}/progress */
+export type Progress = Schemas['StudentProgressResponse'];
 
-export interface Results {
-  studentId: string;
-  assessmentId: string;
-  totalScore: number;
-  maxScore: number;
-  percentage: number;
-  grade: string;
-  completedAt?: string;
-  submittedAt?: string;
-  questions: QuestionResult[];
-}
+/** GET /api/student/{id}/assessment/{aid}/results → questions[] */
+export type QuestionResult = Schemas['QuestionResultDetail'];
 
+/** GET /api/student/{id}/assessment/{aid}/results */
+export type Results = Schemas['StudentResultsResponse'];
+
+export type AnswerMode = 'oral' | 'written';
+
+/**
+ * Client-side assessment summary, assembled by the store from the questions
+ * response. Not an API shape.
+ */
 export interface Assessment {
   id: string;
   title: string;
@@ -109,33 +36,20 @@ export interface Assessment {
   description: string;
   dueDate: string;
   totalQuestions: number;
-  timeLimit?: number;
+  timeLimit?: number | null;
   status: string;
-  answerMode?: 'oral' | 'written';
-  preparationTime?: number;
+  answerMode?: AnswerMode;
+  preparationTime?: number | null;
   /** Webcam proctoring. Unset → treat as (answerMode === 'oral'). */
   proctored?: boolean;
   /** Student may navigate back and revise answers before final submit (written v1). */
   allowReview?: boolean;
-  /**
-   * Optional instructor/support contact, surfaced by the in-assessment Help
-   * affordance. ASSUMED BACKEND CONTRACT introduced by the client — GET
-   * /api/student/{studentId}/assessment/{assessmentId}/questions MAY additionally
-   * return `instructorName` / `supportEmail` / `supportUrl`. All three are fully
-   * optional: existing responses lacking them must produce no type or runtime
-   * errors, and HelpButton falls back to generic copy when none are present. No
-   * real PII is hardcoded anywhere — these only ever carry server-provided values.
-   */
-  instructorName?: string;
-  supportEmail?: string;
-  supportUrl?: string;
 }
 
-export interface UploadUrlResponse {
-  uploadUrl: string;
-  fileUrl: string;
-}
+/** POST /api/s3/upload-url */
+export type UploadUrlResponse = Schemas['UploadUrlResponse'];
 
+/** Normalised client error thrown by services/api.ts. Not an API shape. */
 export interface ApiError {
   message: string;
   status?: number;

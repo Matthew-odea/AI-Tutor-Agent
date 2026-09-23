@@ -47,6 +47,7 @@ export default function AssessmentList() {
     // not a render cascade.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadAssessments();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mount-only fetch; loadAssessments only touches stable store setters and apiService
   }, []);
 
   // Auto-refresh stats when page regains focus
@@ -58,6 +59,7 @@ export default function AssessmentList() {
     };
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a mount-time loadAssessments is safe to reuse: it only touches stable store setters and apiService
   }, []);
 
   const handleDelete = async (assessmentId: string) => {

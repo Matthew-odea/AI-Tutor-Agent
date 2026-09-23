@@ -9,16 +9,8 @@
 import type { ApiError, QuestionResult } from '../types';
 
 /**
- * Effective per-question status used to drive result rendering.
- *
- * BACKEND CONTRACT (introduced by the client; the server may not send it yet):
- *   - 'graded'         normal evaluated result (server may also simply omit `status`).
- *   - 'skipped'        the student skipped / let the timer expire — no answer recorded.
- *   - 'not-attempted'  the question was never reached / never answered.
- *   - 'grading-failed' the answer exists but automatic evaluation errored.
- *
- * Until the server sets `QuestionResult.status`, {@link deriveResultStatus} reconstructs
- * a best-effort value client-side so the UI is correct today.
+ * Effective per-question status used to drive result rendering. The server does
+ * not send a per-question status, so {@link deriveResultStatus} derives it.
  */
 export type EffectiveStatus = 'graded' | 'skipped' | 'not-attempted' | 'grading-failed';
 
@@ -32,22 +24,14 @@ export const TIME_EXPIRED_SENTINEL = '(time expired)';
 export const DEFAULT_QUESTION_MAX = 10;
 
 /**
- * Resolve the effective status for a question result.
- *
- * Prefers the server-provided `status`; otherwise derives one:
+ * Resolve the effective status for a question result:
  *   - transcript is the time-expired sentinel  -> 'skipped'
  *   - no total score was recorded (null/undef) -> 'grading-failed'
  *   - otherwise                                -> 'graded'
  */
 export function deriveResultStatus(
-  result: Pick<QuestionResult, 'status' | 'transcript' | 'totalScore'>
+  result: Pick<QuestionResult, 'transcript' | 'totalScore'>
 ): EffectiveStatus {
-  // A 'graded' status with no score is contradictory data — treat it as a
-  // grading failure so we never render a misleading red 0%.
-  if (result.status === 'graded') {
-    return result.totalScore == null ? 'grading-failed' : 'graded';
-  }
-  if (result.status) return result.status;
   if (result.transcript?.trim() === TIME_EXPIRED_SENTINEL) return 'skipped';
   if (result.totalScore == null) return 'grading-failed';
   return 'graded';

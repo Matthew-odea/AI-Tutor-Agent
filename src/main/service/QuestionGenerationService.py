@@ -11,6 +11,7 @@ import os
 import re
 import uuid
 import boto3
+from boto3.dynamodb.conditions import Key
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
@@ -107,6 +108,24 @@ class QuestionGenerationService:
                 - tokens_used: Token usage (if available)
                 - dynamodb_stored: Boolean indicating if stored in DynamoDB
         """
+        # Idempotent per student: questions are stored under fresh uuids, so a
+        # redelivered message or a repeated batch would otherwise append a second
+        # full set for a student who already has one (and may be answering it).
+        if student_id and assessment_id and self._has_stored_questions(student_id, assessment_id):
+            logger.info(
+                "Student %s already has questions for assessment %s — not generating again",
+                student_id, assessment_id,
+            )
+            return {
+                "questions": [],
+                "json_file_path": None,
+                "csv_file_path": None,
+                "questions_count": 0,
+                "tokens_used": None,
+                "dynamodb_stored": False,
+                "skipped_existing": True,
+            }
+
         print(f"[QuestionGenerationService] Generating questions for student: {student_name}")
         
         # Build the complete prompt
@@ -169,14 +188,16 @@ class QuestionGenerationService:
         # Save to DynamoDB if student_id and assessment_id provided
         dynamodb_stored = False
         if student_id and assessment_id:
+            # Raised, not swallowed: the SQS consumer counts a return as success,
+            # which left the student with no questions and nothing to retry.
             try:
                 self._store_questions_in_dynamodb(
                     questions, student_id, assessment_id, student_code, assessment_time_limit
                 )
-                dynamodb_stored = True
-                print(f"[QuestionGenerationService] Stored questions in DynamoDB for student {student_id}")
             except Exception as e:
-                print(f"[QuestionGenerationService] Failed to store in DynamoDB: {e}")
+                raise QuestionGenerationError(f"Failed to store questions in DynamoDB: {e}") from e
+            dynamodb_stored = True
+            print(f"[QuestionGenerationService] Stored questions in DynamoDB for student {student_id}")
         
         print(f"[QuestionGenerationService] Generated {len(questions)} questions")
         print(f"[QuestionGenerationService] Saved to: {json_path} and {csv_path}")
@@ -345,6 +366,16 @@ Generate the questions in JSON format as specified.
                 writer.writerow(row)
         
         return filepath
+
+    def _has_stored_questions(self, student_id: str, assessment_id: str) -> bool:
+        resp = self.table.query(
+            KeyConditionExpression=(
+                Key("PK").eq(f"STUDENT#{student_id}#ASSESSMENT#{assessment_id}")
+                & Key("SK").begins_with("QUESTION#")
+            ),
+            Limit=1,
+        )
+        return bool(resp.get("Items"))
 
     def _store_questions_in_dynamodb(
         self,

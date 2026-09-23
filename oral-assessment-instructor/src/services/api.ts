@@ -1,22 +1,26 @@
 import axios from 'axios';
 import type { AxiosInstance } from 'axios';
+import type { components } from '../../../shared/types/api';
 import type {
   Assessment,
   Student,
   CreateAssessmentRequest,
-  UploadStudentsRequest,
-  GenerateQuestionsRequest,
-  QuestionGenerationJob,
+  UploadedStudent,
   StudentProgress,
-  Question,
-  PresignedUrlResponse,
-  GetPresignedUrlRequest,
   AssessmentResults,
   AssessmentReport,
-  EvaluationJob,
 } from '../../../shared/types/assessment';
 
+type Schemas = components['schemas'];
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
+/** The subset of EventSource the progress stream's consumer uses. */
+export interface ProgressStream {
+  onmessage: ((event: { data: string }) => void) | null;
+  onerror: (() => void) | null;
+  close: () => void;
+}
 
 class ApiService {
   private client: AxiosInstance;
@@ -64,7 +68,7 @@ class ApiService {
   }
 
   async listAssessments(): Promise<Assessment[]> {
-    const response = await this.client.get<{ ok: boolean; assessments: Assessment[] }>('/api/assessment/list');
+    const response = await this.client.get<Schemas['AssessmentListResponse']>('/api/assessment/list');
     return response.data.assessments || [];
   }
 
@@ -73,26 +77,29 @@ class ApiService {
   }
 
   // Student upload endpoints
-  async uploadStudents(data: UploadStudentsRequest): Promise<void> {
-    await this.client.post(`/api/assessment/${data.assessmentId}/upload-students`, {
-      students: data.students,
-    });
+  async uploadStudents(assessmentId: string, students: UploadedStudent[]): Promise<void> {
+    await this.client.post(`/api/assessment/${assessmentId}/upload-students`, {
+      students,
+    } satisfies Schemas['UploadStudentsRequest']);
   }
 
   // Ed import
-  async importFromEd(assessmentId: string, edToken: string, challengeId: number): Promise<{ ok: boolean; studentsImported: number; students: { studentId: string; name: string; hasCode: boolean }[] }> {
-    const response = await this.client.post(`/api/assessment/${assessmentId}/import-ed`, {
+  async importFromEd(assessmentId: string, edToken: string, challengeId: number): Promise<Schemas['ImportFromEdResponse']> {
+    const response = await this.client.post<Schemas['ImportFromEdResponse']>(`/api/assessment/${assessmentId}/import-ed`, {
       edToken,
       challengeId,
-    });
+    } satisfies Schemas['ImportFromEdRequest']);
     return response.data;
   }
 
   // Question generation endpoints
-  async generateQuestions(data: GenerateQuestionsRequest): Promise<QuestionGenerationJob> {
-    const response = await this.client.post<QuestionGenerationJob>(
-      `/api/assessment/${data.assessmentId}/generate-questions-batch`,
-      { student_ids: data.studentIds }
+  async generateQuestions(
+    assessmentId: string,
+    studentIds?: string[]
+  ): Promise<Schemas['QuestionGenerationJobResponse']> {
+    const response = await this.client.post<Schemas['QuestionGenerationJobResponse']>(
+      `/api/assessment/${assessmentId}/generate-questions-batch`,
+      { studentIds } satisfies Schemas['GenerateQuestionsBatchRequest']
     );
     return response.data;
   }
@@ -100,103 +107,44 @@ class ApiService {
   async getQuestionGenerationStatus(
     assessmentId: string,
     jobId: string
-  ): Promise<QuestionGenerationJob> {
-    const response = await this.client.get<QuestionGenerationJob>(
+  ): Promise<Schemas['QuestionGenerationStatusResponse']> {
+    const response = await this.client.get<Schemas['QuestionGenerationStatusResponse']>(
       `/api/assessment/${assessmentId}/generation-status/${jobId}`
     );
     return response.data;
   }
 
   // S3 upload endpoints
-  async getPresignedUploadUrl(data: GetPresignedUrlRequest): Promise<PresignedUrlResponse> {
-    const response = await this.client.post<PresignedUrlResponse>('/api/s3/upload-url', data);
-    return response.data;
-  }
-
-  async uploadAudioToS3(presignedUrl: string, file: File): Promise<void> {
-    await axios.put(presignedUrl, file, {
-      headers: {
-        'Content-Type': file.type,
-      },
-    });
-  }
-
-  // Student answer endpoints
-  async submitAnswer(
-    studentId: string,
-    questionId: string,
-    audioUrl: string,
-    duration: number
-  ): Promise<void> {
-    await this.client.post(`/api/student/${studentId}/answer`, {
-      question_id: questionId,
-      audio_url: audioUrl,
-      duration,
-    });
-  }
-
-  async submitAssessment(studentId: string, assessmentId: string): Promise<void> {
-    await this.client.put(`/api/student/${studentId}/submit`, {
-      assessment_id: assessmentId,
-    });
-  }
-
-  // Student progress endpoints
-  async getStudentProgress(studentId: string, assessmentId: string): Promise<StudentProgress> {
-    const response = await this.client.get<StudentProgress>(
-      `/api/student/${studentId}/assessment/${assessmentId}/progress`
-    );
-    return response.data;
-  }
-
-  async getStudentQuestions(studentId: string, assessmentId: string): Promise<Question[]> {
-    const response = await this.client.get<Question[]>(
-      `/api/student/${studentId}/assessment/${assessmentId}/questions`
-    );
-    return response.data;
-  }
-
   // Evaluation endpoints
-  async evaluateAssessment(assessmentId: string, studentIds?: string[]): Promise<EvaluationJob> {
-    const response = await this.client.post<EvaluationJob>(
+  async evaluateAssessment(
+    assessmentId: string,
+    studentIds?: string[]
+  ): Promise<Schemas['EvaluationJobResponse']> {
+    const response = await this.client.post<Schemas['EvaluationJobResponse']>(
       `/api/assessment/${assessmentId}/evaluate-batch`,
-      { student_ids: studentIds }
-    );
-    return response.data;
-  }
-
-  async getEvaluationStatus(assessmentId: string, jobId: string): Promise<EvaluationJob> {
-    const response = await this.client.get<EvaluationJob>(
-      `/api/assessment/${assessmentId}/evaluation-status/${jobId}`
+      { studentIds } satisfies Schemas['EvaluateBatchRequest']
     );
     return response.data;
   }
 
   async getAssessmentResults(assessmentId: string): Promise<AssessmentResults[]> {
-    const response = await this.client.get<{ ok: boolean; results: AssessmentResults[] }>(
+    const response = await this.client.get<Schemas['ResultsSummaryResponse']>(
       `/api/assessment/${assessmentId}/results`
     );
     return response.data.results || [];
   }
 
-  async getStudentResults(studentId: string, assessmentId: string): Promise<AssessmentResults> {
-    const response = await this.client.get<AssessmentResults>(
-      `/api/student/${studentId}/assessment/${assessmentId}/results`
-    );
-    return response.data;
-  }
-
   /** Latest cohort report, or null if none has been generated yet. */
   async getAssessmentReport(assessmentId: string): Promise<AssessmentReport | null> {
-    const response = await this.client.get<{ ok: boolean; generated: boolean; report: AssessmentReport | null }>(
+    const response = await this.client.get<Schemas['AssessmentReportResponse']>(
       `/api/assessment/${assessmentId}/report`
     );
-    return response.data.generated ? response.data.report : null;
+    return response.data.generated ? (response.data.report ?? null) : null;
   }
 
   /** Regenerate the cohort report now, without waiting for the next submission milestone. */
   async generateAssessmentReport(assessmentId: string): Promise<AssessmentReport> {
-    const response = await this.client.post<{ ok: boolean; report: AssessmentReport }>(
+    const response = await this.client.post<Schemas['GenerateReportResponse']>(
       `/api/assessment/${assessmentId}/report/generate`
     );
     return response.data.report;
@@ -216,18 +164,14 @@ class ApiService {
 
   // Progress monitoring endpoints
   async getAssessmentProgress(assessmentId: string): Promise<StudentProgress[]> {
-    const response = await this.client.get<{ 
-      ok: boolean; 
-      students: StudentProgress[];
-      summary?: { total: number; notStarted: number; inProgress: number; completed: number }
-    }>(
+    const response = await this.client.get<Schemas['ProgressSummaryResponse']>(
       `/api/assessment/${assessmentId}/progress`
     );
     return response.data.students || [];
   }
 
   async getAssessmentStudents(assessmentId: string): Promise<Student[]> {
-    const response = await this.client.get<{ ok: boolean; students: Student[] }>(
+    const response = await this.client.get<Schemas['StudentListResponse']>(
       `/api/assessment/${assessmentId}/students`
     );
     return response.data.students || [];
@@ -235,26 +179,32 @@ class ApiService {
 
   // Sprint 8: Results Dashboards
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async getStudentDetail(assessmentId: string, studentId: string): Promise<any> {
-    const response = await this.client.get(
+  async getStudentDetail(
+    assessmentId: string,
+    studentId: string
+  ): Promise<Schemas['InstructorStudentDetailResponse']> {
+    const response = await this.client.get<Schemas['InstructorStudentDetailResponse']>(
       `/api/assessment/${assessmentId}/student/${studentId}/results`
     );
     return response.data;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async overrideScore(assessmentId: string, studentId: string, questionId: string, score: number, comment?: string): Promise<any> {
-    const response = await this.client.put(
+  async overrideScore(
+    assessmentId: string,
+    studentId: string,
+    questionId: string,
+    score: number,
+    comment?: string
+  ): Promise<Schemas['ScoreOverrideResponse']> {
+    const response = await this.client.put<Schemas['ScoreOverrideResponse']>(
       `/api/assessment/${assessmentId}/student/${studentId}/question/${questionId}/override`,
-      { score, comment }
+      { score, comment } satisfies Schemas['ScoreOverrideRequest']
     );
     return response.data;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async releaseResults(assessmentId: string): Promise<any> {
-    const response = await this.client.put(
+  async releaseResults(assessmentId: string): Promise<Schemas['ReleaseResultsResponse']> {
+    const response = await this.client.put<Schemas['ReleaseResultsResponse']>(
       `/api/assessment/${assessmentId}/release-results`
     );
     return response.data;
@@ -268,35 +218,32 @@ class ApiService {
     humanCorrectnessScore: number,
     humanUnderstandingScore: number,
     scoredBy?: string,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ): Promise<any> {
-    const response = await this.client.put(
+  ): Promise<Schemas['RecordHumanScoreResponse']> {
+    const response = await this.client.put<Schemas['RecordHumanScoreResponse']>(
       `/api/assessment/${assessmentId}/student/${studentId}/question/${questionId}/human-score`,
-      { humanCorrectnessScore, humanUnderstandingScore, scoredBy }
+      { humanCorrectnessScore, humanUnderstandingScore, scoredBy } satisfies Schemas['RecordHumanScoreRequest']
     );
     return response.data;
   }
 
   // AI-vs-human agreement summary across all dual-scored items.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async getScoreAgreement(assessmentId: string): Promise<any> {
-    const response = await this.client.get(
+  async getScoreAgreement(assessmentId: string): Promise<Schemas['ScoreAgreementResponse']> {
+    const response = await this.client.get<Schemas['ScoreAgreementResponse']>(
       `/api/assessment/${assessmentId}/score-agreement`
     );
     return response.data;
   }
 
   // Evaluations flagged for human review (needs-review / fallback / score divergence).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async getFlaggedEvaluations(assessmentId: string): Promise<any> {
-    const response = await this.client.get(
+  async getFlaggedEvaluations(assessmentId: string): Promise<Schemas['FlaggedEvaluationsResponse']> {
+    const response = await this.client.get<Schemas['FlaggedEvaluationsResponse']>(
       `/api/assessment/${assessmentId}/flagged-evaluations`
     );
     return response.data;
   }
 
-  async sendInvites(assessmentId: string, options?: { subject?: string; message?: string }): Promise<{ ok: boolean; sent: number; skipped: number; total: number }> {
-    const response = await this.client.post(
+  async sendInvites(assessmentId: string, options?: Schemas['SendInvitesRequest']): Promise<Schemas['SendInvitesResponse']> {
+    const response = await this.client.post<Schemas['SendInvitesResponse']>(
       `/api/assessment/${assessmentId}/send-invites`,
       options || {}
     );
@@ -308,64 +255,104 @@ class ApiService {
   async resendInvite(
     assessmentId: string,
     studentId: string,
-    options?: { subject?: string; message?: string }
-  ): Promise<{ ok: boolean; studentId: string; inviteLink: string; emailSent: boolean }> {
-    const response = await this.client.post(
+    options?: Schemas['StudentInviteRequest']
+  ): Promise<Schemas['StudentInviteResponse']> {
+    const response = await this.client.post<Schemas['StudentInviteResponse']>(
       `/api/assessment/${assessmentId}/students/${studentId}/invite`,
       options || {}
     );
     return response.data;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async sendReminder(assessmentId: string, studentId: string): Promise<any> {
-    const response = await this.client.post(
+  async sendReminder(assessmentId: string, studentId: string): Promise<Schemas['SendReminderResponse']> {
+    const response = await this.client.post<Schemas['SendReminderResponse']>(
       `/api/assessment/${assessmentId}/student/${studentId}/remind`
     );
     return response.data;
   }
 
-  openEvaluationStatusStream(assessmentId: string, jobId: string): EventSource {
+  // EventSource cannot send headers, and the backend reads the token only from the
+  // Authorization header, so the old `?token=` URL was always 401 (and put the JWT in
+  // access logs). This reads the same `data: ...` frames with fetch, behind the
+  // EventSource shape StudentProgressTable already uses.
+  openStudentEvaluationProgressStream(assessmentId: string, studentId: string): ProgressStream {
+    const controller = new AbortController();
+    const stream: ProgressStream = { onmessage: null, onerror: null, close: () => controller.abort() };
     const token = localStorage.getItem('authToken');
-    const url = `${API_BASE_URL}/api/assessment/${assessmentId}/evaluation-status-stream/${jobId}${token ? `?token=${token}` : ''}`;
-    return new EventSource(url);
-  }
-
-  openStudentEvaluationProgressStream(assessmentId: string, studentId: string): EventSource {
-    const token = localStorage.getItem('authToken');
-    const url = `${API_BASE_URL}/api/assessment/${assessmentId}/students/${studentId}/evaluation-progress${token ? `?token=${token}` : ''}`;
-    return new EventSource(url);
+    fetch(`${API_BASE_URL}/api/assessment/${assessmentId}/students/${studentId}/evaluation-progress`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal: controller.signal,
+    })
+      .then(async (res) => {
+        if (!res.ok || !res.body) throw new Error(`Progress stream failed: ${res.status}`);
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let end;
+          while ((end = buffer.indexOf('\n\n')) !== -1) {
+            const data = buffer.slice(0, end).split('\n')
+              .filter((line) => line.startsWith('data:'))
+              .map((line) => line.slice(5).trimStart())
+              .join('\n');
+            buffer = buffer.slice(end + 2);
+            if (data) stream.onmessage?.({ data });
+          }
+        }
+        // The server ending the stream is an error to an EventSource consumer too.
+        if (!controller.signal.aborted) stream.onerror?.();
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) stream.onerror?.();
+      });
+    return stream;
   }
 
   // EPIC-3-3: Question preview and editing
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async listStudentQuestions(assessmentId: string, studentId: string): Promise<any> {
-    const response = await this.client.get(
+  async listStudentQuestions(
+    assessmentId: string,
+    studentId: string
+  ): Promise<Schemas['StudentQuestionListResponse']> {
+    const response = await this.client.get<Schemas['StudentQuestionListResponse']>(
       `/api/assessment/${assessmentId}/students/${studentId}/questions`
     );
     return response.data;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async updateStudentQuestion(assessmentId: string, studentId: string, questionId: string, text: string, timeLimit?: number | null): Promise<any> {
-    const response = await this.client.put(
+  async updateStudentQuestion(
+    assessmentId: string,
+    studentId: string,
+    questionId: string,
+    text: string,
+    timeLimit?: number | null
+  ): Promise<Schemas['StudentQuestionResponse']> {
+    const response = await this.client.put<Schemas['StudentQuestionResponse']>(
       `/api/assessment/${assessmentId}/students/${studentId}/questions/${questionId}`,
-      { text, timeLimit }
+      { text, timeLimit } satisfies Schemas['UpdateStudentQuestionRequest']
     );
     return response.data;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async deleteStudentQuestion(assessmentId: string, studentId: string, questionId: string): Promise<any> {
-    const response = await this.client.delete(
+  async deleteStudentQuestion(
+    assessmentId: string,
+    studentId: string,
+    questionId: string
+  ): Promise<Schemas['DeleteStudentQuestionResponse']> {
+    const response = await this.client.delete<Schemas['DeleteStudentQuestionResponse']>(
       `/api/assessment/${assessmentId}/students/${studentId}/questions/${questionId}`
     );
     return response.data;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async addStudentQuestion(assessmentId: string, studentId: string, data: { text: string; questionType?: string; difficulty?: string; topic?: string; timeLimit?: number | null }): Promise<any> {
-    const response = await this.client.post(
+  async addStudentQuestion(
+    assessmentId: string,
+    studentId: string,
+    data: Schemas['AddStudentQuestionRequest']
+  ): Promise<Schemas['StudentQuestionResponse']> {
+    const response = await this.client.post<Schemas['StudentQuestionResponse']>(
       `/api/assessment/${assessmentId}/students/${studentId}/questions`,
       data
     );
@@ -373,16 +360,20 @@ class ApiService {
   }
 
   async updateBrief(assessmentId: string, brief: string): Promise<void> {
-    await this.client.put(`/api/assessment/${assessmentId}/brief`, { brief });
+    await this.client.put(`/api/assessment/${assessmentId}/brief`, {
+      brief,
+    } satisfies Schemas['UpdateBriefRequest']);
   }
 
-  async listUsers(): Promise<{ email: string; roles: string[]; createdAt: string }[]> {
-    const response = await this.client.get('/api/auth/users');
+  async listUsers(): Promise<Schemas['UserRecord'][]> {
+    const response = await this.client.get<Schemas['UserListResponse']>('/api/auth/users');
     return response.data.users || [];
   }
 
   async setUserRoles(email: string, roles: string[]): Promise<void> {
-    await this.client.put(`/api/auth/users/${encodeURIComponent(email)}/roles`, { roles });
+    await this.client.put(`/api/auth/users/${encodeURIComponent(email)}/roles`, {
+      roles,
+    } satisfies Schemas['SetUserRolesRequest']);
   }
 }
 

@@ -1,12 +1,16 @@
 /**
  * Custom hook for managing chat sessions
  */
-import { useCallback } from 'react'
-import { useChatStore } from '../store/chatStore'
-import { listSessions, getSessionHistory, deleteSession } from '../api/sessions'
-import { createWorkspace } from '../api/history'
-import { getUserSession } from '../utils/userSession'
-import type { Message } from '../types'
+import { useCallback } from "react";
+import { useChatStore } from "../store/chatStore";
+import {
+  listSessions,
+  getSessionHistory,
+  deleteSession,
+} from "../api/sessions";
+import { createWorkspace } from "../api/history";
+import { getUserSession } from "../utils/userSession";
+import type { Message } from "../types";
 
 export const useSessions = () => {
   const {
@@ -20,45 +24,46 @@ export const useSessions = () => {
     deleteSessionFromStore,
     setLoadingSessions,
     clearSession,
-  } = useChatStore()
+  } = useChatStore();
 
   /**
    * Fetch all sessions from the API
    */
   const fetchSessions = useCallback(async () => {
-    setLoadingSessions(true)
+    setLoadingSessions(true);
     try {
-      const session = getUserSession()
-      const userId = session?.user_id
-      let resolvedWorkspaceId = workspaceId
+      const session = getUserSession();
+      const userId = session?.user_id;
+      let resolvedWorkspaceId = workspaceId;
       if (!resolvedWorkspaceId) {
-        const workspace = await createWorkspace('AI Assistant')
-        resolvedWorkspaceId = workspace.workspace_id
-        setWorkspaceId(resolvedWorkspaceId, userId ?? undefined)
+        const workspace = await createWorkspace("AI Assistant");
+        resolvedWorkspaceId = workspace.workspace_id;
+        setWorkspaceId(resolvedWorkspaceId, userId ?? undefined);
       }
       try {
-        const data = await listSessions(resolvedWorkspaceId)
-        setSessions(data.sessions)
+        const data = await listSessions(resolvedWorkspaceId);
+        setSessions(data.sessions);
       } catch (err: unknown) {
         // If 403, the workspace belongs to a different user — create a new one
-        const status = (err as { response?: { status?: number } })?.response?.status
+        const status = (err as { response?: { status?: number } })?.response
+          ?.status;
         if (status === 403) {
-          console.warn('Workspace ownership mismatch, creating new workspace')
-          const workspace = await createWorkspace('AI Assistant')
-          resolvedWorkspaceId = workspace.workspace_id
-          setWorkspaceId(resolvedWorkspaceId, userId ?? undefined)
-          const data = await listSessions(resolvedWorkspaceId)
-          setSessions(data.sessions)
+          console.warn("Workspace ownership mismatch, creating new workspace");
+          const workspace = await createWorkspace("AI Assistant");
+          resolvedWorkspaceId = workspace.workspace_id;
+          setWorkspaceId(resolvedWorkspaceId, userId ?? undefined);
+          const data = await listSessions(resolvedWorkspaceId);
+          setSessions(data.sessions);
         } else {
-          throw err
+          throw err;
         }
       }
     } catch (error) {
-      console.error('Failed to load sessions:', error)
+      console.error("Failed to load sessions:", error);
     } finally {
-      setLoadingSessions(false)
+      setLoadingSessions(false);
     }
-  }, [setSessions, setLoadingSessions, setWorkspaceId, workspaceId])
+  }, [setSessions, setLoadingSessions, setWorkspaceId, workspaceId]);
 
   /**
    * Load a specific session's history
@@ -66,26 +71,26 @@ export const useSessions = () => {
   const loadSessionHistory = useCallback(
     async (sessionId: string) => {
       try {
-        const data = await getSessionHistory(sessionId)
-        
+        const data = await getSessionHistory(sessionId);
+
         // Convert API messages to frontend Message format
         const messages: Message[] = data.messages.map((msg) => ({
-          role: msg.role as 'user' | 'assistant',
+          role: msg.role as "user" | "assistant",
           content: msg.content,
           timestamp: msg.timestamp,
           tokens: msg.tokens,
           context_ids: msg.context_ids,
-        }))
+        }));
 
         // Load session into store
-        loadSession(sessionId, messages)
+        loadSession(sessionId, messages);
       } catch (error) {
-        console.error('Failed to load session history:', error)
-        throw error
+        console.error("Failed to load session history:", error);
+        throw error;
       }
     },
-    [loadSession]
-  )
+    [loadSession],
+  );
 
   /**
    * Delete a session
@@ -93,39 +98,41 @@ export const useSessions = () => {
   const handleDeleteSession = useCallback(
     async (sessionId: string) => {
       try {
-        await deleteSession(sessionId)
-        deleteSessionFromStore(sessionId)
+        await deleteSession(sessionId);
+        deleteSessionFromStore(sessionId);
 
         // If deleting the current session, clear it
         if (sessionId === currentSessionId) {
-          clearSession()
+          clearSession();
         }
       } catch (error) {
-        console.error('Failed to delete session:', error)
-        throw error
+        console.error("Failed to delete session:", error);
+        throw error;
       }
     },
-    [currentSessionId, deleteSessionFromStore, clearSession]
-  )
+    [currentSessionId, deleteSessionFromStore, clearSession],
+  );
 
   /**
    * Create a new general chat session and load it
    */
   const createNewChatSession = useCallback(async () => {
-    let resolvedWorkspaceId = workspaceId
+    let resolvedWorkspaceId = workspaceId;
     if (!resolvedWorkspaceId) {
-      const workspace = await createWorkspace('AI Assistant')
-      resolvedWorkspaceId = workspace.workspace_id
-      const session = getUserSession()
-      setWorkspaceId(resolvedWorkspaceId, session?.user_id ?? undefined)
+      const workspace = await createWorkspace("AI Assistant");
+      resolvedWorkspaceId = workspace.workspace_id;
+      const session = getUserSession();
+      setWorkspaceId(resolvedWorkspaceId, session?.user_id ?? undefined);
     }
     // Create a new general chat session (view)
-    const newSession = await import('../api/history').then(m => m.createViewSession(resolvedWorkspaceId, 'chat'))
+    const newSession = await import("../api/history").then((m) =>
+      m.createViewSession(resolvedWorkspaceId, "chat"),
+    );
     // Immediately switch UI to the new chat
-    loadSession(newSession.view_session_id, [])
+    loadSession(newSession.view_session_id, []);
     // Refresh session list in the background
-    await fetchSessions()
-  }, [workspaceId, setWorkspaceId, fetchSessions, loadSession])
+    await fetchSessions();
+  }, [workspaceId, setWorkspaceId, fetchSessions, loadSession]);
 
   return {
     sessions,
@@ -134,5 +141,5 @@ export const useSessions = () => {
     loadSessionHistory,
     handleDeleteSession,
     createNewChatSession,
-  }
-}
+  };
+};

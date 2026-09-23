@@ -24,7 +24,7 @@ from src.main.service.OralAssessmentService import OralAssessmentServiceError
 # Helpers
 # ─────────────────────────────────────────────────────────────
 
-_STUDENT = AuthPrincipal(user_id="s-1", roles=["student"], source="jwt")
+_STUDENT = AuthPrincipal(user_id="s-1", roles=["student"], source="jwt", assessment_id="a-1")
 _INSTRUCTOR = AuthPrincipal(user_id="inst-1", roles=["instructor"], source="jwt")
 
 _QUESTION_WITH_LIMIT = {
@@ -205,7 +205,7 @@ def test_submit_answer_missing_assessment_id_rejected():
 def test_submit_answer_assessment_id_forwarded_to_service():
     """assessment_id from the request body is forwarded to the service."""
     svc = _mock_svc()
-    client = _build_client(svc=svc)
+    client = _build_client(principal=AuthPrincipal(user_id="s-1", roles=["student"], source="jwt", assessment_id="a-99"), svc=svc)
 
     client.post(
         "/api/student/s-1/answer",

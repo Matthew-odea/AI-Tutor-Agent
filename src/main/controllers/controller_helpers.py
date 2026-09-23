@@ -6,6 +6,11 @@ from fastapi import Header, HTTPException
 
 from src.main.auth.dependencies import resolve_user_id_from_headers
 from src.main.auth.models import AuthPrincipal
+from src.main.controllers.api_errors import ApiError
+
+
+def _assessment_not_found() -> ApiError:
+    return ApiError(status_code=404, code="assessment_not_found", message="Assessment not found")
 
 
 def _require_user_id(
@@ -74,27 +79,37 @@ def _assert_instructor_access(principal: AuthPrincipal) -> None:
     raise HTTPException(status_code=403, detail="Instructor access required")
 
 
-def _assert_student_access(principal: AuthPrincipal, student_id: str, assessment_id: str | None = None) -> None:
-    if principal.user_id == student_id:
-        # If the token is scoped to an assessment, verify it matches
-        if assessment_id and principal.assessment_id and principal.assessment_id != assessment_id:
-            raise HTTPException(status_code=403, detail="Token not valid for this assessment")
-        return
+def _assert_student_access(principal: AuthPrincipal, student_id: str, assessment_id: str) -> None:
+    """A student route serves one student's record in one assessment.
 
-    if _has_role(principal, {"instructor", "admin"}):
-        return
+    Only a session token issued for exactly that (student, assessment) pair may
+    reach it, or an admin. Session tokens come from an invite exchange, and an
+    invite is only minted for an enrolled student, so the token stands for the
+    enrolment. Two things deliberately do not pass:
 
-    raise HTTPException(status_code=403, detail="Student access denied")
-
-
-def _assert_assessment_owner(principal: AuthPrincipal, assessment: dict) -> None:
+    - Instructors. Their views of a student go through /api/assessment/{id}/...,
+      which checks they own the assessment; here nothing would.
+    - An unscoped login token whose subject equals the student id. Signup is open
+      and a signed-up user's id is their email, so anyone could sign up as an email
+      an instructor used for a student id.
+    """
     if _has_role(principal, {"admin"}):
         return
+    if principal.user_id != student_id:
+        raise HTTPException(status_code=403, detail="Student access denied")
+    if not principal.assessment_id or principal.assessment_id != assessment_id:
+        raise HTTPException(status_code=403, detail="Token not valid for this assessment")
 
-    created_by = assessment.get("createdBy")
-    if created_by:
-        if principal.user_id == created_by:
-            return
-        raise HTTPException(status_code=403, detail="Assessment access denied")
 
-    raise HTTPException(status_code=403, detail="Assessment ownership metadata missing")
+def _assert_assessment_owner(principal: AuthPrincipal, assessment: dict | None) -> None:
+    """Refuse anyone but the assessment's creator (or an admin).
+
+    Answers exactly as a missing assessment does, so a caller cannot use it to learn
+    which assessment ids exist. An assessment with no createdBy belongs to nobody.
+    """
+    if _has_role(principal, {"admin"}):
+        return
+    created_by = (assessment or {}).get("createdBy")
+    if created_by and principal.user_id == created_by:
+        return
+    raise _assessment_not_found()

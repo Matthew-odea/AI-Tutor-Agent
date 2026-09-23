@@ -1,1 +1,1 @@
-declare module 'diff';
+declare module "diff";

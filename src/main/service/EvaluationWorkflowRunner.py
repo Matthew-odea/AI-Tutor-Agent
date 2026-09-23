@@ -63,7 +63,7 @@ class EvaluationWorkflowRunner:
             evaluations = []
             total_score = 0.0
 
-            self.repository.set_evaluation_progress(student_id, assessment_id, 0, total_questions, "evaluating")
+            self._set_progress(job_id, student_id, assessment_id, 0, total_questions, "evaluating")
 
             for index, qa_pair in enumerate(qa_pairs):
                 question_id = qa_pair["question"]["id"]
@@ -98,7 +98,7 @@ class EvaluationWorkflowRunner:
                     total_score += evaluation.get("total_score", 0)
 
                     self.repository.store_evaluation(student_id, assessment_id, question_id, evaluation)
-                    self.repository.set_evaluation_progress(student_id, assessment_id, index + 1, total_questions, "evaluating")
+                    self._set_progress(job_id, student_id, assessment_id, index + 1, total_questions, "evaluating")
                 except Exception as error:
                     # Never surface a raw error to the student: store a valid,
                     # zero-score evaluation explicitly flagged for instructor review.
@@ -130,7 +130,7 @@ class EvaluationWorkflowRunner:
             max_score = len(scored) * max_per_question
             percentage = (total_score / max_score * 100) if max_score > 0 else 0
 
-            self.repository.set_evaluation_progress(student_id, assessment_id, total_questions, total_questions, "completed")
+            self._set_progress(job_id, student_id, assessment_id, total_questions, total_questions, "completed")
 
             logger.info(
                 "[Job %s] DynamoDB evaluation completed. Score: %.1f/%d (%.1f%%)",
@@ -138,10 +138,19 @@ class EvaluationWorkflowRunner:
             )
         except Exception as error:
             logger.error("[Job %s] DynamoDB evaluation failed: %s", job_id, error)
-            try:
-                self.repository.set_evaluation_progress(student_id, assessment_id, 0, 0, "failed")
-            except Exception:
-                pass
+            self._set_progress(job_id, student_id, assessment_id, 0, 0, "failed")
+            # Re-raised so the SQS consumer retries the student (bounded, then the
+            # DLQ) instead of deleting the message and leaving them unmarked.
+            raise
+
+    def _set_progress(self, job_id: str, student_id: str, assessment_id: str, done: int, total: int, status: str) -> None:
+        """Best-effort progress marker. It only drives the instructor's progress bar,
+        so a failed write must neither abort the run nor, inside the per-question
+        loop, replace an evaluation that was already stored with a flagged zero."""
+        try:
+            self.repository.set_evaluation_progress(student_id, assessment_id, done, total, status)
+        except Exception as e:
+            logger.warning("[Job %s] Could not write evaluation progress for student %s: %s", job_id, student_id, e)
 
     @staticmethod
     def match_questions_and_answers(

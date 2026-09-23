@@ -130,12 +130,15 @@ class TestProgressUnderFailure:
             (0, 1, "evaluating"), (1, 1, "evaluating"), (1, 1, "completed"),
         ]
 
-    def test_catastrophic_failure_marks_failed(self):
+    def test_catastrophic_failure_marks_failed_and_raises_for_retry(self):
+        """A whole-student failure is marked, then raised so the SQS consumer retries
+        it; swallowing it deleted the message and left the student unmarked."""
         repo = _repository()
         repo.read_questions.side_effect = RuntimeError("dynamo down")
         runner = EvaluationWorkflowRunner(engine=MagicMock(), repository=repo)
 
-        runner.evaluate_from_dynamodb("job-1", "s-1", "a-1")
+        with pytest.raises(RuntimeError, match="dynamo down"):
+            runner.evaluate_from_dynamodb("job-1", "s-1", "a-1")
 
         assert _progress_calls(repo) == [(0, 0, "failed")]
 
@@ -149,9 +152,12 @@ class TestProgressUnderFailure:
 
         runner.evaluate_from_dynamodb("job-1", "s-1", "a-1")
 
-        # The run aborts at the first failed progress write today; the guarantee we
-        # care about is that it fails soft rather than raising to the SQS consumer.
-        assert repo.set_evaluation_progress.called
+        # Every question is evaluated and stored as scored. A progress write that
+        # failed inside the per-question try used to replace the evaluation just
+        # stored with a flagged zero.
+        stored = [c.args[3] for c in repo.store_evaluation.call_args_list]
+        assert len(stored) == 3
+        assert not any(e.get("needs_review") for e in stored)
 
 
 class TestSkippedQuestions:

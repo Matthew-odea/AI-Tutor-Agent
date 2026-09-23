@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Question } from '../types';
+import type { Progress, Question } from '../types';
 
 // Network + upload layers stubbed so the store never touches a real backend
 // (mirrors assessmentStore.test.ts).
@@ -42,13 +42,24 @@ const q = (id: string): Question => ({
   createdAt: '',
 });
 
-const baseProgress = {
+const baseProgress: Progress = {
   studentId: 'z1',
+  studentName: 'Test Student',
+  studentEmail: 'student@example.test',
   assessmentId: 'a1',
+  assessmentTitle: 'Test Assessment',
   totalQuestions: 2,
   answeredQuestions: 0,
   percentage: 0,
-  status: 'in-progress' as const,
+  status: 'in-progress',
+};
+
+const baseQuestionsResponse = {
+  ok: true,
+  studentId: 'z1',
+  assessmentId: 'a1',
+  totalQuestions: 2,
+  allowReview: false,
 };
 
 const audioBlob = () => new Blob(['audio'], { type: 'audio/webm' });
@@ -200,6 +211,7 @@ describe('rehydrateDraft (text)', () => {
 describe('drafts cleared on success / skip / cancel / reset', () => {
   it('clears the audio draft after a SUCCESSFUL audio submit', async () => {
     vi.mocked(api.getQuestions).mockResolvedValue({
+      ...baseQuestionsResponse,
       questions: [q('q1'), q('q2')],
       currentQuestionIndex: 1,
       answerMode: 'oral',
@@ -214,6 +226,7 @@ describe('drafts cleared on success / skip / cancel / reset', () => {
 
   it('clears the text draft after a SUCCESSFUL text submit', async () => {
     vi.mocked(api.getQuestions).mockResolvedValue({
+      ...baseQuestionsResponse,
       questions: [q('q1'), q('q2')],
       currentQuestionIndex: 1,
       answerMode: 'written',
@@ -228,6 +241,7 @@ describe('drafts cleared on success / skip / cancel / reset', () => {
 
   it('clears BOTH drafts on skip', async () => {
     vi.mocked(api.getQuestions).mockResolvedValue({
+      ...baseQuestionsResponse,
       questions: [q('q1'), q('q2')],
       currentQuestionIndex: 1,
       answerMode: 'written',

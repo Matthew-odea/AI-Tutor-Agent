@@ -9,10 +9,17 @@ process as the API (background thread), meeting the platform plan's
 Message lifecycle:
   enqueue → SQS → consumer receives → processes → deletes message
 
-If the server dies mid-message, the SQS visibility timeout (900s) expires
-and the message becomes visible again. After 3 receive attempts the message
-moves to the DLQ. The DynamoDB job record stays in 'running' state, which
-the instructor can see and re-trigger.
+Delivery is at-least-once, so the consumer is idempotent per (job, item):
+each job record keeps the set of items it has counted, a redelivered message
+for a counted item is deleted without redoing the work, and the counter
+update is conditional so a duplicate can never count twice.
+
+While a message is being worked on, a heartbeat keeps extending its
+visibility, so a long evaluation is not redelivered to another worker
+mid-run. If the server dies mid-message the heartbeat stops and the message
+becomes visible again within _VISIBILITY_TIMEOUT. A failed message is left
+on the queue and retried with backoff; after _MAX_RECEIVES attempts it is
+counted as failed on the job and SQS moves it to the DLQ.
 """
 
 from __future__ import annotations
@@ -26,13 +33,18 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 import boto3
-from botocore.exceptions import ClientError
+from botocore.exceptions import BotoCoreError, ClientError
 
 logger = logging.getLogger(__name__)
 
-_VISIBILITY_TIMEOUT = 900       # 15 min — matches Terraform queue setting
+_VISIBILITY_TIMEOUT = 900       # 15 min — set on every receive, overriding the queue default
+_HEARTBEAT_SECONDS = _VISIBILITY_TIMEOUT // 3  # re-extend visibility well before it lapses
 _LONG_POLL_SECONDS = 10         # reduces empty receives
-_MAX_MESSAGES_PER_RECEIVE = 5
+# One at a time: messages held in a local batch are not heartbeated, so a batch
+# of slow evaluations would expire the later ones and hand them to another worker.
+_MAX_MESSAGES_PER_RECEIVE = 1
+_MAX_RECEIVES = 3               # must equal maxReceiveCount in the queue's redrive policy (terraform)
+_RETRY_BACKOFF_SECONDS = 60     # a failed message reappears after 60s, then 120s
 _CONSUMER_ERROR_BACKOFF = 5     # seconds to sleep after an unexpected consumer loop error
 
 
@@ -65,39 +77,15 @@ class SQSJobDispatcher:
 
         Returns the number of messages successfully enqueued.
         """
-        enqueued = 0
-        batch: List[Dict[str, Any]] = []
-
-        def _flush(b: List[Dict[str, Any]]) -> int:
-            try:
-                resp = self.sqs.send_message_batch(
-                    QueueUrl=self.queue_url,
-                    Entries=b,
-                )
-                failed = resp.get("Failed", [])
-                if failed:
-                    logger.error("SQS evaluation batch send failures: %s", failed)
-                return len(b) - len(failed)
-            except ClientError as e:
-                logger.error("SQS evaluation batch send error: %s", e)
-                return 0
-
-        for i, student in enumerate(students):
-            batch.append({
-                "Id": str(i),
-                "MessageBody": json.dumps({
-                    "job_type": "evaluation",
-                    "job_id": job_id,
-                    "assessment_id": assessment_id,
-                    "student_id": student["studentId"],
-                }),
-            })
-            if len(batch) == 10:
-                enqueued += _flush(batch)
-                batch = []
-
-        if batch:
-            enqueued += _flush(batch)
+        enqueued = self._enqueue_per_student(job_id, [
+            {
+                "job_type": "evaluation",
+                "job_id": job_id,
+                "assessment_id": assessment_id,
+                "student_id": student["studentId"],
+            }
+            for student in students
+        ])
 
         logger.info(
             "Enqueued %d/%d evaluation messages for job %s",
@@ -120,48 +108,20 @@ class SQSJobDispatcher:
         Returns the number of messages successfully enqueued.
         Uses batch send (10 per call) for efficiency.
         """
-        enqueued = 0
-        batch: List[Dict[str, Any]] = []
-
-        def _flush(b: List[Dict[str, Any]]) -> int:
-            try:
-                resp = self.sqs.send_message_batch(
-                    QueueUrl=self.queue_url,
-                    Entries=b,
-                )
-                failed = resp.get("Failed", [])
-                if failed:
-                    logger.error("SQS batch send failures: %s", failed)
-                return len(b) - len(failed)
-            except ClientError as e:
-                logger.error("SQS batch send error: %s", e)
-                return 0
-
-        for i, student in enumerate(students):
-            batch.append(
-                {
-                    "Id": str(i),
-                    "MessageBody": json.dumps(
-                        {
-                            "job_type": "question_generation",
-                            "job_id": job_id,
-                            "assessment_id": assessment_id,
-                            "student_id": student["studentId"],
-                            "student_name": student["name"],
-                            "student_code": student.get("code", ""),
-                            "assignment_brief": assignment_brief,
-                            "course_name": course_name,
-                            "assessment_title": assessment_title,
-                        }
-                    ),
-                }
-            )
-            if len(batch) == 10:
-                enqueued += _flush(batch)
-                batch = []
-
-        if batch:
-            enqueued += _flush(batch)
+        enqueued = self._enqueue_per_student(job_id, [
+            {
+                "job_type": "question_generation",
+                "job_id": job_id,
+                "assessment_id": assessment_id,
+                "student_id": student["studentId"],
+                "student_name": student["name"],
+                "student_code": student.get("code", ""),
+                "assignment_brief": assignment_brief,
+                "course_name": course_name,
+                "assessment_title": assessment_title,
+            }
+            for student in students
+        ])
 
         logger.info(
             "Enqueued %d/%d question-generation messages for job %s",
@@ -169,6 +129,31 @@ class SQSJobDispatcher:
             len(students),
             job_id,
         )
+        return enqueued
+
+    def _enqueue_per_student(self, job_id: str, bodies: List[Dict[str, Any]]) -> int:
+        """Send one message per body, 10 per SQS call. Returns the number sent.
+
+        A message SQS refuses is counted on the job as a failed item straight
+        away; otherwise processed_count could never reach total_items and the
+        job would sit 'pending' forever.
+        """
+        enqueued = 0
+        for offset in range(0, len(bodies), 10):
+            chunk = bodies[offset:offset + 10]
+            entries = [{"Id": str(i), "MessageBody": json.dumps(b)} for i, b in enumerate(chunk)]
+            try:
+                resp = self.sqs.send_message_batch(QueueUrl=self.queue_url, Entries=entries)
+                failed_ids = {f["Id"] for f in resp.get("Failed", [])}
+                if failed_ids:
+                    logger.error("[Job %s] SQS batch send failures: %s", job_id, resp["Failed"])
+            except ClientError as e:
+                logger.error("[Job %s] SQS batch send error: %s", job_id, e)
+                failed_ids = {entry["Id"] for entry in entries}
+            for entry, body in zip(entries, chunk):
+                if entry["Id"] in failed_ids:
+                    self._increment_job_progress(job_id, body["student_id"], success=False)
+            enqueued += len(chunk) - len(failed_ids)
         return enqueued
 
     def enqueue_report_generation(
@@ -302,7 +287,11 @@ class SQSJobDispatcher:
         evaluation_workflow_runner: Optional[Any] = None,
         report_service: Optional[Any] = None,
     ) -> None:
-        """Process one SQS message. Deletes it on both success and non-retriable failure."""
+        """Process one SQS message.
+
+        Deleted on success, on a malformed body, and when its job already counted
+        this item (a redelivery). A failure is left on the queue to be retried.
+        """
         receipt = msg["ReceiptHandle"]
         try:
             body = json.loads(msg["Body"])
@@ -314,58 +303,116 @@ class SQSJobDispatcher:
         job_type = body.get("job_type", "question_generation")
         job_id = body.get("job_id", "unknown")
         student_id = body.get("student_id", "unknown")
+        # The idempotency key: one message per student per job (one per job for reports).
+        item_key = body.get("student_id") or job_type
+        receive_count = int(msg.get("Attributes", {}).get("ApproximateReceiveCount", 1))
+
+        if self._already_processed(job_id, item_key):
+            logger.info("[Job %s] %s for %s already processed — duplicate delivery, deleting", job_id, job_type, item_key)
+            self._delete_message(receipt)
+            return
+
+        logger.info("[Job %s] Processing %s for student %s (attempt %d)", job_id, job_type, student_id, receive_count)
+
+        stop_heartbeat = threading.Event()
+        heartbeat = threading.Thread(
+            target=self._keep_invisible, args=(receipt, stop_heartbeat), daemon=True, name="sqs-heartbeat",
+        )
+        heartbeat.start()
+        error: Optional[Exception] = None
+        try:
+            outcome = self._run_job(body, question_generation_service, evaluation_workflow_runner, report_service)
+        except Exception as e:
+            outcome, error = None, e
+        finally:
+            stop_heartbeat.set()
+            heartbeat.join()
+
+        if error is not None:
+            if receive_count < _MAX_RECEIVES:
+                logger.warning(
+                    "[Job %s] %s failed for %s (attempt %d/%d), will retry: %s",
+                    job_id, job_type, student_id, receive_count, _MAX_RECEIVES, error,
+                )
+                self._change_visibility(receipt, _RETRY_BACKOFF_SECONDS * receive_count)
+            else:
+                # Not deleted: SQS moves it to the DLQ instead of delivering it again.
+                logger.error(
+                    "[Job %s] %s failed for %s on final attempt %d, leaving it for the DLQ: %s",
+                    job_id, job_type, student_id, receive_count, error,
+                )
+                self._increment_job_progress(job_id, item_key, success=False)
+            return
+
+        if outcome is not None:
+            self._increment_job_progress(job_id, item_key, success=outcome)
+        self._delete_message(receipt)
+
+    def _run_job(
+        self,
+        body: Dict[str, Any],
+        question_generation_service: Any,
+        evaluation_workflow_runner: Optional[Any],
+        report_service: Optional[Any],
+    ) -> Optional[bool]:
+        """Do the work for one message. Returns the outcome to count, or None for an unknown job type."""
+        job_type = body.get("job_type", "question_generation")
+        job_id = body.get("job_id", "unknown")
+        student_id = body.get("student_id", "unknown")
         assessment_id = body.get("assessment_id", "")
 
-        logger.info("[Job %s] Processing %s for student %s", job_id, job_type, student_id)
+        if job_type == "question_generation":
+            question_generation_service.generate_questions(
+                assignment_brief=body.get("assignment_brief", ""),
+                student_code=body.get("student_code", ""),
+                student_name=body.get("student_name", student_id),
+                student_id=student_id,
+                assessment_id=assessment_id,
+                course_name=body.get("course_name", ""),
+                assessment_title=body.get("assessment_title", ""),
+            )
+            logger.info("[Job %s] Question generation succeeded for student %s", job_id, student_id)
+            return True
 
+        if job_type == "evaluation":
+            if evaluation_workflow_runner is None:
+                logger.warning("[Job %s] Evaluation runner not configured — skipping", job_id)
+                return False
+            # Runs synchronously in the consumer thread — each student evaluated fully
+            # before the next message is picked up.
+            evaluation_workflow_runner.evaluate_from_dynamodb(job_id, student_id, assessment_id)
+            logger.info("[Job %s] Evaluation succeeded for student %s", job_id, student_id)
+            return True
+
+        if job_type == "report_generation":
+            if report_service is None:
+                logger.warning("[Job %s] Report service not configured — skipping", job_id)
+                return False
+            report_service.generate_report(
+                assessment_id,
+                triggered_by=body.get("triggered_by", "auto_threshold"),
+                milestone=body.get("milestone"),
+            )
+            logger.info("[Job %s] Report generation succeeded for assessment %s", job_id, assessment_id)
+            return True
+
+        logger.warning("Unknown job_type '%s' — discarding message", job_type)
+        return None
+
+    def _keep_invisible(self, receipt_handle: str, stop: threading.Event) -> None:
+        """Heartbeat: keep a message hidden from other workers while it is being worked on."""
+        while not stop.wait(_HEARTBEAT_SECONDS):
+            self._change_visibility(receipt_handle, _VISIBILITY_TIMEOUT)
+
+    def _change_visibility(self, receipt_handle: str, seconds: int) -> None:
         try:
-            if job_type == "question_generation":
-                question_generation_service.generate_questions(
-                    assignment_brief=body.get("assignment_brief", ""),
-                    student_code=body.get("student_code", ""),
-                    student_name=body.get("student_name", student_id),
-                    student_id=student_id,
-                    assessment_id=assessment_id,
-                    course_name=body.get("course_name", ""),
-                    assessment_title=body.get("assessment_title", ""),
-                )
-                self._increment_job_progress(job_id, success=True)
-                logger.info("[Job %s] Question generation succeeded for student %s", job_id, student_id)
-
-            elif job_type == "evaluation":
-                if evaluation_workflow_runner is None:
-                    logger.warning("[Job %s] Evaluation runner not configured — skipping", job_id)
-                    self._increment_job_progress(job_id, success=False)
-                else:
-                    # Runs synchronously in consumer thread — each student evaluated fully before
-                    # the next message is picked up. This keeps DynamoDB progress accurate.
-                    evaluation_workflow_runner.evaluate_from_dynamodb(job_id, student_id, assessment_id)
-                    self._increment_job_progress(job_id, success=True)
-                    logger.info("[Job %s] Evaluation succeeded for student %s", job_id, student_id)
-
-            elif job_type == "report_generation":
-                if report_service is None:
-                    logger.warning("[Job %s] Report service not configured — skipping", job_id)
-                    self._increment_job_progress(job_id, success=False)
-                else:
-                    report_service.generate_report(
-                        assessment_id,
-                        triggered_by=body.get("triggered_by", "auto_threshold"),
-                        milestone=body.get("milestone"),
-                    )
-                    self._increment_job_progress(job_id, success=True)
-                    logger.info("[Job %s] Report generation succeeded for assessment %s", job_id, assessment_id)
-
-            else:
-                logger.warning("Unknown job_type '%s' — discarding message", job_type)
-
-        except Exception as e:
-            logger.error("[Job %s] Processing failed for student %s: %s", job_id, student_id, e)
-            self._increment_job_progress(job_id, success=False)
-
-        # Always delete — retries are handled at the job level, not SQS level
-        # (DLQ handles poison pills after 3 total receives per Terraform config)
-        self._delete_message(receipt)
+            self.sqs.change_message_visibility(
+                QueueUrl=self.queue_url,
+                ReceiptHandle=receipt_handle,
+                VisibilityTimeout=seconds,
+            )
+        except ClientError as e:
+            logger.warning("Failed to change SQS message visibility: %s", e)
 
     def _delete_message(self, receipt_handle: str) -> None:
         try:
@@ -376,24 +423,48 @@ class SQSJobDispatcher:
         except ClientError as e:
             logger.warning("Failed to delete SQS message: %s", e)
 
-    def _increment_job_progress(self, job_id: str, success: bool) -> None:
-        """Atomic progress counter update in DynamoDB — same as DynamoDBJobStore."""
+    def _already_processed(self, job_id: str, item_key: str) -> bool:
+        """True if this job has already counted this item, i.e. the message is a redelivery."""
+        try:
+            item = self.table.get_item(
+                Key={"PK": f"JOB#{job_id}", "SK": "METADATA"},
+                ProjectionExpression="processed_items",
+            ).get("Item") or {}
+        except ClientError as e:
+            logger.warning("Could not check job %s for duplicate delivery: %s", job_id, e)
+            return False
+        return item_key in item.get("processed_items", set())
+
+    def _increment_job_progress(self, job_id: str, item_key: str, success: bool) -> None:
+        """Count one item on the job, at most once.
+
+        The item key goes into a string set in the same conditional update, so
+        a redelivered or concurrently duplicated message cannot count twice
+        and push processed_count past total_items.
+        """
         try:
             self.table.update_item(
                 Key={"PK": f"JOB#{job_id}", "SK": "METADATA"},
                 UpdateExpression=(
-                    "ADD processed_count :one, successful_count :s, failed_count :f"
+                    "ADD processed_count :one, successful_count :s, failed_count :f, processed_items :items"
                 ),
+                ConditionExpression="NOT contains(processed_items, :key)",
                 ExpressionAttributeValues={
                     ":one": 1,
                     ":s": 1 if success else 0,
                     ":f": 0 if success else 1,
+                    ":items": {item_key},
+                    ":key": item_key,
                 },
             )
-            # Check if all items processed → mark job complete
-            self._maybe_complete_job(job_id)
         except ClientError as e:
-            logger.error("Failed to update job progress for %s: %s", job_id, e)
+            if e.response["Error"]["Code"] == "ConditionalCheckFailedException":
+                logger.info("[Job %s] %s already counted — not counting again", job_id, item_key)
+            else:
+                logger.error("Failed to update job progress for %s: %s", job_id, e)
+            return
+        # Check if all items processed → mark job complete
+        self._maybe_complete_job(job_id)
 
     def _maybe_complete_job(self, job_id: str) -> None:
         """Mark job 'completed' if processed_count has reached total_items."""
@@ -448,6 +519,9 @@ def resolve_queue_url(queue_name: str = "ai-tutor-jobs", region: str = "us-east-
         url = resp["QueueUrl"]
         logger.info("Resolved SQS queue URL: %s", url)
         return url
-    except ClientError as e:
+    except (ClientError, BotoCoreError) as e:
+        # BotoCoreError covers no network / no credentials / no region, which
+        # otherwise propagate through dependency injection and fail every route
+        # that takes the dispatcher (including student submit).
         logger.warning("Could not resolve SQS queue URL for '%s': %s", queue_name, e)
         return ""

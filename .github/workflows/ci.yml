@@ -131,10 +131,9 @@ jobs:
         run: npm run test:run
 
   # ─────────────────────────────────────────────────────────
-  # Job 4: AI Tutor frontend — type-check + lint + Vitest
-  # (has a `validate` script too, but it also runs format:check,
-  # which fails on ~86 files that predate this CI job and are out
-  # of scope here — not run until that's addressed separately)
+  # Job 4: AI Tutor frontend — `npm run validate`
+  # (type-check + lint + format:check + Vitest — the same command
+  # CLAUDE.md tells contributors to run, so CI and local agree)
   # ─────────────────────────────────────────────────────────
   ai-tutor-frontend-test:
     name: AI Tutor Frontend Tests
@@ -154,17 +153,9 @@ jobs:
         working-directory: ai-tutor-frontend
         run: npm ci
 
-      - name: Type check
+      - name: Validate
         working-directory: ai-tutor-frontend
-        run: npm run type-check
-
-      - name: Lint
-        working-directory: ai-tutor-frontend
-        run: npm run lint
-
-      - name: Run Vitest
-        working-directory: ai-tutor-frontend
-        run: npm run test:run
+        run: npm run validate
 
   # ─────────────────────────────────────────────────────────
   # Job 5: Playwright E2E — full local integration test

@@ -293,3 +293,191 @@ class TestConsumerLifecycle:
 
         assert thread1 is thread2
         dispatcher.stop_consumer()
+
+
+# ─────────────────────────────────────────────────────────────
+# At-least-once delivery, retries, visibility
+# ─────────────────────────────────────────────────────────────
+
+import threading
+
+from src.main.service import SQSJobDispatcher as dispatcher_module
+from src.main.service.SQSJobDispatcher import resolve_queue_url
+
+
+class _SerializedTable:
+    """Applies each call one at a time, as real DynamoDB does per item — moto is
+    not thread-safe. The lock covers one call, not a sequence, so a
+    read-then-write in our code still races under it."""
+
+    def __init__(self, inner):
+        self._inner = inner
+        self._lock = threading.Lock()
+
+    def __getattr__(self, name):
+        attr = getattr(self._inner, name)
+        if not callable(attr):
+            return attr
+
+        def locked(*args, **kwargs):
+            with self._lock:
+                return attr(*args, **kwargs)
+
+        return locked
+
+
+def _create_job(table, job_id="j-1", total=1):
+    table.put_item(Item={
+        "PK": f"JOB#{job_id}", "SK": "METADATA", "job_id": job_id, "status": "pending",
+        "total_items": total, "processed_count": 0, "successful_count": 0, "failed_count": 0,
+    })
+
+
+def _job(table, job_id="j-1"):
+    return table.get_item(Key={"PK": f"JOB#{job_id}", "SK": "METADATA"})["Item"]
+
+
+def _eval_msg(student_id="s-1", job_id="j-1", receive_count=1):
+    return {
+        "Body": json.dumps({
+            "job_type": "evaluation", "job_id": job_id, "assessment_id": "a-1", "student_id": student_id,
+        }),
+        "ReceiptHandle": "fake-receipt",
+        "Attributes": {"ApproximateReceiveCount": str(receive_count)},
+    }
+
+
+class TestRedelivery:
+    def test_redelivered_message_is_not_evaluated_or_counted_twice(self, sqs_env):
+        """SQS redelivers a message whose delete was lost (crash after the work, or a
+        failed delete). The second copy must not re-run Bedrock or recount."""
+        queue_url, table, _ = sqs_env
+        _create_job(table, total=2)
+        dispatcher = _make_dispatcher(queue_url, table)
+        runner = MagicMock()
+
+        dispatcher._process_message(_eval_msg(), MagicMock(), runner)
+        dispatcher._process_message(_eval_msg(receive_count=2), MagicMock(), runner)
+
+        assert runner.evaluate_from_dynamodb.call_count == 1
+        job = _job(table)
+        assert int(job["processed_count"]) == 1
+        assert job["status"] == "pending"  # 1 of 2 — a double count would have completed it
+
+    def test_concurrent_duplicates_count_once(self, sqs_env):
+        """Two workers holding the same message at once (visibility lapsed) both pass
+        the duplicate check before either counts; the barrier forces that. Only the
+        conditional counter keeps processed_count exact."""
+        queue_url, table, _ = sqs_env
+        _create_job(table, total=2)
+        dispatcher = _make_dispatcher(queue_url, _SerializedTable(table))
+        both_working = threading.Barrier(2, timeout=10)
+        runner = MagicMock()
+        runner.evaluate_from_dynamodb.side_effect = lambda *a: both_working.wait()
+
+        threads = [
+            threading.Thread(target=dispatcher._process_message, args=(_eval_msg(), MagicMock(), runner))
+            for _ in range(2)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        assert runner.evaluate_from_dynamodb.call_count == 2
+        job = _job(table)
+        assert int(job["processed_count"]) == 1
+        assert job["status"] == "pending"
+
+
+class TestFailureRetry:
+    def test_failure_is_left_for_retry_with_backoff(self, sqs_env):
+        queue_url, table, _ = sqs_env
+        _create_job(table)
+        dispatcher = _make_dispatcher(queue_url, table)
+        dispatcher.sqs = MagicMock()
+        runner = MagicMock()
+        runner.evaluate_from_dynamodb.side_effect = RuntimeError("Bedrock throttled")
+
+        dispatcher._process_message(_eval_msg(receive_count=1), MagicMock(), runner)
+
+        dispatcher.sqs.delete_message.assert_not_called()
+        dispatcher.sqs.change_message_visibility.assert_called_once_with(
+            QueueUrl=queue_url, ReceiptHandle="fake-receipt", VisibilityTimeout=60,
+        )
+        assert int(_job(table)["processed_count"]) == 0
+
+    def test_final_attempt_counts_failure_and_leaves_message_for_dlq(self, sqs_env):
+        """Bounded: the last allowed receive counts the student as failed (so the job
+        completes) and does not delete, so the redrive policy moves it to the DLQ."""
+        queue_url, table, _ = sqs_env
+        _create_job(table)
+        dispatcher = _make_dispatcher(queue_url, table)
+        dispatcher.sqs = MagicMock()
+        runner = MagicMock()
+        runner.evaluate_from_dynamodb.side_effect = RuntimeError("poison")
+
+        dispatcher._process_message(
+            _eval_msg(receive_count=dispatcher_module._MAX_RECEIVES), MagicMock(), runner,
+        )
+
+        dispatcher.sqs.delete_message.assert_not_called()
+        job = _job(table)
+        assert int(job["failed_count"]) == 1
+        assert job["status"] == "completed"
+
+
+class TestVisibilityHeartbeat:
+    def test_long_job_keeps_extending_visibility(self, sqs_env, monkeypatch):
+        """An evaluation that outlasts the visibility timeout must not be handed to
+        another worker mid-run. The runner blocks until a heartbeat is seen."""
+        queue_url, table, _ = sqs_env
+        _create_job(table)
+        monkeypatch.setattr(dispatcher_module, "_HEARTBEAT_SECONDS", 0.01)
+        dispatcher = _make_dispatcher(queue_url, table)
+        dispatcher.sqs = MagicMock()
+        beat = threading.Event()
+        dispatcher.sqs.change_message_visibility.side_effect = lambda **kw: beat.set()
+        runner = MagicMock()
+        runner.evaluate_from_dynamodb.side_effect = lambda *a: beat.wait(timeout=5)
+
+        dispatcher._process_message(_eval_msg(), MagicMock(), runner)
+
+        assert beat.is_set()
+        dispatcher.sqs.change_message_visibility.assert_called_with(
+            QueueUrl=queue_url, ReceiptHandle="fake-receipt",
+            VisibilityTimeout=dispatcher_module._VISIBILITY_TIMEOUT,
+        )
+        dispatcher.sqs.delete_message.assert_called_once()
+
+
+class TestEnqueueFailure:
+    def test_unsent_messages_are_counted_so_the_job_can_complete(self, sqs_env):
+        """A message SQS refuses will never be processed; without counting it the job
+        sits 'pending' forever and blocks re-generation for the assessment."""
+        queue_url, table, _ = sqs_env
+        _create_job(table, total=2)
+        dispatcher = _make_dispatcher(queue_url, table)
+        dispatcher.sqs = MagicMock()
+        dispatcher.sqs.send_message_batch.return_value = {
+            "Successful": [{"Id": "0"}], "Failed": [{"Id": "1", "Code": "InternalError"}],
+        }
+
+        sent = dispatcher.enqueue_evaluation_batch("j-1", "a-1", [{"studentId": "s-1"}, {"studentId": "s-2"}])
+
+        assert sent == 1
+        job = _job(table)
+        assert int(job["failed_count"]) == 1
+        assert job["processed_items"] == {"s-2"}
+
+
+def test_resolve_queue_url_offline_returns_empty(monkeypatch):
+    """No network must not raise through dependency injection."""
+    from botocore.exceptions import EndpointConnectionError
+
+    monkeypatch.delenv("SQS_JOBS_QUEUE_URL", raising=False)
+    client = MagicMock()
+    client.get_queue_url.side_effect = EndpointConnectionError(endpoint_url="https://sqs.us-east-1.amazonaws.com")
+    monkeypatch.setattr(dispatcher_module.boto3, "client", lambda *a, **k: client)
+
+    assert resolve_queue_url() == ""

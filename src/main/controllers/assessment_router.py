@@ -5,8 +5,9 @@ import os
 import re
 
 import asyncio
+from typing import Optional
 
-from fastapi import APIRouter, Body, Depends, Response
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, Request, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from src.main.auth.dependencies import get_auth_service, require_auth_principal
@@ -23,6 +24,7 @@ from src.main.controllers.controller_dependencies import (
 from src.main.controllers.controller_helpers import (
     _assert_assessment_owner,
     _assert_instructor_access,
+    _assessment_not_found,
 )
 from src.main.dtos.InstructorAssessmentDTOs import (
     AddStudentQuestionRequest,
@@ -37,6 +39,8 @@ from src.main.dtos.InstructorAssessmentDTOs import (
     FlaggedEvaluationsResponse,
     GenerateQuestionsBatchRequest,
     GenerateReportResponse,
+    ImportFromEdRequest,
+    ImportFromEdResponse,
     InstructorStudentDetailResponse,
     ProgressSummaryResponse,
     ProctorChunkHealthResponse,
@@ -50,7 +54,11 @@ from src.main.dtos.InstructorAssessmentDTOs import (
     ScoreAgreementResponse,
     ScoreOverrideRequest,
     ScoreOverrideResponse,
+    SendInvitesRequest,
+    SendInvitesResponse,
     SendReminderResponse,
+    StudentInviteRequest,
+    StudentInviteResponse,
     StudentQuestionItem,
     StudentQuestionListResponse,
     StudentQuestionResponse,
@@ -61,6 +69,7 @@ from src.main.dtos.InstructorAssessmentDTOs import (
     UpdateBriefRequest,
     UpdateStudentQuestionRequest,
     UploadStudentsRequest,
+    UploadStudentsResponse,
 )
 from src.main.service.AssessmentReportRenderer import render_report_html, render_report_pdf
 from src.main.service.AssessmentReportService import AssessmentReportService, AssessmentReportServiceError
@@ -75,7 +84,42 @@ from src.main.service.ResponseEvaluationRepository import ResponseEvaluationRepo
 logger = logging.getLogger(__name__)
 
 
-assessment_router = APIRouter(prefix="/api/assessment", tags=["assessment"])
+async def _require_owned_assessment(
+    request: Request,
+    principal: AuthPrincipal = Depends(require_auth_principal),
+    svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
+) -> None:
+    """Router-wide guard for every /api/assessment/{id}/... route, present and future.
+
+    Only the assessment's owner (or an admin) gets past it, and a {jobId} must be a
+    job of that assessment. A missing assessment and someone else's answer the same
+    404, so a caller cannot probe which ids exist. Everything else under {id} —
+    students, questions, grades, footage, reports — is keyed by the assessment id,
+    so owning the assessment is what scopes it.
+    """
+    assessment_id = request.path_params.get("id")
+    if assessment_id is None:
+        return  # /create and /list: no assessment named, the route scopes by caller
+    _assert_instructor_access(principal)
+    loop = asyncio.get_event_loop()
+    try:
+        assessment = await loop.run_in_executor(None, lambda: svc.get_assessment(assessment_id))
+    except InstructorAssessmentServiceError:
+        raise _assessment_not_found()
+    _assert_assessment_owner(principal, assessment)
+
+    job_id = request.path_params.get("jobId")
+    if job_id is not None:
+        job = await loop.run_in_executor(None, lambda: get_batch_job_manager().get_job(job_id))
+        if not job or job.get("assessment_id") != assessment_id:
+            raise ApiError(status_code=404, code="job_not_found", message=f"Job {job_id} not found")
+
+
+assessment_router = APIRouter(
+    prefix="/api/assessment",
+    tags=["assessment"],
+    dependencies=[Depends(_require_owned_assessment)],
+)
 
 
 @assessment_router.post("/create", response_model=AssessmentResponse, status_code=201)
@@ -153,7 +197,7 @@ async def get_assessment(
         raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
 
 
-@assessment_router.post("/{id}/upload-students", status_code=201)
+@assessment_router.post("/{id}/upload-students", response_model=UploadStudentsResponse, status_code=201)
 async def upload_students(
     id: str,
     request: UploadStudentsRequest = Body(...),
@@ -179,18 +223,18 @@ async def upload_students(
         raise ApiError(status_code=400, code="upload_students_failed", message=str(error))
 
 
-@assessment_router.post("/{id}/import-ed", status_code=200)
+@assessment_router.post("/{id}/import-ed", response_model=ImportFromEdResponse)
 async def import_from_ed(
     id: str,
-    request: dict = Body(...),
+    request: ImportFromEdRequest = Body(...),
     svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
     """Import students and code from an Ed challenge using the Ed API."""
     from src.main.service.EdStemService import EdStemService, EdStemServiceError
 
-    ed_token = request.get("edToken")
-    challenge_id = request.get("challengeId")
+    ed_token = request.edToken
+    challenge_id = request.challengeId
 
     if not ed_token or not challenge_id:
         raise ApiError(status_code=400, code="missing_fields", message="edToken and challengeId are required")
@@ -261,11 +305,11 @@ async def delete_assessment(
         raise ApiError(status_code=400, code="delete_assessment_failed", message=str(error))
 
 
-@assessment_router.post("/{id}/students/{student_id}/invite")
+@assessment_router.post("/{id}/students/{student_id}/invite", response_model=StudentInviteResponse)
 async def generate_student_invite(
     id: str,
     student_id: str,
-    request: dict = Body(default={}),
+    request: Optional[StudentInviteRequest] = Body(None),
     svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
     auth_service: AuthService = Depends(get_auth_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
@@ -297,8 +341,9 @@ async def generate_student_invite(
 
         # Send invite email (non-blocking — logs warning on failure)
         student = next((s for s in students if s["studentId"] == student_id), {})
-        custom_subject = (request.get("subject") or "").strip()
-        custom_message = (request.get("message") or "").strip()
+        request = request or StudentInviteRequest()
+        custom_subject = (request.subject or "").strip()
+        custom_message = (request.message or "").strip()
         await loop.run_in_executor(None, lambda: auth_service.send_student_invite_email(
             student_email=student.get("email", ""),
             student_name=student.get("name", student_id),
@@ -321,10 +366,10 @@ async def generate_student_invite(
         raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
 
 
-@assessment_router.post("/{id}/send-invites", status_code=200)
+@assessment_router.post("/{id}/send-invites", response_model=SendInvitesResponse)
 async def send_bulk_invites(
     id: str,
-    request: dict = Body(default={}),
+    request: Optional[SendInvitesRequest] = Body(None),
     svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
     auth_service: AuthService = Depends(get_auth_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
@@ -349,7 +394,8 @@ async def send_bulk_invites(
 
         enrolled_students = await loop.run_in_executor(None, lambda: svc.get_assessment_students(id))
 
-        requested_ids = request.get("studentIds") or []
+        request = request or SendInvitesRequest()
+        requested_ids = request.studentIds or []
         if requested_ids:
             wanted = set(requested_ids)
             enrolled_students = [s for s in enrolled_students if s["studentId"] in wanted]
@@ -362,9 +408,9 @@ async def send_bulk_invites(
 
         base_url = os.getenv("STUDENT_ASSESSMENT_BASE_URL", "http://localhost:5176")
         title = assessment.get("title", id)
-        custom_subject = (request.get("subject") or "").strip()
-        custom_message = (request.get("message") or "").strip()
-        link_suffix = "&next=results" if (request.get("next") or "") == "results" else ""
+        custom_subject = (request.subject or "").strip()
+        custom_message = (request.message or "").strip()
+        link_suffix = "&next=results" if request.next == "results" else ""
 
         def _send_all_invites():
             sent = 0
@@ -931,6 +977,7 @@ async def override_question_score(
 @assessment_router.put("/{id}/release-results", response_model=ReleaseResultsResponse)
 async def release_results(
     id: str,
+    background: BackgroundTasks,
     svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
@@ -942,8 +989,10 @@ async def release_results(
         _assert_assessment_owner(_principal, assessment)
         result = await loop.run_in_executor(None, lambda: svc.release_results(id))
 
-        # Send notification emails to all submitted students (non-blocking)
-        import threading
+        # Email every submitted student after the response is sent. A BackgroundTask,
+        # not a daemon thread: a redeploy killed daemon threads mid-send, so released
+        # results silently never reached some students. One bad address is logged
+        # and skipped; it must not fail the instructor's release.
         def _notify_students():
             try:
                 students = svc.get_assessment_students(id)
@@ -952,6 +1001,7 @@ async def release_results(
                 from_email = os.getenv("INVITE_FROM_EMAIL") or os.getenv("AUTH_PASSWORD_RESET_FROM_EMAIL", "")
                 ses_region = os.getenv("AUTH_PASSWORD_RESET_SES_REGION", "") or os.getenv("AWS_DEFAULT_REGION", "us-east-1")
                 if not from_email:
+                    logger.warning("No INVITE_FROM_EMAIL configured; release notifications for %s not sent", id)
                     return
                 import boto3
                 ses = boto3.client("ses", region_name=ses_region)
@@ -977,7 +1027,7 @@ async def release_results(
                         logger.warning(f"Failed to notify {s['studentId']}: {e}")
             except Exception as e:
                 logger.warning(f"Failed to send release notifications: {e}")
-        threading.Thread(target=_notify_students, daemon=True).start()
+        background.add_task(_notify_students)
 
         return ReleaseResultsResponse(ok=True, **result)
     except InstructorAssessmentServiceError as error:

@@ -25,18 +25,6 @@ import { deferSubmitWhileOffline } from '../utils/offlineDefer';
 import { estimateRemainingMinutes } from '../utils/timeEstimate';
 import { useToastStore } from '../store/toastStore';
 
-/**
- * Parse an optional ISO 8601 timestamp into ms-since-epoch for QuestionTimer's
- * server anchor, or null when absent/unparseable (the timer then falls back to
- * its locally persisted anchor). See the `questionStartedAt` ASSUMED backend
- * contract in types/index.ts.
- */
-function parseServerStartedAtMs(iso?: string): number | null {
-  if (!iso) return null;
-  const ms = Date.parse(iso);
-  return Number.isNaN(ms) ? null : ms;
-}
-
 export default function TakeAssessment() {
   const navigate = useNavigate();
   const { addToast } = useToastStore();
@@ -870,14 +858,9 @@ export default function TakeAssessment() {
             {assessment?.title ?? 'Assessment'}
           </h1>
           <div className="flex items-center justify-between mt-2">
-            {/* Help affordance (left). Contact comes from the store assessment when
-                the backend supplied it (assumed contract); otherwise HelpButton
-                renders generic fallback copy — no PII is hardcoded. */}
-            <HelpButton
-              instructorName={assessment?.instructorName}
-              supportEmail={assessment?.supportEmail}
-              supportUrl={assessment?.supportUrl}
-            />
+            {/* Help affordance (left). The API sends no instructor contact, so
+                HelpButton renders its generic copy. */}
+            <HelpButton />
             <div className="flex items-center space-x-4">
               <div className="text-sm font-medium text-slate text-right">
                 <div>
@@ -912,16 +895,11 @@ export default function TakeAssessment() {
                      timer is recording-elapsed (anchored to recording start) and is
                      deliberately NOT persisted — a refresh ends the recording, so its
                      clock restarts by design. The key namespace `qtimer_start_*` is
-                     distinct from the `draft_*` keys owned by the durable-drafts task.
-                     A server-stamped questionStartedAt (assumed backend contract) wins
-                     over the local anchor when present. */
+                     distinct from the `draft_*` keys owned by the durable-drafts task. */
                   persistKey={
                     answerMode === 'written' && assessmentId
                       ? `qtimer_start_${assessmentId}_${currentQuestion.id}`
                       : undefined
-                  }
-                  serverStartedAtMs={
-                    answerMode === 'written' ? parseServerStartedAtMs(currentQuestion.questionStartedAt) : undefined
                   }
                   /* Review mode: the timer is a soft display only — never auto-submit,
                      since answers can be revisited and revised. */

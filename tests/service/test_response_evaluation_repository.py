@@ -166,6 +166,56 @@ class TestHumanScore:
         assert int(item["instructorScore"]) == 9  # instructor override preserved
 
 
+class _OverrideLandsBeforeWriteTable:
+    """Applies an instructor override immediately before store_evaluation's write,
+    i.e. after any read it made: the interleaving that loses the override."""
+
+    def __init__(self, inner, key):
+        self._inner, self._key, self._fired = inner, key, False
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    def _override_first(self):
+        if not self._fired:
+            self._fired = True
+            self._inner.update_item(
+                Key=self._key,
+                UpdateExpression="SET instructorScore = :s",
+                ExpressionAttributeValues={":s": 9},
+            )
+
+    def put_item(self, **kwargs):
+        self._override_first()
+        return self._inner.put_item(**kwargs)
+
+    def update_item(self, **kwargs):
+        self._override_first()
+        return self._inner.update_item(**kwargs)
+
+
+class TestReevaluationRace:
+    EVAL_KEY = {"PK": "STUDENT#s-1#ASSESSMENT#a-1", "SK": "EVALUATION#q-1"}
+
+    def test_override_written_during_reevaluation_survives(self, repo):
+        """A redelivered or repeated evaluation must never wipe an instructor override,
+        even one saved while the re-evaluation is in flight. Fails if store_evaluation
+        goes back to read-then-put."""
+        repo.store_evaluation("s-1", "a-1", "q-1", {"total_score": 7, "feedback": "first"})
+        repo.table = _OverrideLandsBeforeWriteTable(repo.table, self.EVAL_KEY)
+
+        repo.store_evaluation("s-1", "a-1", "q-1", {"total_score": 4, "feedback": "re-run"})
+
+        item = repo.table.get_item(Key=self.EVAL_KEY)["Item"]
+        assert int(item["instructorScore"]) == 9
+        assert int(item["totalScore"]) == 4
+
+    def test_stale_confidence_removed_on_reevaluation(self, repo):
+        repo.store_evaluation("s-1", "a-1", "q-1", {"total_score": 7, "transcript_confidence": 0.4})
+        repo.store_evaluation("s-1", "a-1", "q-1", {"total_score": 7})
+        assert "transcriptConfidence" not in repo.table.get_item(Key=self.EVAL_KEY)["Item"]
+
+
 class TestEvaluationProgress:
     def test_set_and_get_progress(self, repo):
         repo.set_evaluation_progress("s-1", "a-1", questions_evaluated=3, total_questions=5)

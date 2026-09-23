@@ -8,7 +8,7 @@ server restarts. DynamoDB TTL handles automatic cleanup after 7 days.
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from src.main.service.DynamoDBJobStore import DynamoDBJobStore
 
@@ -49,15 +49,6 @@ class BatchJobManager:
 
     def increment_progress(self, job_id: str, success: bool = True) -> None:
         self._store.increment_progress(job_id, success)
-
-    def run_batch_job(
-        self,
-        job_id: str,
-        items: List[Any],
-        process_func: Callable[[Any], bool],
-        on_complete: Optional[Callable[[str], None]] = None,
-    ) -> None:
-        self._store.run_batch_job(job_id, items, process_func, on_complete)
 
     def list_jobs(
         self,

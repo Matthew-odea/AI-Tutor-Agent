@@ -47,17 +47,17 @@
  *   </span>
  */
 
-import type {
-  Assessment,
-  AssessmentResults,
-  StudentProgress,
-} from '../../../shared/types/assessment';
+/*
+ * The API types every status and grade below as a plain string, so these unions
+ * are the display vocabulary, not a wire contract. The lookups take `string` and
+ * fall back to a neutral chip for anything not listed.
+ */
 
 /** Per-student enrolment status, as reported by the progress endpoint. */
-export type StudentStatus = StudentProgress['status'];
+export type StudentStatus = 'not-started' | 'in-progress' | 'completed' | 'submitted';
 
 /** Assessment lifecycle status, as stored on the assessment record. */
-export type AssessmentStatus = Assessment['status'];
+export type AssessmentStatus = 'draft' | 'active' | 'completed' | 'archived';
 
 /**
  * Cohort phase — a derived, display-only roll-up of the whole cohort's progress.
@@ -73,7 +73,7 @@ export type AssessmentPhase =
   | 'Evaluated';
 
 /** Grade band. `Unsatisfactory` is canonical — never "Needs Improvement". */
-export type Grade = AssessmentResults['grade'];
+export type Grade = 'Excellent' | 'Competent' | 'Developing' | 'Unsatisfactory';
 
 /** What a chip needs: the tint classes and the human-readable label. */
 export interface StatusToken {

@@ -112,3 +112,50 @@ describe('ProctoringRecorder upload resilience', () => {
     expect(onError.mock.calls.length).toBeGreaterThanOrEqual(12);
   });
 });
+
+// Regression: with MediaRecorder.start(timeslice) only the first blob carries the
+// WebM header, so every later S3 chunk was unplayable on its own, and a new
+// recorder after a refresh restarted at index 0 and overwrote the first footage.
+describe('ProctoringRecorder chunk files', () => {
+  it('records each chunk as its own file, keeps numbering across a restart, and uploads the final chunk', async () => {
+    localStorage.clear();
+    const startArgs: unknown[][] = [];
+    class FakeRecorder extends EventTarget {
+      static isTypeSupported = () => true;
+      state = 'inactive';
+      ondataavailable: ((e: { data: Blob }) => void) | null = null;
+      start(...args: unknown[]) {
+        startArgs.push(args);
+        this.state = 'recording';
+      }
+      stop() {
+        this.state = 'inactive';
+        this.ondataavailable?.({ data: new Blob(['x']) });
+        this.dispatchEvent(new Event('stop'));
+      }
+    }
+    vi.stubGlobal('MediaRecorder', FakeRecorder);
+    const stream = { active: true, getTracks: () => [], getVideoTracks: () => [] } as unknown as MediaStream;
+
+    // First page load: two 30s rotations finish chunks 0 and 1; chunk 2 is still
+    // recording when the student refreshes, so it is lost.
+    const first = makeRecorder();
+    first.rec.start(stream);
+    await vi.advanceTimersByTimeAsync(60_000);
+    vi.clearAllTimers();
+
+    // After the refresh a new recorder runs until submit.
+    const second = makeRecorder();
+    second.rec.start(stream);
+    second.rec.stop();
+    await second.rec.drain();
+    vi.unstubAllGlobals();
+
+    // No timeslice: each recorder emits one complete, standalone file.
+    expect(startArgs.length).toBe(4);
+    expect(startArgs.every((args) => args.length === 0)).toBe(true);
+    // No index reused (so no S3 key overwritten); the final chunk is uploaded.
+    const indexes = vi.mocked(api.submitProctorChunk).mock.calls.map((c) => c[3]);
+    expect(indexes).toEqual([0, 1, 3]);
+  });
+});

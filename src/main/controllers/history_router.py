@@ -27,6 +27,9 @@ from src.main.dtos.HistoryModels import (
     CodeMemoryCreateRequest,
     CodeMemoryResponse,
     CodeMemoryUpdateRequest,
+    DeleteProgramResponse,
+    DeleteThreadResponse,
+    DeleteViewSessionResponse,
     ProgramCreateRequest,
     ProgramListResponse,
     ProgramResponse,
@@ -120,7 +123,7 @@ def get_view_history_endpoint(
     )
 
 
-@history_router.delete("/views/{view_session_id}")
+@history_router.delete("/views/{view_session_id}", response_model=DeleteViewSessionResponse)
 def delete_view_session_endpoint(
     view_session_id: str,
     store=Depends(get_history_store),
@@ -270,7 +273,7 @@ def update_program_endpoint(
     return ProgramResponse(**updated)
 
 
-@history_router.delete("/programs/{program_id}")
+@history_router.delete("/programs/{program_id}", response_model=DeleteProgramResponse)
 def delete_program_endpoint(
     program_id: str,
     store=Depends(get_history_store),
@@ -340,7 +343,7 @@ def get_thread_history_endpoint(
     )
 
 
-@history_router.delete("/threads/{thread_id}")
+@history_router.delete("/threads/{thread_id}", response_model=DeleteThreadResponse)
 def delete_thread_endpoint(
     thread_id: str,
     store=Depends(get_history_store),

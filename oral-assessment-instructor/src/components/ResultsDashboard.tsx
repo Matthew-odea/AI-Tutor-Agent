@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { apiService } from '../services/api';
@@ -7,10 +7,10 @@ import { useToastStore } from '../store/toastStore';
 import LoadingSpinner from './LoadingSpinner';
 import ErrorMessage from './ErrorMessage';
 import { gradeToken } from '../utils/statusTokens';
+import type { Schemas } from '../../../shared/types/assessment';
 
 interface ResultsDashboardProps {
   assessmentId: string;
-  evalJobId?: string;
 }
 
 // completedAt is null for enrolled-but-unsubmitted students; `new Date(null)` is
@@ -20,7 +20,7 @@ function isValidDate(value: unknown): value is string | number | Date {
   return !Number.isNaN(new Date(value as string | number | Date).getTime());
 }
 
-export default function ResultsDashboard({ assessmentId, evalJobId }: ResultsDashboardProps) {
+export default function ResultsDashboard({ assessmentId }: ResultsDashboardProps) {
   const navigate = useNavigate();
   const { results, setResults, progress, setProgress, isLoading, setLoading, error, setError } = useAssessmentStore();
   const addToast = useToastStore((s) => s.addToast);
@@ -28,14 +28,14 @@ export default function ResultsDashboard({ assessmentId, evalJobId }: ResultsDas
   const [isReleasing, setIsReleasing] = useState(false);
   const [showReleaseConfirm, setShowReleaseConfirm] = useState(false);
   const [resultsReleased, setResultsReleased] = useState<boolean | null>(null);
-  const [flagged, setFlagged] = useState<{ flaggedCount: number; items: Array<{ studentId: string; questionId: string; reasons: string[]; aiScore?: number; evaluationMethod?: string }> } | null>(null);
-  const [agreement, setAgreement] = useState<{ dualScoredCount: number; exactMatchRate: number | null; within1Rate: number | null; meanAbsoluteDifference: number | null } | null>(null);
+  const [flagged, setFlagged] = useState<Pick<Schemas['FlaggedEvaluationsResponse'], 'flaggedCount' | 'items'> | null>(null);
+  const [agreement, setAgreement] = useState<Schemas['ScoreAgreementResponse'] | null>(null);
   const [showFlagged, setShowFlagged] = useState(false);
-  const sseRef = useRef<EventSource | null>(null);
 
   const loadFlagged = async () => {
     try {
-      setFlagged(await apiService.getFlaggedEvaluations(assessmentId));
+      const { flaggedCount, items } = await apiService.getFlaggedEvaluations(assessmentId);
+      setFlagged({ flaggedCount, items });
     } catch { /* non-critical */ }
   };
 
@@ -83,31 +83,18 @@ export default function ResultsDashboard({ assessmentId, evalJobId }: ResultsDas
     loadProgress();
     loadFlagged();
     loadAgreement();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the loaders are recreated each render but only read assessmentId, which is the dep
   }, [assessmentId]);
-
-  useEffect(() => {
-    if (!evalJobId) return;
-    const es = apiService.openEvaluationStatusStream(assessmentId, evalJobId);
-    sseRef.current = es;
-    es.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.status === 'completed') {
-          loadResults();
-          es.close();
-        }
-      } catch { /* ignore */ }
-    };
-    es.onerror = () => es.close();
-    return () => es.close();
-  }, [evalJobId]);
 
   const handleReleaseResults = async () => {
     try {
       setIsReleasing(true);
-      await apiService.releaseResults(assessmentId);
+      const { warning } = await apiService.releaseResults(assessmentId);
       setResultsReleased(true);
-      addToast('Results released to students.', 'success');
+      // The server still releases when some submitted students are unevaluated,
+      // and says so in `warning`; those students will see no results.
+      if (warning) addToast(`Results released. ${warning}; those students will see no results yet.`, 'warning', 10_000);
+      else addToast('Results released to students.', 'success');
     } catch (err) {
       addToast(err instanceof Error ? err.message : 'Failed to release results', 'error');
     } finally {

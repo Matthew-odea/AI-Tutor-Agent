@@ -173,6 +173,36 @@ class TestGenerateQuestions:
 
         assert result["dynamodb_stored"] is True
 
+    def test_generate_is_idempotent_per_student(self, mock_llm, dynamo_env, temp_output_dir):
+        """A redelivered message or a re-run batch must not append a second set of
+        questions (they are stored under fresh uuids) or pay for another LLM call."""
+        svc = QuestionGenerationService(agent_client=mock_llm, output_dir=temp_output_dir)
+        svc.table = dynamo_env
+        kwargs = dict(assignment_brief="Brief", student_code="x = 1", student_name="bob",
+                      student_id="s-bob", assessment_id="a-1")
+
+        def stored_questions():
+            return [i for i in dynamo_env.scan()["Items"] if i["SK"].startswith("QUESTION#")]
+
+        svc.generate_questions(**kwargs)
+        first_set = len(stored_questions())
+        result = svc.generate_questions(**kwargs)
+
+        assert first_set > 0
+        assert result["skipped_existing"] is True
+        assert mock_llm.chat.call_count == 1
+        assert len(stored_questions()) == first_set
+
+    def test_generate_store_failure_raises(self, mock_llm, dynamo_env, temp_output_dir):
+        """A failed write must reach the SQS consumer as a failure so it is retried."""
+        svc = QuestionGenerationService(agent_client=mock_llm, output_dir=temp_output_dir)
+        svc.table = dynamo_env
+        svc._store_questions_in_dynamodb = MagicMock(side_effect=RuntimeError("throttled"))
+
+        with pytest.raises(QuestionGenerationError, match="Failed to store"):
+            svc.generate_questions(assignment_brief="Brief", student_code="x = 1", student_name="bob",
+                                   student_id="s-bob", assessment_id="a-1")
+
     def test_generate_llm_error_raises(self, temp_output_dir):
         llm = MagicMock()
         llm.chat.side_effect = RuntimeError("LLM down")

@@ -36,7 +36,7 @@ def _answer_payload():
 def test_submit_answer_error_mappings(side_effect, expected_status, expected_code):
     svc = MagicMock()
     svc.submit_answer.side_effect = side_effect
-    client = _build_client(AuthPrincipal(user_id="s-1", roles=["student"], source="jwt"), svc)
+    client = _build_client(AuthPrincipal(user_id="s-1", roles=["student"], source="jwt", assessment_id="a1"), svc)
 
     response = client.post(
         "/api/student/s-1/answer",
@@ -62,7 +62,7 @@ def test_student_access_denied_maps_to_auth_error():
 def test_get_results_maps_not_found_code():
     svc = MagicMock()
     svc.get_student_results.side_effect = OralAssessmentServiceError("results pending")
-    client = _build_client(AuthPrincipal(user_id="s-1", roles=["student"], source="jwt"), svc)
+    client = _build_client(AuthPrincipal(user_id="s-1", roles=["student"], source="jwt", assessment_id="a1"), svc)
 
     response = client.get("/api/student/s-1/assessment/a1/results")
 

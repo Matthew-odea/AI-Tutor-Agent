@@ -24,8 +24,8 @@ interface QuestionTimerProps {
   paused?: boolean;
   /**
    * Optional server-stamped start time for this question (ms since epoch). When
-   * a finite number it anchors the countdown and OVERRIDES any local anchor —
-   * see the `questionStartedAt` ASSUMED backend contract in types/index.ts.
+   * a finite number it anchors the countdown and OVERRIDES any local anchor.
+   * The questions API does not send one today, so TakeAssessment never passes it.
    */
   serverStartedAtMs?: number | null;
   /**

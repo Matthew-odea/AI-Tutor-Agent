@@ -225,20 +225,20 @@ class TestSubmitAnswer:
             question_id="q-1",
             assessment_id="a-1",
             answer_type="audio",
-            audio_url="s3://bucket/audio.webm",
+            audio_url="s3://bucket/audio/s-1/q-1_1.webm",
             duration=30,
         )
 
         assert result["ok"] is True
         assert result["answerType"] == "audio"
-        assert result["audioUrl"] == "s3://bucket/audio.webm"
+        assert result["audioUrl"] == "s3://bucket/audio/s-1/q-1_1.webm"
 
         # Verify stored in DynamoDB
         response = table.get_item(Key={
             "PK": "STUDENT#s-1#ASSESSMENT#a-1",
             "SK": "ANSWER#q-1",
         })
-        assert response["Item"]["audioUrl"] == "s3://bucket/audio.webm"
+        assert response["Item"]["audioUrl"] == "s3://bucket/audio/s-1/q-1_1.webm"
 
     def test_submit_text_answer(self, dynamo_env):
         table = dynamo_env
@@ -278,7 +278,7 @@ class TestSubmitAnswer:
             question_id="q-1",
             assessment_id="a-1",
             answer_type="video",
-            video_url="s3://bucket/video.webm",
+            video_url="s3://bucket/audio/s-1/q-1_1.webm",
             duration=60,
         )
 
@@ -754,7 +754,7 @@ class TestProctorChunk:
         result = svc.submit_proctor_chunk(
             student_id="s-1",
             assessment_id="a-1",
-            chunk_url="s3://bucket/chunk-0.webm",
+            chunk_url="s3://bucket/proctoring/a-1/s-1/chunk_000000.webm",
             chunk_index=0,
         )
         assert result["ok"] is True
@@ -764,7 +764,7 @@ class TestProctorChunk:
             "PK": "STUDENT#s-1#ASSESSMENT#a-1",
             "SK": "PROCTORING#CHUNK#000000",
         })
-        assert item["Item"]["chunkUrl"] == "s3://bucket/chunk-0.webm"
+        assert item["Item"]["chunkUrl"] == "s3://bucket/proctoring/a-1/s-1/chunk_000000.webm"
 
 
 class TestRecordConsent:

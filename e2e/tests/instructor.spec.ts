@@ -210,19 +210,29 @@ test.describe('Instructor results dashboard', () => {
   test('results page shows student names and scores', async ({ page }) => {
     await page.goto(`${INSTRUCTOR_BASE}/assessments/${ASSESSMENT_ID}/results`);
 
-    await expect(page.getByText('Alice Johnson')).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText('Bob Smith')).toBeVisible();
-    // Scores now shown as "16/20 (80%)" in combined format
-    await expect(page.getByText(/80%/)).toBeVisible();
-    await expect(page.getByText(/70%/)).toBeVisible();
+    // Scope to each student's table row: the name also appears in the row's
+    // sr-only "View results for <name>" link label, and scores/grades appear in
+    // the cohort summary above the table.
+    const alice = page.getByRole('row', { name: /Alice Johnson/ });
+    const bob = page.getByRole('row', { name: /Bob Smith/ });
+    await expect(alice.getByText('Alice Johnson', { exact: true })).toBeVisible({ timeout: 10_000 });
+    await expect(bob.getByText('Bob Smith', { exact: true })).toBeVisible();
+    // Scores shown as "16/20 (80%)" in combined format
+    await expect(alice.getByRole('cell', { name: '16/20 (80%)' })).toBeVisible();
+    await expect(bob.getByRole('cell', { name: '14/20 (70%)' })).toBeVisible();
   });
 
   test('results page shows grade badges', async ({ page }) => {
     await page.goto(`${INSTRUCTOR_BASE}/assessments/${ASSESSMENT_ID}/results`);
 
-    // Use first() to avoid strict mode with dropdown filter options having same text
-    await expect(page.getByText('Proficient').first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText('Competent').first()).toBeVisible();
+    // Scoped to the rows so the cohort summary ("1 Proficient, 1 Competent")
+    // and filter dropdown options can't satisfy the assertion.
+    await expect(
+      page.getByRole('row', { name: /Alice Johnson/ }).getByRole('cell', { name: 'Proficient' })
+    ).toBeVisible({ timeout: 10_000 });
+    await expect(
+      page.getByRole('row', { name: /Bob Smith/ }).getByRole('cell', { name: 'Competent' })
+    ).toBeVisible();
   });
 });
 
@@ -239,7 +249,8 @@ test.describe('Instructor student result detail', () => {
       `${INSTRUCTOR_BASE}/assessments/${ASSESSMENT_ID}/student/stu-001/results`
     );
 
-    await expect(page.getByText('Alice Johnson')).toBeVisible({ timeout: 10_000 });
+    // The name is both the page heading and the last breadcrumb; the heading is what this means.
+    await expect(page.getByRole('heading', { name: 'Alice Johnson' })).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText('80%')).toBeVisible();
     await expect(page.getByText('Proficient')).toBeVisible();
   });

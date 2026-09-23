@@ -6,54 +6,10 @@ import ErrorMessage from '../components/ErrorMessage';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { useToastStore } from '../store/toastStore';
 import { gradeToken } from '../utils/statusTokens';
+import type { Schemas } from '../../../shared/types/assessment';
 
-interface ProctorChunk {
-  chunkIndex: number;
-  chunkUrl: string;
-  recordedAt?: string;
-}
-
-interface ProctorHealth {
-  totalChunks: number;
-  missingIndexes: number[];
-  chunks: ProctorChunk[];
-}
-
-interface QuestionDetail {
-  questionId: string;
-  questionText: string;
-  answerType?: string;
-  audioUrl?: string;
-  videoUrl?: string;
-  textContent?: string;
-  duration?: number;
-  transcript?: string;
-  transcriptStatus?: string;
-  transcriptConfidence?: number | null;
-  aiScore?: number;
-  correctnessScore?: number;
-  understandingScore?: number;
-  instructorScore?: number;
-  effectiveScore?: number;
-  maxScore: number;
-  feedback?: string;
-  strengths?: string | string[];
-  weaknesses?: string | string[];
-  improvements?: string | string[];
-  suggestedImprovements?: string | string[];
-  instructorComment?: string;
-  evaluatedAt?: string;
-  // Review flags (Tasks 4 & 5)
-  needsReview?: boolean;
-  reviewReasons?: string[];
-  evaluationMethod?: string;
-  // Human reference score (dual-scoring validity harness)
-  humanCorrectnessScore?: number | null;
-  humanUnderstandingScore?: number | null;
-  humanTotalScore?: number | null;
-  humanScoredBy?: string | null;
-  humanScoredAt?: string | null;
-}
+type StudentDetail = Schemas['InstructorStudentDetailResponse'];
+type QuestionDetail = StudentDetail['questions'][number];
 
 const REVIEW_REASON_LABELS: Record<string, string> = {
   empty_transcript: 'No speech detected',
@@ -68,31 +24,17 @@ const REVIEW_REASON_LABELS: Record<string, string> = {
 const reviewReasonLabel = (reason: string): string =>
   REVIEW_REASON_LABELS[reason] ?? reason.replace(/_/g, ' ');
 
-const toText = (value?: string | string[]): string => {
+const toText = (value?: string | unknown[] | null): string => {
   if (Array.isArray(value)) return value.join('; ');
   return value ?? '';
 };
-
-interface StudentDetail {
-  studentId: string;
-  studentName: string;
-  studentEmail: string;
-  assessmentId: string;
-  totalScore: number;
-  maxScore: number;
-  percentage: number;
-  grade: string;
-  submittedAt?: string;
-  questions: QuestionDetail[];
-  proctoring: ProctorHealth;
-}
 
 /**
  * Score-band tint, mirroring the student app's ResultsCard header badge, so an
  * instructor and a student looking at the same question see the same visual
  * language. Ungraded questions get the neutral chip rather than a red 0%.
  */
-const scoreToneClass = (score?: number, maxScore?: number): string => {
+const scoreToneClass = (score?: number | null, maxScore?: number): string => {
   if (score === null || score === undefined || !maxScore) return 'text-slate bg-ink/5';
   const percent = (score / maxScore) * 100;
   if (percent >= 80) return 'text-success bg-success/10';
@@ -118,6 +60,7 @@ export default function StudentResultDetail() {
 
   useEffect(() => {
     if (assessmentId && studentId) loadDetail();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadDetail is recreated each render but only reads assessmentId/studentId, which are the deps
   }, [assessmentId, studentId]);
 
   useEffect(() => {
@@ -177,7 +120,8 @@ export default function StudentResultDetail() {
       // A failed save is transient — toast it instead of replacing the whole
       // page with the full-page error state.
       addToast(err instanceof Error ? err.message : 'Failed to save override', 'error');
-    } finally {
+      // Only on failure: after a successful save the entry was deleted above, and
+      // re-creating it here left the form open with an empty score box.
       setOverrideStates(prev => ({ ...prev, [questionId]: { ...prev[questionId], saving: false } }));
     }
   };

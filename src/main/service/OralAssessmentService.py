@@ -24,6 +24,7 @@ from src.main.service.OralAssessmentProgressTracker import OralAssessmentProgres
 from src.main.service.OralAssessmentQuestionAccess import OralAssessmentQuestionAccess
 from src.main.service.OralAssessmentAnswerSubmission import OralAssessmentAnswerSubmission
 from src.main.service.OralAssessmentResultsAggregator import OralAssessmentResultsAggregator
+from src.main.service.S3UploadService import assert_owned_upload
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,18 @@ logger = logging.getLogger(__name__)
 class OralAssessmentServiceError(Exception):
     """Custom exception for assessment service errors"""
     pass
+
+
+class AssessmentWindowError(OralAssessmentServiceError):
+    """The assessment's stored time limits refuse this request now.
+
+    ``code`` is the error-envelope code the router returns, so the student app
+    can tell "time is up" apart from every other 400/404.
+    """
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
 
 
 class DecimalEncoder(json.JSONEncoder):
@@ -137,12 +150,14 @@ class OralAssessmentService:
             end = _parse(window_end)
 
             if now < start:
-                raise OralAssessmentServiceError(
-                    f"Assessment has not started yet. Opens at {window_start}"
+                raise AssessmentWindowError(
+                    "assessment_not_open",
+                    f"Assessment has not started yet. Opens at {window_start}",
                 )
             if now > end:
-                raise OralAssessmentServiceError(
-                    f"Assessment window has closed at {window_end}"
+                raise AssessmentWindowError(
+                    "assessment_closed",
+                    f"Assessment window has closed at {window_end}",
                 )
         except OralAssessmentServiceError:
             raise
@@ -374,6 +389,10 @@ class OralAssessmentService:
             OralAssessmentServiceError: If assessment window is closed or DB error
         """
         try:
+            for label, url in (("audio_url", audio_url), ("video_url", video_url)):
+                if url:
+                    # build_upload_key writes answer media under audio/{uploader}/.
+                    assert_owned_upload(url, f"audio/{student_id}/", label)
             # Single METADATA read, reused for the window check + the review flag.
             meta = self._get_assessment_metadata(assessment_id)
             allow_review = bool(meta.get("allowReview", False))
@@ -412,6 +431,10 @@ class OralAssessmentService:
         timestamp: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Store a proctoring chunk manifest entry in DynamoDB."""
+        try:
+            assert_owned_upload(chunk_url, f"proctoring/{assessment_id}/{student_id}/", "chunk_url")
+        except ValueError as e:
+            raise OralAssessmentServiceError(str(e))
         try:
             result = self.answer_submission.submit_proctor_chunk(
                 student_id=student_id,
@@ -499,8 +522,9 @@ class OralAssessmentService:
                     if not due.tzinfo:
                         due = due.replace(tzinfo=timezone.utc)
                     if datetime.now(timezone.utc) > due:
-                        raise OralAssessmentServiceError(
-                            f"Assessment submission deadline has passed ({due_date_str})"
+                        raise AssessmentWindowError(
+                            "assessment_deadline_passed",
+                            f"Assessment submission deadline has passed ({due_date_str})",
                         )
             except OralAssessmentServiceError:
                 raise

@@ -71,7 +71,9 @@ class InstructorAssessmentCatalog:
         assessments: List[Dict[str, Any]] = []
         for item in response.get("Items", []):
             created_by = item.get("createdBy")
-            if owner_user_id and created_by and created_by != owner_user_id:
+            # No createdBy means no owner, not every owner: every other route
+            # already refuses such an assessment, so the list must not show it.
+            if owner_user_id and created_by != owner_user_id:
                 continue
             assessments.append(self.to_assessment_view(item))
         return assessments

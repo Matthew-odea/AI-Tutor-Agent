@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Question } from '../types';
+import type { Progress, Question } from '../types';
 
 // ── Mock the network + upload layers so the store never touches a real backend ──
 // getQuestions/getProgress are left bare so each test sets the exact response it
@@ -30,13 +30,24 @@ const q = (id: string): Question => ({
   createdAt: '',
 });
 
-const baseProgress = {
+const baseProgress: Progress = {
   studentId: 'z1',
+  studentName: 'Test Student',
+  studentEmail: 'student@example.test',
   assessmentId: 'a1',
+  assessmentTitle: 'Test Assessment',
   totalQuestions: 3,
   answeredQuestions: 0,
   percentage: 0,
-  status: 'in-progress' as const,
+  status: 'in-progress',
+};
+
+const baseQuestionsResponse = {
+  ok: true,
+  studentId: 'z1',
+  assessmentId: 'a1',
+  totalQuestions: 2,
+  allowReview: false,
 };
 
 beforeEach(() => {
@@ -146,6 +157,7 @@ describe('skipCurrentQuestion', () => {
     // answered list so the follow-up loadProgress can't re-add q1 to answered —
     // isolating skip's local bookkeeping from server reconciliation.
     vi.mocked(api.getQuestions).mockResolvedValue({
+      ...baseQuestionsResponse,
       questions: [q('q1'), q('q2')],
       currentQuestionIndex: 1,
       answerMode: 'written',

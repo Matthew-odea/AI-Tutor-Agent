@@ -158,6 +158,35 @@ class TestSetUserRoles:
 
     def test_admin_can_set_roles(self):
         client, svc = self._client_as(["admin"])
+        svc.set_user_roles.return_value = ["instructor"]
         resp = client.put("/api/auth/users/other@test.com/roles", json={"roles": ["instructor"]})
         assert resp.status_code == 200
         svc.set_user_roles.assert_called_once_with("other@test.com", ["instructor"])
+
+    def test_response_is_the_roles_saved_not_the_roles_requested(self, aws_credentials):
+        """Unknown roles are dropped and case folded on save; the response must say so."""
+        import boto3
+        from moto import mock_aws
+
+        from src.main.auth.service import AuthService
+
+        with mock_aws():
+            table = boto3.resource("dynamodb", region_name="us-east-1").create_table(
+                TableName="test_auth_users",
+                KeySchema=[{"AttributeName": "email", "KeyType": "HASH"}],
+                AttributeDefinitions=[{"AttributeName": "email", "AttributeType": "S"}],
+                BillingMode="PAY_PER_REQUEST",
+            )
+            table.put_item(Item={"email": "other@test.com", "user_id": "other@test.com", "roles": ["student"]})
+            app = create_app()
+            app.dependency_overrides[get_auth_service] = AuthService
+            app.dependency_overrides[require_auth_principal] = lambda: AuthPrincipal(
+                user_id="admin", roles=["admin"], source="jwt"
+            )
+            resp = TestClient(app).put(
+                "/api/auth/users/other@test.com/roles", json={"roles": ["Instructor", "bogus"]}
+            )
+
+            assert resp.status_code == 200
+            assert resp.json()["roles"] == ["instructor"]
+            assert table.get_item(Key={"email": "other@test.com"})["Item"]["roles"] == ["instructor"]
