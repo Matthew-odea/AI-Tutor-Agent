@@ -184,6 +184,25 @@ load-bearing, not cosmetic.
       broke `npm ci` in each frontend, which is exactly what both deploy workflows run. A tidy
       monorepo is not worth a broken deploy. Revisit only alongside the deploy workflows.
 
+## Assessment timing — decisions needed
+
+The server already enforces the scheduled window on question fetch, answer and skip, and the due
+date on final submit; those now return specific 409 codes the student app explains. Found along
+the way and fixed: the instructor form sent `datetime-local` values with no timezone and the server
+read them as UTC, so a Sydney instructor's window opened and closed 10-11 hours late. New
+assessments now send UTC instants. Still yours to decide:
+
+- [ ] **Existing assessments** created before this fix have windows stored 10-11 hours late.
+      Migrate them (reinterpret bare times as Sydney time) or leave them.
+- [ ] **Is the due date binding?** Today it is applied three different ways: the session token
+      allows answers until due + 1 h, final submit refuses at due, and the instructor form says
+      it enforces nothing. A student can answer every question and then be refused at submit —
+      and only submitted students are evaluated, so that work is stranded.
+- [ ] **Submit after the window closes** is currently allowed. Allow, grace period, or auto-submit.
+- [ ] **Per-question time limits** are browser-only. Enforcing them needs a server-side record of
+      when each question was shown, plus an allowance for upload delay and offline resend.
+- [ ] **Extensions for individual students** — nothing in the data supports them.
+
 ## Phase 4 — operational
 
 - [ ] **Import live Sydney tables into terraform state** — highest infra risk
