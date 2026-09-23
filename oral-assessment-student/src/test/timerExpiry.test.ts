@@ -134,7 +134,7 @@ describe('assessmentStore expiry paths', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
     sessionStorage.clear();
-    sessionStorage.setItem('studentToken', 'token');
+    localStorage.setItem('studentToken', 'token');
     useAssessmentStore.setState({
       studentId: 'z1',
       assessmentId: 'a1',

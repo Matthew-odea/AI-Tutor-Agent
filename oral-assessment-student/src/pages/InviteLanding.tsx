@@ -56,10 +56,14 @@ export default function InviteLanding() {
       });
       const { access_token, student_id, assessment_id } = resp.data;
 
-      sessionStorage.setItem('studentToken', access_token);
-      sessionStorage.setItem('authToken', access_token);
-      sessionStorage.setItem('studentId', student_id);
-      sessionStorage.setItem('assessmentId', assessment_id);
+      // localStorage, not sessionStorage: a refresh or a new tab must not end the
+      // student's session mid-exam. The invite token is kept so the session can be
+      // renewed from the same link while the assessment is open.
+      localStorage.setItem('studentToken', access_token);
+      localStorage.setItem('authToken', access_token);
+      localStorage.setItem('studentId', student_id);
+      localStorage.setItem('assessmentId', assessment_id);
+      localStorage.setItem('inviteToken', token);
 
       navigate(
         resultsMode
@@ -72,8 +76,8 @@ export default function InviteLanding() {
         const detail = err.response?.data?.error?.message || err.response?.data?.detail || '';
         if (detail.toLowerCase().includes('expired')) {
           setError('This invite link has expired. Please contact your instructor for a new link.');
-        } else if (detail.toLowerCase().includes('already been used')) {
-          setError('This invite link has already been used. Please contact your instructor for a new link.');
+        } else if (detail.toLowerCase().includes('closed')) {
+          setError('This assessment has closed. Please contact your instructor.');
         } else {
           setError('This invite link is invalid or has expired. Please contact your instructor for a new link.');
         }
@@ -179,9 +183,9 @@ export default function InviteLanding() {
 
           <div className="mt-4 pt-4 border-t border-hairline">
             <p className="text-sm text-slate">
-              <span className="font-medium text-ink">Starting uses your invite link.</span> You can safely
-              refresh or briefly lose connection and resume the same session, but the link can't be used to start a
-              brand-new session twice.
+              <span className="font-medium text-ink">Keep your invite link.</span> You can safely refresh,
+              close the tab or briefly lose connection — open the same link again to get straight back
+              into your assessment, any time before it closes.
             </p>
           </div>
         </div>

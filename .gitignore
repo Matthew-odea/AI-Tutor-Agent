@@ -310,3 +310,15 @@ data/
 Matt_thesis/
 thesis/
 FIE_paper/
+
+# FIE 2026 paper (not for the repo)
+docs/FIE26-paper.md
+docs/FIE26-paper.pdf
+docs/FIE26-pilot-quiz6.md
+docs/fie26-templates/
+docs/FIE26-pilot-quiz1.md
+docs/FIE26-slides-outline.md
+docs/fie26-figs/
+docs/FIE26-BUILD-HANDOFF.md
+docs/fie26-deck/
+docs/fie26-deck.zip

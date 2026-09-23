@@ -20,10 +20,10 @@ const ASSESSMENT_ID = 'asmt-e2e-001';
 async function injectStudentSession(page: import('@playwright/test').Page) {
   const token = mockJwt({ sub: STUDENT_ID });
   await page.addInitScript(([sid, aid, tok]) => {
-    sessionStorage.setItem('studentToken', tok);
-    sessionStorage.setItem('authToken', tok);
-    sessionStorage.setItem('studentId', sid);
-    sessionStorage.setItem('assessmentId', aid);
+    localStorage.setItem('studentToken', tok);
+    localStorage.setItem('authToken', tok);
+    localStorage.setItem('studentId', sid);
+    localStorage.setItem('assessmentId', aid);
   }, [STUDENT_ID, ASSESSMENT_ID, token]);
 }
 

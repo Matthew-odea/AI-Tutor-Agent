@@ -5,10 +5,10 @@ export interface Assessment {
   title: string;
   description: string;
   course: string;
-  dueDate: Date;
+  dueDate: string;
   totalQuestions: number;
   timeLimit?: number; // minutes per question
-  createdAt: Date;
+  createdAt: string;
   createdBy: string;
   status: 'draft' | 'active' | 'completed' | 'archived';
   resultsReleased?: boolean;
@@ -33,7 +33,7 @@ export interface Question {
   questionText: string;
   context?: string; // Student's code or assignment context
   expectedTopics?: string[];
-  generatedAt: Date;
+  generatedAt: string;
 }
 
 export interface StudentAnswer {
@@ -42,7 +42,7 @@ export interface StudentAnswer {
   studentId: string;
   audioUrl: string;
   transcription?: string;
-  recordedAt: Date;
+  recordedAt: string;
   duration: number; // seconds
 }
 
@@ -56,7 +56,7 @@ export interface Evaluation {
   feedback: string;
   strengths: string[];
   weaknesses: string[];
-  evaluatedAt: Date;
+  evaluatedAt: string;
 }
 
 export interface StudentProgress {
@@ -72,8 +72,8 @@ export interface StudentProgress {
   percentage?: number;
   currentQuestion?: number;
   status: 'not-started' | 'in-progress' | 'completed' | 'submitted';
-  startedAt?: string | Date;
-  submittedAt?: string | Date;
+  startedAt?: string;
+  submittedAt?: string;
 }
 
 export interface AssessmentResults {
@@ -87,7 +87,7 @@ export interface AssessmentResults {
   grade: 'Excellent' | 'Competent' | 'Developing' | 'Unsatisfactory';
   evaluations: Evaluation[];
   overallFeedback: string;
-  completedAt: Date;
+  completedAt: string;
 }
 
 export interface UploadedStudent {
@@ -105,8 +105,8 @@ export interface QuestionGenerationJob {
   totalStudents: number;
   processedCount: number;
   failedCount: number;
-  createdAt: Date;
-  completedAt?: Date;
+  createdAt: string;
+  completedAt?: string;
   error?: string;
 }
 
@@ -116,8 +116,8 @@ export interface EvaluationJob {
   status: 'pending' | 'running' | 'completed' | 'failed';
   totalStudents: number;
   processedCount: number;
-  createdAt: Date;
-  completedAt?: Date;
+  createdAt: string;
+  completedAt?: string;
   error?: string;
 }
 

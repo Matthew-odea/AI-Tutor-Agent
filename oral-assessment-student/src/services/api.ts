@@ -86,7 +86,7 @@ export async function withRetry<T>(
 
 // Attach student session token to every request if present
 apiClient.interceptors.request.use((config) => {
-  const token = sessionStorage.getItem('studentToken');
+  const token = localStorage.getItem('studentToken');
   if (token) {
     config.headers = config.headers ?? {};
     config.headers['Authorization'] = `Bearer ${token}`;
@@ -94,31 +94,34 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// Response interceptor: auto-refresh token on 401/403.
+// Response interceptor: auto-refresh the session token on 401/403.
 //
-// Single-flight: a module-level promise holds the in-flight `POST /api/student/token`.
-// The FIRST request to 401/403 starts it; every concurrent 401/403 AWAITS the same
-// promise instead of starting its own (or being spuriously rejected). When it
-// resolves, every waiter re-issues with the fresh token; if it rejects, every
-// waiter rejects. Net: N concurrent 401/403s => exactly ONE token POST, all N
-// replayed. Cleared in `finally` so a later expiry can refresh again.
+// The session is renewed by re-exchanging the student's own invite token — the
+// same link they were emailed — which the backend honours for as long as the
+// assessment window is open. Nothing here can mint a token for a student ID alone.
+//
+// Single-flight: a module-level promise holds the in-flight exchange. The FIRST
+// request to 401/403 starts it; every concurrent 401/403 AWAITS the same promise
+// instead of starting its own (or being spuriously rejected). When it resolves,
+// every waiter re-issues with the fresh token; if it rejects, every waiter
+// rejects. Net: N concurrent 401/403s => exactly ONE exchange, all N replayed.
+// Cleared in `finally` so a later expiry can refresh again.
 let refreshPromise: Promise<string> | null = null;
 
 function refreshToken(): Promise<string> {
   if (refreshPromise) return refreshPromise;
-  const studentId = sessionStorage.getItem('studentId');
-  const assessmentId = sessionStorage.getItem('assessmentId');
-  if (!studentId || !assessmentId) {
-    return Promise.reject(new Error('Missing student/assessment id for token refresh'));
+  const inviteToken = localStorage.getItem('inviteToken');
+  if (!inviteToken) {
+    return Promise.reject(new Error('No invite token stored for session renewal'));
   }
   refreshPromise = (async () => {
     try {
-      const resp = await apiClient.post('/api/student/token', {
-        student_id: studentId,
-        assessment_id: assessmentId,
+      const resp = await apiClient.post('/api/auth/student/exchange', {
+        invite_token: inviteToken,
       });
       const token: string = resp.data.access_token;
-      sessionStorage.setItem('studentToken', token);
+      localStorage.setItem('studentToken', token);
+      localStorage.setItem('authToken', token);
       return token;
     } finally {
       // Allow the next expiry to trigger a fresh refresh.
@@ -136,12 +139,10 @@ apiClient.interceptors.response.use(
       originalRequest &&
       !originalRequest._retried &&
       (error.response?.status === 401 || error.response?.status === 403) &&
-      !originalRequest.url?.includes('/student/token')
+      !originalRequest.url?.includes('/auth/student/exchange')
     ) {
-      // Refresh requires stored student/assessment info.
-      const studentId = sessionStorage.getItem('studentId');
-      const assessmentId = sessionStorage.getItem('assessmentId');
-      if (studentId && assessmentId) {
+      // Renewal requires the student's stored invite token.
+      if (localStorage.getItem('inviteToken')) {
         originalRequest._retried = true;
         try {
           // Join the in-flight refresh if one exists, otherwise start it.
@@ -484,17 +485,31 @@ export async function getResultsPdf(
 }
 
 /**
- * Get S3 presigned upload URL for audio file
+ * What the upload is for. The server builds the S3 key from this plus the
+ * student id in the auth token — the client never names the key.
+ */
+export type UploadTarget =
+  | { kind: 'audio'; questionId: string }
+  | { kind: 'proctoring'; assessmentId: string; chunkIndex: number };
+
+/**
+ * Get S3 presigned upload URL for a media file
  */
 export async function getUploadUrl(
-  filename: string,
+  target: UploadTarget,
   contentType: string = 'audio/webm'
 ): Promise<UploadUrlResponse> {
+  const params = new URLSearchParams({ kind: target.kind, content_type: contentType });
+  if (target.kind === 'audio') {
+    params.set('question_id', target.questionId);
+  } else {
+    params.set('assessment_id', target.assessmentId);
+    params.set('chunk_index', String(target.chunkIndex));
+  }
+
   try {
     const response = await withRetry(() =>
-      apiClient.post(
-        `/api/s3/upload-url?filename=${encodeURIComponent(filename)}&content_type=${encodeURIComponent(contentType)}`
-      )
+      apiClient.post(`/api/s3/upload-url?${params.toString()}`)
     );
     return response.data;
   } catch (error) {
@@ -538,30 +553,7 @@ export async function uploadAudioToS3(
   }
 }
 
-/**
- * Fetch a scoped student session JWT from the public token endpoint.
- * The backend verifies enrollment before issuing the token.
- * Stores the token in sessionStorage for the interceptor to pick up.
- */
-export async function getStudentToken(
-  studentId: string,
-  assessmentId: string
-): Promise<string> {
-  try {
-    const response = await apiClient.post('/api/student/token', {
-      student_id: studentId,
-      assessment_id: assessmentId,
-    });
-    const token: string = response.data.access_token;
-    sessionStorage.setItem('studentToken', token);
-    return token;
-  } catch (error) {
-    return handleApiError(error as AxiosError);
-  }
-}
-
 export default {
-  getStudentToken,
   getQuestions,
   submitAnswer,
   submitTextAnswer,

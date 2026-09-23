@@ -1,10 +1,7 @@
-moviepy
 boto3
 bedrock-agentcore
-agentcore
 pydantic~=2.10.6
 neo4j~=5.28.2
-dotenv~=0.9.9
 python-dotenv~=1.0.1
 fastapi~=0.115.11
 python-multipart~=0.0.20
@@ -13,16 +10,10 @@ PyJWT~=2.10.1
 google-auth~=2.40.3
 reportlab~=4.4.4
 PyPDF2~=3.0.1
-pip~=24.3.1
-pillow~=11.3.0
-filelock~=3.18.0
 uvicorn~=0.34.0
 starlette~=0.46.1
 weasyprint~=66.0
-moviepy
-opencv-python
-sounddevice
-scipy
+websocket-client>=1.8.0
 
 # Testing dependencies
 pytest~=8.0.0
@@ -30,4 +21,3 @@ pytest-cov~=4.1.0
 pytest-asyncio~=0.23.0
 httpx~=0.26.0  # For FastAPI TestClient
 moto[dynamodb,s3,sqs,ses]~=5.0.0  # AWS mock for integration tests
-websocket-client>=1.8.0

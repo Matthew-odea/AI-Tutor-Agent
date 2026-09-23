@@ -52,8 +52,8 @@ export async function setupStudentMockApi(page: Page, ctx: MockContext): Promise
   const { studentId, assessmentId } = ctx;
   questionFetchCount = 0;
 
-  // Student: get scoped session token
-  await page.route(`${G}/student/token`, async (route) => {
+  // Student: exchange the invite token for a session token
+  await page.route(`${G}/auth/student/exchange`, async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',

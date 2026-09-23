@@ -26,7 +26,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.spyOn(console, 'warn').mockImplementation(() => {});
   sessionStorage.clear();
-  sessionStorage.setItem('studentToken', 'token');
+  localStorage.setItem('studentToken', 'token');
   useAssessmentStore.getState().reset();
   useToastStore.getState().clearAllToasts();
   useAssessmentStore.setState({ studentId: 'z1', assessmentId: 'a1' });

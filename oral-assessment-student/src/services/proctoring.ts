@@ -136,13 +136,14 @@ export class ProctoringRecorder {
   /** Single chunk upload pipeline with bounded retry + short backoff. */
   private async attemptUpload(blob: Blob, index: number): Promise<void> {
     const { studentId, assessmentId } = this.options;
-    const ext = blob.type.includes('mp4') ? 'mp4' : 'webm';
-    const filename = `proctoring/${assessmentId}/${studentId}/chunk_${String(index).padStart(6, '0')}.${ext}`;
+    // Key (proctoring/<assessment>/<student>/chunk_<index>.<ext>) is built
+    // server-side; the student id comes from the auth token, not from here.
+    const target = { kind: 'proctoring' as const, assessmentId, chunkIndex: index };
 
     let lastError: unknown;
     for (let attempt = 1; attempt <= UPLOAD_MAX_ATTEMPTS; attempt++) {
       try {
-        const { uploadUrl, fileUrl } = await getUploadUrl(filename, blob.type);
+        const { uploadUrl, fileUrl } = await getUploadUrl(target, blob.type);
         await uploadAudioToS3(uploadUrl, blob);
         await submitProctorChunk(studentId, assessmentId, fileUrl, index);
         return; // success
