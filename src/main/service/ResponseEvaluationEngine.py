@@ -4,6 +4,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
+from src.main.agentcore_setup.config import BEDROCK_MODEL_EVAL
 from src.main.service.ScoringConfig import ScoringConfig
 
 logger = logging.getLogger(__name__)
@@ -209,6 +210,7 @@ class ResponseEvaluationEngine:
                     tool_name=EVALUATION_TOOL_NAME,
                     description=EVALUATION_TOOL_DESCRIPTION,
                     input_schema=EVALUATION_TOOL_SCHEMA,
+                    model_id=BEDROCK_MODEL_EVAL,
                 )
                 if isinstance(raw, dict) and ("correctness_score" in raw or "understanding_score" in raw):
                     return raw, "structured", False
@@ -218,7 +220,7 @@ class ResponseEvaluationEngine:
                 structured_failed = True
                 logger.warning("Structured evaluation failed (%s); falling back to text parse", error)
 
-        result = self.agent_client.chat(messages)
+        result = self.agent_client.chat(messages, model_id=BEDROCK_MODEL_EVAL)
         response_text = result if isinstance(result, str) else result.get("text", "")
         raw = self.parse_evaluation_response(response_text)
         return raw, "text", structured_failed

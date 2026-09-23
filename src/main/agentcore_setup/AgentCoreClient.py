@@ -8,6 +8,11 @@ import json
 import logging
 import os
 
+
+def _is_nova_model(model_id) -> bool:
+    # Covers bare IDs, cross-region inference profiles (us./global.) and ARNs.
+    return isinstance(model_id, str) and "amazon.nova-" in model_id
+
 class AgentCoreClient:
     def __init__(self):
         self.app = BedrockAgentCoreApp()
@@ -26,7 +31,7 @@ class AgentCoreClient:
         self.logger.debug(f"messages={messages}")
         
         # Amazon Nova models use specific format
-        if model_id == "amazon.nova-lite-v1:0":
+        if _is_nova_model(model_id):
             messages = self._adapt_messages_for_nova(messages)
             # Ensure all message content fields are arrays (Nova requirement)
             for msg in messages:
@@ -130,7 +135,7 @@ class AgentCoreClient:
         """
         self.logger.debug(f"chat_with_tool called with model_id={model_id}")
 
-        norm = self._adapt_messages_for_nova(messages) if model_id == "amazon.nova-lite-v1:0" else list(messages)
+        norm = self._adapt_messages_for_nova(messages) if _is_nova_model(model_id) else list(messages)
         for msg in norm:
             c = msg.get("content")
             if isinstance(c, str):

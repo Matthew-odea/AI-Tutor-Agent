@@ -46,6 +46,7 @@ class AgentCoreProvider:
         tool_name: str,
         description: str,
         input_schema: Dict[str, Any],
+        model_id: str = None,
         **kwargs,
     ) -> Dict[str, Any]:
         """
@@ -55,7 +56,7 @@ class AgentCoreProvider:
         Raises LlmStructuredOutputError if the model/transport does not produce a
         usable tool_use block, so callers can fall back to text parsing.
         """
-        model_id = BEDROCK_MODEL_CHAT
+        model_id = model_id or BEDROCK_MODEL_CHAT
         tool_config = {
             "tools": [
                 {

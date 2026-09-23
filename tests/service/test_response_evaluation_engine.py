@@ -10,7 +10,7 @@ GOOD_TRANSCRIPT = "I used a for loop because it goes through each item in the li
 class DummyAgent:
     """Text-only agent (no structured-output capability)."""
 
-    def chat(self, messages):
+    def chat(self, messages, model_id=None):
         return {
             "text": '{"correctness_score": 4, "understanding_score": 5, "total_score": 9, "feedback": "Good"}'
         }
@@ -23,7 +23,7 @@ class TextOnlyAgent:
         self._text = text
         self.chat_calls = 0
 
-    def chat(self, messages):
+    def chat(self, messages, model_id=None):
         self.chat_calls += 1
         return {"text": self._text}
 
@@ -39,13 +39,16 @@ class StructuredAgent:
         self._structured_error = structured_error
         self.chat_calls = 0
         self.structured_calls = 0
+        self.model_ids = []
 
-    def chat(self, messages):
+    def chat(self, messages, model_id=None):
         self.chat_calls += 1
+        self.model_ids.append(model_id)
         return {"text": self._text}
 
-    def chat_structured(self, messages, *, tool_name, description, input_schema):
+    def chat_structured(self, messages, *, tool_name, description, input_schema, model_id=None):
         self.structured_calls += 1
+        self.model_ids.append(model_id)
         if self._structured_error is not None:
             raise self._structured_error
         return self._structured
@@ -277,3 +280,14 @@ def test_question_metadata_attached():
     assert ev["question_id"] == "q1"
     assert ev["question_number"] == 1
     assert ev["question_type"] == "specific"
+
+
+def test_evaluation_uses_pinned_eval_model_on_both_paths(monkeypatch):
+    # Marking must use BEDROCK_MODEL_EVAL, not the chat model, on the structured call and the text fallback.
+    import src.main.service.ResponseEvaluationEngine as engine_module
+
+    monkeypatch.setattr(engine_module, "BEDROCK_MODEL_EVAL", "eval-model")
+    agent = StructuredAgent(structured_error=RuntimeError("structured boom"))
+    engine = ResponseEvaluationEngine(agent_client=agent, evaluation_prompt="p")
+    engine.evaluate_qa_pair(_qa_pair())
+    assert agent.model_ids == ["eval-model", "eval-model"]

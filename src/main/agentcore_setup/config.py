@@ -14,15 +14,21 @@ EMBEDDING_DIM = int(os.getenv('BEDROCK_EMBED_DIM', '1024'))
 # chat model so nothing changes unless BEDROCK_MODEL_REPORT is explicitly set.
 BEDROCK_MODEL_REPORT = os.getenv('BEDROCK_MODEL_REPORT', BEDROCK_MODEL_CHAT)
 
+# Per-answer marking. Pinned separately so upgrading the chat model doesn't
+# silently change how answers are scored (AI scores feed the validity analysis).
+BEDROCK_MODEL_EVAL = os.getenv('BEDROCK_MODEL_EVAL', BEDROCK_MODEL_CHAT)
+
 MODEL_REGISTRY = {
     'chat': BEDROCK_MODEL_CHAT,
     'embed': BEDROCK_MODEL_EMBED,
     'report': BEDROCK_MODEL_REPORT,
+    'eval': BEDROCK_MODEL_EVAL,
 }
 
 MODEL_CAPS = {
     # Chat Models
     'amazon.nova-lite-v1:0': {'mode': 'chat', 'tool_use': True, 'json_mode': True},
+    'us.amazon.nova-2-lite-v1:0': {'mode': 'chat', 'tool_use': True, 'json_mode': True},
     'openai.gpt-oss-120b-1:0': {'mode': 'chat', 'tool_use': True, 'json_mode': True},
     # Embedding Models
     'amazon.titan-embed-text-v2:0': {'mode': 'embed', 'dim': EMBEDDING_DIM},
