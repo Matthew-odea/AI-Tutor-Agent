@@ -165,8 +165,11 @@ load-bearing, not cosmetic.
       DTOs (`Question.generatedAt` is `createdAt` on the wire; `QuestionGenerationJob.createdAt`
       and `EvaluationJob.createdAt` are both `startedAt`). No component reads them, so nothing is
       broken — but the generator cannot see a mismatch in a hand-written type.
-- [ ] Import `shared/types/api.ts` from the frontends. Until something reads it, the drift job
-      shows a diff rather than breaking a build, so it warns but does not gate.
+- [x] Import `shared/types/api.ts` from the student and instructor apps. A renamed DTO field now
+      fails `npm run type-check`. Doing it surfaced that `type-check` had been `tsc --noEmit`
+      against solution tsconfigs, which checks zero files, and that the instructor app sent
+      `student_ids` where the backend reads `studentIds`, so choosing specific students for
+      generation or evaluation was silently ignored.
 - [x] Rename the six sprint-numbered test files by domain
 - [~] npm workspaces — **attempted and reverted deliberately.** Hoisting to a root lockfile
       broke `npm ci` in each frontend, which is exactly what both deploy workflows run. A tidy
@@ -182,8 +185,8 @@ load-bearing, not cosmetic.
 - [x] Replace the per-submit daemon threads with `BackgroundTasks` (`student_router.py`) —
       **already done before this round; the audit was stale.** Now held by a test that asserts
       the work is registered on `BackgroundTasks` and still unrun when the handler returns.
-- [ ] `assessment_router.py:946` still spawns a daemon thread for `_notify_students` — the last
-      live instance of the pattern, same redeploy exposure.
+- [x] `_notify_students` in `release_results` moved onto `BackgroundTasks`; three uncalled
+      thread-spawning methods deleted.
 - [x] Exclude `needs_review` evaluations from the score denominator — done, see Phase 0.
 - [ ] Dry run on last term's data: bulk release-results + `get_score_agreement`.
       One exercise validates both the release gate and the Nova Lite choice.
