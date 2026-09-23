@@ -18,6 +18,8 @@ Don't authorize off the `X-User-Id` header — it's accepted in some request sig
 
 Raise `ApiError(status_code=..., code=..., message=...)` or a plain `HTTPException` and let it propagate. A per-route `try/except` that reformats the same envelope is redundant code, not extra safety.
 
+`tests/controllers/test_error_envelope.py` is the gate for this: it sweeps every route's failure response, and a route that hand-builds a response instead of returning data has to be listed in that file's `NON_JSON_RESPONSE_ROUTES` with a reason. Streams, HTML and PDFs are the only ones there.
+
 ## Services come from `controller_dependencies.py`, not from `__init__`
 
 Every service is a `@lru_cache(maxsize=1)`-wrapped singleton provider (`get_chat_service()`, `get_oral_assessment_service()`, etc.) in `controller_dependencies.py`. Inject them with `Depends(get_xyz_service)`. If you add a new service, add its singleton provider there rather than constructing it inline in the router — the DI container is the one place that wires a service's dependencies (settings, other services) together.
