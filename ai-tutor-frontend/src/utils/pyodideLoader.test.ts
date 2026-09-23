@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const loadPyodideMock = vi.fn()
+// vi.mock is hoisted above this file's top-level code, so the mock fn must be too.
+const { loadPyodideMock } = vi.hoisted(() => ({ loadPyodideMock: vi.fn() }))
 
 vi.mock('pyodide', () => ({
   loadPyodide: loadPyodideMock,

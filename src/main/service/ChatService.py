@@ -12,8 +12,6 @@ from typing import Optional, List
 import uuid
 import logging
 import re
-import os
-import json
 from src.main.dtos.PedagogyMode import PedagogyMode
 from src.main.service.PromptService import get_prompt_service
 
@@ -498,63 +496,7 @@ class ChatService:
         if has_construct_verb:
             return "strong"
 
-        heuristic = "none"
-
-        if heuristic == "weak" and self._use_llm_intent():
-            llm_intent = self._llm_classify_intent(query)
-            if llm_intent in {"strong", "weak", "none"}:
-                return llm_intent
-        return heuristic
-
-    def _use_llm_intent(self) -> bool:
-        return os.getenv("USE_LLM_INTENT", "false").lower() == "true"
-
-    def _llm_classify_intent(self, query: str) -> str:
-        prompt = (
-            "Classify the user intent for a coding assistant. "
-            "Return ONLY JSON with keys: label and confidence. "
-            "label must be one of: edit, explain, clarify. "
-            "Use clarify when the intent is ambiguous.\n\n"
-            f"User message: {json.dumps(query)}"
-        )
-        messages = [
-            {"role": "user", "content": prompt}
-        ]
-        try:
-            result = self.agent_client.chat(messages)
-            if isinstance(result, dict):
-                content = result.get("content") or result.get("answer") or ""
-            else:
-                content = str(result)
-
-            content = self._strip_reasoning_tags(content)
-            parsed = self._extract_json_object(content)
-            if not parsed:
-                return "none"
-            label = str(parsed.get("label", "")).strip().lower()
-            if label == "edit":
-                return "strong"
-            if label == "clarify":
-                return "weak"
-            return "none"
-        except Exception as e:
-            logger.warning(f"LLM intent classification failed: {e}")
-            return "none"
-
-    def _extract_json_object(self, text: str) -> Optional[dict]:
-        if not text:
-            return None
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            pass
-        match = re.search(r"\{[\s\S]*\}", text)
-        if not match:
-            return None
-        try:
-            return json.loads(match.group(0))
-        except json.JSONDecodeError:
-            return None
+        return "none"
 
     def _is_edit_intent(self, query: str) -> bool:
         return self._classify_edit_intent(query) == "strong"

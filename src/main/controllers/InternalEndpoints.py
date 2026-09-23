@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import logging
+from typing import Literal, Optional
 
-from fastapi import APIRouter, Body, Depends, UploadFile, File, Form
+from fastapi import APIRouter, Body, Depends, UploadFile, File, Form, HTTPException
 
 from ..dtos.UploadRequest import UploadRequest
 from ..dtos.DeleteRequest import DeleteRequest
@@ -14,9 +14,11 @@ from src.main.controllers.controller_dependencies import get_context_service, ge
 from src.main.controllers.controller_helpers import _assert_instructor_access
 from src.main.service.ContextVectorService import ContextVectorService
 from src.main.service.FileToTextService import FileToTextService
-from src.main.service.S3UploadService import S3UploadService, S3UploadServiceError
-
-logger = logging.getLogger(__name__)
+from src.main.service.S3UploadService import (
+    S3UploadService,
+    S3UploadServiceError,
+    build_upload_key,
+)
 
 
 router = APIRouter(prefix="/internal/context", tags=["context"])
@@ -26,7 +28,12 @@ s3_router = APIRouter(prefix="/api/s3", tags=["s3"])
 # --- Endpoints -----------------------------------------------------------------
 
 @router.post("/upload", status_code=201)
-def upload_context(dto: UploadRequest = Body(...), svc: ContextVectorService = Depends(get_context_service)):
+def upload_context(
+    dto: UploadRequest = Body(...),
+    principal: AuthPrincipal = Depends(require_auth_principal),
+    svc: ContextVectorService = Depends(get_context_service),
+):
+    _assert_instructor_access(principal)
     try:
         result = svc.upload_document(
             document_name=dto.DocumentName,
@@ -46,7 +53,12 @@ def upload_context(dto: UploadRequest = Body(...), svc: ContextVectorService = D
         raise ApiError(status_code=500, code="context_upload_failed", message=str(error))
 
 @router.delete("/delete")
-def delete_context(dto: DeleteRequest = Body(...), svc: ContextVectorService = Depends(get_context_service)):
+def delete_context(
+    dto: DeleteRequest = Body(...),
+    principal: AuthPrincipal = Depends(require_auth_principal),
+    svc: ContextVectorService = Depends(get_context_service),
+):
+    _assert_instructor_access(principal)
     try:
         result = svc.delete_document(document_id=dto.document_id)
         return {"ok": True, **result}
@@ -58,8 +70,10 @@ def delete_context(dto: DeleteRequest = Body(...), svc: ContextVectorService = D
 @router.post("/list")
 def list_documents(
     body: ListDocumentsRequest = Body(...),
-    svc: ContextVectorService = Depends(get_context_service)
+    principal: AuthPrincipal = Depends(require_auth_principal),
+    svc: ContextVectorService = Depends(get_context_service),
 ):
+    _assert_instructor_access(principal)
     try:
         docs = svc.list_documents(
             offset=body.Offset,
@@ -78,11 +92,13 @@ def upload_file_context(
     DocumentName: str = Form(...),
     Description: str = Form(""),
     Scope: str = Form("default"),
-    svc: ContextVectorService = Depends(get_context_service)
+    principal: AuthPrincipal = Depends(require_auth_principal),
+    svc: ContextVectorService = Depends(get_context_service),
 ):
     """
     Upload a PDF file, extract its text using FileToTextService, and process as a document upload.
     """
+    _assert_instructor_access(principal)
     try:
         text = FileToTextService().extract_text_from_uploadfile(File)
         upload_dto = UploadRequest(
@@ -112,39 +128,53 @@ def upload_file_context(
 
 @s3_router.post("/upload-url")
 async def get_upload_url(
-    filename: str,
+    kind: Literal["audio", "proctoring"] = "audio",
     content_type: str = "audio/webm",
-    _principal: AuthPrincipal = Depends(require_auth_principal),
+    question_id: Optional[str] = None,
+    assessment_id: Optional[str] = None,
+    chunk_index: Optional[int] = None,
+    principal: AuthPrincipal = Depends(require_auth_principal),
     s3_service: S3UploadService = Depends(get_s3_upload_service),
 ):
     """
-    Generate a presigned URL for uploading audio files to S3.
-    
-    This allows the client to upload files directly to S3 without
-    going through the backend server, improving performance and scalability.
-    
+    Generate a presigned URL for uploading media to S3.
+
+    The S3 key is built on the server from the authenticated principal plus the
+    parameters below — the caller never supplies the key, so it can only ever
+    write under its own prefix:
+
+    - kind=audio        -> audio/{user_id}/{question_id}_{server_timestamp}.{ext}
+    - kind=proctoring   -> proctoring/{assessment_id}/{user_id}/chunk_{index}.{ext}
+
     Parameters:
-    - filename: The S3 key/path for the file (e.g., "audio/S001/question-123_timestamp.webm")
-    - content_type: MIME type of the file (default: audio/webm)
-    
+    - kind: "audio" (answer recording) or "proctoring" (session chunk)
+    - content_type: MIME type of the file; checked against an allowlist, and the
+      key extension is derived from it
+    - question_id: required when kind=audio
+    - assessment_id, chunk_index: required when kind=proctoring
+
     Returns:
     - uploadUrl: Presigned URL for PUT request (valid for 1 hour)
     - fileUrl: Public URL to access the file after upload
-    
-    Example usage:
-    1. Client calls this endpoint to get presigned URL
-    2. Client uploads file directly to S3 using PUT request to uploadUrl
-    3. Client stores fileUrl in database for later playback
     """
-    # Both instructors and students need upload URLs (students for audio answers)
-    # Auth is already enforced by require_auth_principal above
+    # Both instructors and students need upload URLs (students for audio answers).
+    # An assessment-scoped student token may only write into its own assessment.
+    if assessment_id and principal.assessment_id and principal.assessment_id != assessment_id:
+        raise HTTPException(status_code=403, detail="Token not valid for this assessment")
 
     try:
-        return s3_service.generate_upload_url(filename=filename, content_type=content_type)
+        key = build_upload_key(
+            kind=kind,
+            user_id=principal.user_id,
+            content_type=content_type,
+            question_id=question_id,
+            assessment_id=assessment_id,
+            chunk_index=chunk_index,
+        )
+    except S3UploadServiceError as error:
+        raise ApiError(status_code=400, code="invalid_upload_request", message=str(error))
+
+    try:
+        return s3_service.generate_upload_url(key=key, content_type=content_type)
     except S3UploadServiceError as error:
         raise ApiError(status_code=500, code="s3_upload_url_failed", message=str(error))
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in get_upload_url: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))

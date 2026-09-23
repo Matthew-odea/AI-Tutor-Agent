@@ -160,10 +160,6 @@ def post_view_message_endpoint(
         )
     except ChatServiceError as error:
         raise ApiError(status_code=500, code="history_chat_failed", message=str(error))
-    except ApiError:
-        raise
-    except Exception as error:
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
     store.add_view_message(view_session_id, "user", request.query, tokens=result.get("tokens_input"))
     store.add_view_message(
@@ -384,10 +380,6 @@ def post_thread_message_endpoint(
         )
     except ChatServiceError as error:
         raise ApiError(status_code=500, code="history_chat_failed", message=str(error))
-    except ApiError:
-        raise
-    except Exception as error:
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
     store.add_thread_message(thread_id, "user", request.query, tokens=result.get("tokens_input"))
     store.add_thread_message(
@@ -441,10 +433,6 @@ def create_edit_proposal(
         )
     except ChatServiceError as error:
         raise ApiError(status_code=500, code="history_edit_proposal_failed", message=str(error))
-    except ApiError:
-        raise
-    except Exception as error:
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
     answer = result.get("answer", "")
     edit_block = _extract_edit_block(answer)

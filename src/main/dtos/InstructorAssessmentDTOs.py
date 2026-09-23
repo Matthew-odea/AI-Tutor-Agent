@@ -57,21 +57,9 @@ class EvaluateBatchRequest(BaseModel):
     studentIds: Optional[List[str]] = Field(None, description="Specific student IDs (or all if empty)")
 
 
-class UpdateScheduleRequest(BaseModel):
-    """Request to update assessment scheduling"""
-    accessMode: str = Field(..., description="'open' or 'scheduled'")
-    scheduledWindowStart: Optional[str] = Field(None, description="ISO datetime for window start")
-    scheduledWindowEnd: Optional[str] = Field(None, description="ISO datetime for window end")
-
-
 class UpdateBriefRequest(BaseModel):
     """Request to update the assignment brief"""
     brief: str = Field(..., description="Assignment brief text (min 50 characters)", min_length=50)
-
-
-class UpdateStatusRequest(BaseModel):
-    """Request to transition assessment status (draft→open, open→closed)"""
-    status: str = Field(..., description="Target status: 'open' or 'closed'")
 
 
 # --- Response Models ---
@@ -235,94 +223,6 @@ class EvaluationStatusResponse(BaseModel):
     startedAt: str
     completedAt: Optional[str] = None
     error: Optional[str] = None
-
-
-# ── Sprint 3: Submission Upload ──────────────────────────────────
-
-class CsvEnrollmentResponse(BaseModel):
-    """Response after CSV bulk enrolment"""
-    ok: bool = True
-    assessmentId: str
-    enrolledCount: int
-    errorCount: int
-    errors: List[dict]  # [{row, data, errors}]
-
-
-class CodeUploadResponse(BaseModel):
-    """Response after single-student code file upload"""
-    ok: bool = True
-    assessmentId: str
-    studentId: str
-    filesUploaded: int
-    s3Key: str
-    codeLength: int
-
-
-class ZipUploadResponse(BaseModel):
-    """Response after zip archive upload"""
-    ok: bool = True
-    assessmentId: str
-    matchedCount: int
-    unmatchedCount: int
-    matched: List[dict]
-    unmatched: List[dict]
-    errors: List[dict]
-
-
-# ── Sprint 4: Question Generation, Bank, Time Limits ─────────────
-
-class BankQuestionRequest(BaseModel):
-    """Request to add a bank question"""
-    text: str = Field(..., description="Question text (min 10 chars)", min_length=10)
-    topic: str = Field("general", description="Topic tag")
-    difficulty: str = Field("medium", description="'easy', 'medium', or 'hard'")
-    timeLimit: Optional[int] = Field(None, description="Per-question time limit in seconds (overrides assessment default)", ge=1)
-
-
-class SuggestBankQuestionsRequest(BaseModel):
-    """Request to AI-suggest bank questions"""
-    count: int = Field(5, description="Number of suggestions to generate", ge=1, le=10)
-
-
-class BankQuestionResponse(BaseModel):
-    """A single bank question"""
-    id: str
-    assessmentId: str
-    text: str
-    topic: str
-    difficulty: str
-    source: str
-    timeLimit: Optional[int] = None
-    createdAt: str
-
-
-class BankQuestionListResponse(BaseModel):
-    """Response with list of bank questions"""
-    ok: bool = True
-    assessmentId: str
-    questions: List[BankQuestionResponse]
-    total: int
-
-
-class UpdateQuestionTimeLimitRequest(BaseModel):
-    """Request to set a per-question time limit override"""
-    timeLimit: Optional[int] = Field(None, description="Time limit in seconds; null removes the override", ge=1)
-
-
-class BankQuestionSuggestion(BaseModel):
-    """An AI-suggested bank question — not yet persisted"""
-    text: str
-    topic: str
-    difficulty: str
-    source: str = "ai_suggested"
-
-
-class SuggestBankQuestionsResponse(BaseModel):
-    """Response with AI-suggested bank questions"""
-    ok: bool = True
-    assessmentId: str
-    suggestions: List[BankQuestionSuggestion]
-    total: int
 
 
 # ── Sprint 8: Results Dashboards (EPIC-6-1 to 6-4) ───────────────

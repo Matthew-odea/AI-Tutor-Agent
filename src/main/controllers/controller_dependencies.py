@@ -5,8 +5,6 @@ from functools import lru_cache
 
 from src.main.agentcore_setup.dynamodb_history import DynamoDBHistoryStore
 from src.main.agentcore_setup.dynamodb_memory import DynamoDBConversationMemory
-from src.main.agentcore_setup.history import HistoryStore
-from src.main.agentcore_setup.memory import ConversationMemory
 from src.main.config import get_settings
 from src.main.llm.AgentCoreProvider import AgentCoreProvider
 from src.main.service.ChatService import ChatService
@@ -14,8 +12,6 @@ from src.main.service.ContextVectorService import ContextVectorService
 from src.main.service.AnalyticsService import AnalyticsService
 from src.main.service.AssessmentReportService import AssessmentReportService
 from src.main.service.InstructorAssessmentService import InstructorAssessmentService
-from src.main.service.InstructorQuestionBankService import InstructorQuestionBankService
-from src.main.service.InstructorSubmissionService import InstructorSubmissionService
 from src.main.service.OralAssessmentService import OralAssessmentService
 from src.main.service.SQSJobDispatcher import SQSJobDispatcher, resolve_queue_url
 from src.main.service.QuestionGenerationService import QuestionGenerationService
@@ -39,18 +35,11 @@ def get_context_service() -> ContextVectorService:
 @lru_cache(maxsize=1)
 def _memory_singleton():
     settings = get_settings()
-    use_dynamodb = settings.use_dynamodb
-
-    if use_dynamodb:
-        logger.info("Using DynamoDB for conversation persistence")
-        return DynamoDBConversationMemory(
-            table_name=settings.dynamodb_table_name,
-            region=settings.dynamodb_region,
-            ttl_days=30,
-        )
-
-    logger.info("Using in-memory conversation storage")
-    return ConversationMemory(max_sessions=1000)
+    return DynamoDBConversationMemory(
+        table_name=settings.dynamodb_table_name,
+        region=settings.dynamodb_region,
+        ttl_days=30,
+    )
 
 
 def get_memory_service():
@@ -60,15 +49,10 @@ def get_memory_service():
 @lru_cache(maxsize=1)
 def _history_singleton():
     settings = get_settings()
-    use_dynamodb = settings.use_dynamodb
-    if use_dynamodb:
-        logger.info("Using DynamoDB for history persistence")
-        return DynamoDBHistoryStore(
-            table_name=settings.dynamodb_table_name,
-            region=settings.dynamodb_region,
-        )
-    logger.info("Using in-memory history storage")
-    return HistoryStore()
+    return DynamoDBHistoryStore(
+        table_name=settings.dynamodb_table_name,
+        region=settings.dynamodb_region,
+    )
 
 
 def get_history_store():
@@ -79,7 +63,7 @@ def get_history_store():
 def _analytics_service_singleton() -> AnalyticsService:
     settings = get_settings()
     return AnalyticsService(
-        use_dynamodb=settings.use_dynamodb,
+        use_dynamodb=True,
         table_name=settings.dynamodb_table_name,
         region=settings.dynamodb_region,
     )
@@ -154,20 +138,6 @@ def get_instructor_assessment_service() -> InstructorAssessmentService:
 
 
 @lru_cache(maxsize=1)
-def _instructor_question_bank_service_singleton() -> InstructorQuestionBankService:
-    instructor_svc = _instructor_assessment_service_singleton()
-    agent_client = AgentCoreProvider()
-    return InstructorQuestionBankService(
-        table=instructor_svc.table,
-        llm_client=agent_client,
-    )
-
-
-def get_instructor_question_bank_service() -> InstructorQuestionBankService:
-    return _instructor_question_bank_service_singleton()
-
-
-@lru_cache(maxsize=1)
 def _assessment_report_service_singleton() -> AssessmentReportService:
     instructor_svc = _instructor_assessment_service_singleton()
     return AssessmentReportService(
@@ -204,21 +174,6 @@ def _sqs_job_dispatcher_singleton() -> SQSJobDispatcher:
 
 def get_sqs_job_dispatcher() -> SQSJobDispatcher:
     return _sqs_job_dispatcher_singleton()
-
-
-@lru_cache(maxsize=1)
-def _instructor_submission_service_singleton() -> InstructorSubmissionService:
-    settings = get_settings()
-    instructor_svc = _instructor_assessment_service_singleton()
-    return InstructorSubmissionService(
-        table=instructor_svc.table,
-        s3_bucket=settings.s3_assessment_bucket,
-        region=settings.aws_default_region,
-    )
-
-
-def get_instructor_submission_service() -> InstructorSubmissionService:
-    return _instructor_submission_service_singleton()
 
 
 @lru_cache(maxsize=1)

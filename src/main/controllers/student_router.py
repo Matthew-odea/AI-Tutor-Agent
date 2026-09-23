@@ -5,13 +5,11 @@ import logging
 
 import io
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Body, Depends
 from fastapi.responses import StreamingResponse as _StreamingResponse
-from pydantic import BaseModel
 
-from src.main.auth.dependencies import require_auth_principal, get_auth_service
+from src.main.auth.dependencies import require_auth_principal
 from src.main.auth.models import AuthPrincipal
-from src.main.auth.service import AuthService
 from src.main.controllers.api_errors import ApiError
 from src.main.controllers.controller_helpers import _assert_student_access
 from src.main.controllers.controller_dependencies import (
@@ -45,42 +43,6 @@ logger = logging.getLogger(__name__)
 
 
 student_router = APIRouter(prefix="/api/student", tags=["student"])
-
-
-class StudentTokenRequest(BaseModel):
-    student_id: str
-    assessment_id: str
-
-
-@student_router.post("/token")
-async def get_student_token(
-    request: StudentTokenRequest,
-    svc: OralAssessmentService = Depends(get_oral_assessment_service),
-    auth_service: AuthService = Depends(get_auth_service),
-):
-    """
-    Public endpoint — no prior auth required.
-    Verifies the student is enrolled in the assessment, then issues a
-    12-hour scoped JWT so the student can call protected student endpoints.
-    """
-    loop = asyncio.get_event_loop()
-    try:
-        await loop.run_in_executor(
-            None, lambda: svc.question_access.ensure_student_enrollment(request.student_id, request.assessment_id)
-        )
-    except (ValueError, OralAssessmentServiceError):
-        raise ApiError(
-            status_code=404,
-            code="student_not_enrolled",
-            message="Assessment not found or you are not enrolled. Please check your link.",
-        )
-    except Exception as error:
-        logger.error("Unexpected error verifying enrollment: %s", error)
-        raise ApiError(status_code=500, code="unexpected_error", message="Failed to verify enrollment")
-
-    return await loop.run_in_executor(
-        None, lambda: auth_service.issue_student_session_token(request.student_id, request.assessment_id)
-    )
 
 
 @student_router.get("/{student_id}/assessment/{assessment_id}/questions", response_model=StudentQuestionsResponse)
@@ -131,13 +93,6 @@ async def get_student_questions(
 
     except OralAssessmentServiceError as error:
         raise ApiError(status_code=404, code="student_questions_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in get_student_questions: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @student_router.post("/{student_id}/answer", response_model=SubmitAnswerResponse)
@@ -165,18 +120,12 @@ async def submit_answer(
 
     except OralAssessmentServiceError as error:
         raise ApiError(status_code=400, code="submit_answer_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in submit_answer: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @student_router.put("/{student_id}/submit", response_model=SubmitAssessmentResponse)
 async def submit_assessment(
     student_id: str,
+    background: BackgroundTasks,
     request: SubmitAssessmentRequest = Body(...),
     svc: OralAssessmentService = Depends(get_oral_assessment_service),
     instructor_svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
@@ -196,8 +145,9 @@ async def submit_assessment(
         # is per-student, not gated on the whole roster finishing: an open or
         # formative assessment may never reach 100% submission (only a subset of
         # enrolled students ever participate), so a "wait for all" gate would mean
-        # feedback never fires. Runs in a background thread so the student's submit
-        # response isn't blocked on enqueueing.
+        # feedback never fires. Runs as a BackgroundTask so the student's submit
+        # response isn't blocked on enqueueing, and the work is owned by the server's
+        # request lifecycle rather than a daemon thread killed mid-flight on redeploy.
         def _auto_evaluate_student():
             try:
                 assessment = instructor_svc.get_assessment(request.assessment_id)
@@ -280,21 +230,13 @@ async def submit_assessment(
             except Exception as report_err:
                 logger.error("[AutoReport] Failed to trigger threshold report: %s", report_err)
 
-        import threading
-        threading.Thread(target=_auto_evaluate_student, daemon=True).start()
-        threading.Thread(target=_maybe_generate_report, daemon=True).start()
+        background.add_task(_auto_evaluate_student)
+        background.add_task(_maybe_generate_report)
 
         return SubmitAssessmentResponse(**result)
 
     except OralAssessmentServiceError as error:
         raise ApiError(status_code=400, code="submit_assessment_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in submit_assessment: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @student_router.get("/{student_id}/assessment/{assessment_id}/progress", response_model=StudentProgressResponse)
@@ -312,13 +254,6 @@ async def get_student_progress(
 
     except OralAssessmentServiceError as error:
         raise ApiError(status_code=404, code="student_progress_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in get_student_progress: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @student_router.get("/{student_id}/assessment/{assessment_id}/results", response_model=StudentResultsResponse)
@@ -336,13 +271,6 @@ async def get_student_results(
 
     except OralAssessmentServiceError as error:
         raise ApiError(status_code=404, code="student_results_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in get_student_results: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @student_router.post("/{student_id}/proctoring-chunk", response_model=SubmitProctorChunkResponse)
@@ -366,13 +294,6 @@ async def submit_proctor_chunk(
 
     except OralAssessmentServiceError as error:
         raise ApiError(status_code=400, code="proctor_chunk_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in submit_proctor_chunk: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @student_router.post("/{student_id}/consent", response_model=SubmitConsentResponse)
@@ -397,13 +318,6 @@ async def record_consent(
 
     except OralAssessmentServiceError as error:
         raise ApiError(status_code=400, code="consent_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in record_consent: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -505,10 +419,3 @@ async def get_student_results_pdf(
 
     except OralAssessmentServiceError as error:
         raise ApiError(status_code=404, code="student_results_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in get_student_results_pdf: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
