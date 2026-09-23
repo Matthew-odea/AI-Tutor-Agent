@@ -116,6 +116,31 @@ class _WriteBarrierTable:
         return self._write(self._inner.put_item, kwargs)
 
 
+class _SerializedTable:
+    """Table wrapper that applies each call one at a time, as real DynamoDB does per item.
+
+    moto is not thread-safe: ten threads issuing a bare conditional `update_item`
+    against it, with no application code involved, let more than one write win in
+    about one trial in thirty. The lock covers one call, not a sequence, so a
+    read-then-write implementation still races under it.
+    """
+
+    def __init__(self, inner):
+        self._inner = inner
+        self._lock = threading.Lock()
+
+    def __getattr__(self, name):
+        attr = getattr(self._inner, name)
+        if not callable(attr):
+            return attr
+
+        def locked(*args, **kwargs):
+            with self._lock:
+                return attr(*args, **kwargs)
+
+        return locked
+
+
 class TestCountSubmitted:
     def test_counts_only_submitted(self, table):
         seed_students(table, submitted=7, not_submitted=12)
@@ -217,7 +242,7 @@ class TestShouldGenerateOnSubmit:
         from concurrent.futures import ThreadPoolExecutor
 
         seed_students(table, submitted=10)
-        svc = make_service(table)
+        svc = make_service(_SerializedTable(table))
         with ThreadPoolExecutor(max_workers=10) as pool:
             decisions = list(pool.map(lambda _: svc.should_generate_on_submit(ASSESSMENT_ID), range(10)))
         assert sum(1 for d in decisions if d is not None) == 1
