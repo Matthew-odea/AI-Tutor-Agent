@@ -60,6 +60,10 @@ has been built ahead of your answer.
   `terraform/*/main.tf`, not applied). Until it is, the job-queue heartbeat and retry backoff
   fail with AccessDenied — logged only — and a failed job waits the full 900 s before retrying.
   The live Sydney resources are in no terraform state, so this may need the console.
+- Check whether the assessment bucket has versioning or CloudTrail S3 data events. Until
+  2026-09-23 any logged-in user — and signup is open — could get an upload URL for any key, so
+  a recording could have been *replaced*, not just pointed at. Check 4 cannot see that; only
+  object versions or data events can. Neither is in terraform. This bears on question 1.
 - Confirm the 8 Apr Sydney migration captured everything from us-east-1.
 - Record on Safari (it produces `video/mp4`) and play a chunk back from the instructor app.
 
@@ -260,9 +264,9 @@ assessments now send UTC instants. The open decisions are questions 2–6 at the
 
 ## Open — not decisions, facts to confirm
 
-### Three that a script answers
+### Four that a script answers
 
-Run **`./scripts/prod_checks.sh`**. All three are read-only counts and parameter names against
+Run **`./scripts/prod_checks.sh`**. All four are read-only counts and parameter names against
 production — nothing is written, and no student data is returned. It prints which AWS account it
 reached first, because this machine's default profile belongs to a different organisation and an
 AccessDenied there looks exactly like "no data".
@@ -272,6 +276,7 @@ AccessDenied there looks exactly like "no data".
 | 1 | Is `AUTH_USERS_JSON` or `AUTH_LOGIN_PASSWORD` set in `/ai-tutor/prod/`? | **Blocks deploy.** The plaintext password fallback is gone. No stored DynamoDB password can be plaintext — every write path hashes — but these two env bootstraps are the one remaining source. If either holds a plaintext value, that login stops working the moment this ships. |
 | 2 | Have instructors ever overridden a grade? | Whether real grades were misreported. The student view read `totalScore` and ignored `instructorScore`; the instructor view honoured it. So an overridden grade showed corrected to the instructor and uncorrected to the student. Fixed 2026-09-22. Non-zero means go back and check what those students saw. |
 | 3 | Do any `BANK_QUESTION#` items exist? | Whether ten more lines can go. The question-bank write path is deleted but `OralAssessmentQuestionAccess.get_bank_questions` still reads it. Zero means delete the read; non-zero means those assessments depend on it. |
+| 4 | Does any stored answer or proctoring chunk point outside its own student's folder? | Whether a student was ever shown another student's recording. Until 2026-09-23 the client chose its own S3 key and stored URLs were presigned by key alone. Non-zero means find those rows before deciding who to tell. Only counts are printed. |
 
 ### The rest — no script can answer these
 

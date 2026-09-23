@@ -93,3 +93,59 @@ elif [[ "$n" == "0" ]]; then
 else
   echo "  ${n} BANK_QUESTION# item(s) exist — the read is load-bearing. Keep it."
 fi
+echo
+
+# ── 4 ────────────────────────────────────────────────────────────────────────
+# Until 2026-09-23 the client chose its own S3 key, and a stored answer or
+# proctoring chunk URL was never checked against the row's own student. Stored
+# URLs are presigned for download by key alone, so a row pointing into another
+# student's folder handed its viewer that student's recording. The server now
+# builds keys and refuses foreign ones; this asks whether any got in before.
+# Keys and URLs are compared locally and only counts are printed.
+#
+# CLEAR here does not rule out an overwrite: the old upload route would presign
+# a PUT to any key, so a file under the right folder may still have been
+# replaced. Only S3 versioning or CloudTrail data events can answer that.
+echo "== 4. Stored media pointing outside its own student's folder =="
+aws dynamodb scan --table-name "${TABLE}" --region "${REGION}" \
+    --filter-expression "begins_with(SK, :a) OR begins_with(SK, :c)" \
+    --expression-attribute-values '{":a":{"S":"ANSWER#"},":c":{"S":"PROCTORING#CHUNK#"}}' \
+    --projection-expression "PK, audioUrl, videoUrl, chunkUrl" \
+    --output json 2>/dev/null \
+  | python3 -c '
+import json, re, sys
+from urllib.parse import unquote, urlparse
+
+raw = sys.stdin.read()
+if not raw.strip():
+    sys.exit(print("  Could not read the table."))
+owner = re.compile(r"^STUDENT#(.+)#ASSESSMENT#(.+)$")
+counts = {"own": 0, "foreign_audio": 0, "foreign_proctoring": 0, "unrecognised": 0}
+items = json.loads(raw).get("Items", [])
+for item in items:
+    match = owner.match(item.get("PK", {}).get("S", ""))
+    for attr in ("audioUrl", "videoUrl", "chunkUrl"):
+        url = item.get(attr, {}).get("S", "")
+        if not url:
+            continue
+        parts = [unquote(p) for p in urlparse(url).path.lstrip("/").split("/")]
+        if not match or ".." in parts:
+            counts["unrecognised"] += 1
+        elif parts[0] in ("audio", "video") and len(parts) >= 3:  # video/ is the pre-2026-09 answer layout
+            counts["own" if parts[1] == match[1] else "foreign_audio"] += 1
+        elif parts[0] == "proctoring" and len(parts) >= 4:
+            counts["own" if parts[1:3] == [match[2], match[1]] else "foreign_proctoring"] += 1
+        else:
+            counts["unrecognised"] += 1
+fa, fp, unknown = counts["foreign_audio"], counts["foreign_proctoring"], counts["unrecognised"]
+foreign = fa + fp
+print(f"  Checked {sum(counts.values())} stored media URLs across {len(items)} answer and chunk rows.")
+if foreign:
+    print(f"  FOREIGN — {foreign} point outside their own student'"'"'s folder "
+          f"({fa} answer, {fp} proctoring).")
+    print("  -> Whoever opened those rows was shown someone else'"'"'s recording. Find them before deciding who to tell.")
+elif counts["own"]:
+    print("  CLEAR — every recognised URL sits under its own student'"'"'s folder.")
+if unknown:
+    print(f"  UNRECOGNISED — {unknown} use a key layout this check does not know. Look at one before trusting CLEAR.")
+'
