@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import json
 import re
 import sys
@@ -124,10 +125,25 @@ def build_payload(
     }
 
 
-def upload_file(base_url: str, payload: dict, timeout: int) -> requests.Response:
+def auth_header() -> dict:
+    """
+    /internal/context/upload requires an instructor or admin bearer token.
+    Read it from the environment so it never lands in shell history or argv.
+    """
+    token = os.environ.get("AI_TUTOR_TOKEN", "").strip()
+    if not token:
+        raise SystemExit(
+            "AI_TUTOR_TOKEN is not set. Obtain an instructor token and export it:\n"
+            "  export AI_TUTOR_TOKEN=\"$(your-login-command)\""
+        )
+    return {"Authorization": f"Bearer {token}"}
+
+
+def upload_file(base_url: str, payload: dict, timeout: int, headers: dict) -> requests.Response:
     return requests.post(
         f"{base_url.rstrip('/')}/internal/context/upload",
         json=payload,
+        headers=headers,
         timeout=timeout,
     )
 
@@ -150,6 +166,7 @@ def main() -> int:
     parser.add_argument("--course-term", default=None, help="Optional course term override (e.g. T1/T2/T3)")
     parser.add_argument("--course-year", type=int, default=None, help="Optional course year override")
     args = parser.parse_args()
+    headers = auth_header()
 
     root = Path(args.root).resolve()
     if not root.exists() or not root.is_dir():
@@ -186,7 +203,7 @@ def main() -> int:
                 results.append(UploadResult(path=path, status="dry-run", detail="planned"))
                 continue
 
-            response = upload_file(args.base_url, payload, timeout=args.timeout)
+            response = upload_file(args.base_url, payload, timeout=args.timeout, headers=headers)
             if response.status_code in (200, 201):
                 detail = response.json().get("document_id", "ok") if response.headers.get("content-type", "").startswith("application/json") else "ok"
                 print(f"[ok] {path.relative_to(root)} -> {detail}")

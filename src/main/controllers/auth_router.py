@@ -158,9 +158,9 @@ def set_user_roles(
     auth_service: AuthService = Depends(get_auth_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
-    """Set roles for a user. Instructor-only."""
-    if "instructor" not in _principal.roles and "admin" not in _principal.roles:
-        raise ApiError(status_code=403, code="forbidden", message="Instructor access required")
+    """Set roles for a user. Admin-only — an instructor cannot grant themselves admin."""
+    if "admin" not in _principal.roles:
+        raise ApiError(status_code=403, code="forbidden", message="Admin access required")
     roles = request.get("roles", [])
     if not isinstance(roles, list):
         raise ApiError(status_code=400, code="invalid_roles", message="roles must be an array")
