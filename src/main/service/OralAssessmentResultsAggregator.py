@@ -109,7 +109,16 @@ class OralAssessmentResultsAggregator:
             answer = answers_map.get(question_id, {})
             evaluation = evaluations_map.get(question_id, {})
 
-            score = int(evaluation.get("totalScore", 0)) if evaluation.get("totalScore") is not None else None
+            # instructorScore is the grade override and wins over the AI score.
+            # humanTotalScore is the dual-scoring validity harness and deliberately
+            # does NOT affect the grade — see ResponseEvaluationRepository.record_human_score.
+            override = evaluation.get("instructorScore")
+            if override is not None:
+                score = int(override)
+            elif evaluation.get("totalScore") is not None:
+                score = int(evaluation.get("totalScore", 0))
+            else:
+                score = None
             q_max_score = int(evaluation.get("maxScore", scoring.max_score_per_question)) if evaluation.get("maxScore") is not None else scoring.max_score_per_question
             correctness = int(evaluation.get("correctnessScore", 0)) if evaluation.get("correctnessScore") is not None else 0
             understanding = int(evaluation.get("understandingScore", 0)) if evaluation.get("understandingScore") is not None else 0
@@ -122,7 +131,13 @@ class OralAssessmentResultsAggregator:
             raw_improvements = evaluation.get("suggestedImprovements", [])
             suggested_improvements = list(raw_improvements) if isinstance(raw_improvements, (list, set)) else ([raw_improvements] if raw_improvements else [])
 
-            if score is not None:
+            # An evaluation flagged for review is unscored, not zero-scored: the AI
+            # could not judge it, so it is waiting on a human. Leaving it in the
+            # denominator makes a system failure indistinguishable from a wrong
+            # answer. An instructor override settles it, so it counts again.
+            awaiting_review = bool(evaluation.get("needsReview")) and override is None
+
+            if score is not None and not awaiting_review:
                 total_score += score
                 max_score += q_max_score
 
@@ -144,9 +159,11 @@ class OralAssessmentResultsAggregator:
                     "weaknesses": weaknesses,
                     "suggestedImprovements": suggested_improvements,
                     "evaluatedAt": evaluation.get("evaluatedAt"),
+                    "awaitingReview": awaiting_review,
                 }
             )
 
+        awaiting_review_count = sum(1 for q in question_results if q["awaitingReview"])
         percentage = round((total_score / max_score * 100), 1) if max_score > 0 else 0
         grade = scoring.grade(percentage)
 
@@ -160,6 +177,9 @@ class OralAssessmentResultsAggregator:
             "totalScore": total_score,
             "maxScore": max_score,
             "percentage": percentage,
+            # Non-zero means the percentage is over a partial denominator: that many
+            # questions are excluded pending instructor review.
+            "questionsAwaitingReview": awaiting_review_count,
             "grade": grade,
             "submittedAt": enrollment.get("submittedAt"),
             "evaluatedQuestions": len(evaluations_map),

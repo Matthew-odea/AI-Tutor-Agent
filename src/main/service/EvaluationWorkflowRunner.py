@@ -123,7 +123,11 @@ class EvaluationWorkflowRunner:
                     except Exception as store_error:
                         logger.error("[Job %s] Failed to store flagged evaluation for question %d: %s", job_id, index + 1, store_error)
 
-            max_score = total_questions * max_per_question
+            # Only scored evaluations count. A needs_review item contributed 0 to
+            # total_score because the AI could not judge it — counting it in the
+            # denominator too would score a system failure as a wrong answer.
+            scored = [e for e in evaluations if not e.get("needs_review")]
+            max_score = len(scored) * max_per_question
             percentage = (total_score / max_score * 100) if max_score > 0 else 0
 
             self.repository.set_evaluation_progress(student_id, assessment_id, total_questions, total_questions, "completed")
