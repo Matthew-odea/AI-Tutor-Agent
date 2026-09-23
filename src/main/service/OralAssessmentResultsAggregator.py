@@ -27,10 +27,8 @@ class OralAssessmentResultsAggregator:
         return self._s3_client
 
     def _presign_audio_url(self, raw_url: Optional[str]) -> Optional[str]:
-        """Convert a raw S3 URL to a presigned GET URL (1 hour expiry)."""
         if not raw_url or not self._s3_bucket:
             return raw_url
-        # Extract the S3 key from the URL
         parsed = urlparse(raw_url)
         key = parsed.path.lstrip("/")
         if not key:
@@ -91,8 +89,7 @@ class OralAssessmentResultsAggregator:
             item["SK"].replace("EVALUATION#", ""): item for item in evaluations_response.get("Items", [])
         }
 
-        # feedbackRelease == 'immediate' bypasses the manual instructor release gate
-        # (formative flows); 'manual' (default / legacy) still requires resultsReleased.
+        # 'immediate' (formative) skips the instructor release gate; 'manual'/legacy needs resultsReleased.
         if assessment.get("feedbackRelease") != "immediate" and not assessment.get("resultsReleased"):
             raise ValueError(f"Results not released yet for student {student_id}")
 
@@ -123,7 +120,7 @@ class OralAssessmentResultsAggregator:
             correctness = int(evaluation.get("correctnessScore", 0)) if evaluation.get("correctnessScore") is not None else 0
             understanding = int(evaluation.get("understandingScore", 0)) if evaluation.get("understandingScore") is not None else 0
 
-            # Ensure strengths/weaknesses/improvements are lists
+            # Stored as a list, a DynamoDB string set, or a bare string.
             raw_strengths = evaluation.get("strengths", [])
             strengths = list(raw_strengths) if isinstance(raw_strengths, (list, set)) else ([raw_strengths] if raw_strengths else [])
             raw_weaknesses = evaluation.get("weaknesses", [])

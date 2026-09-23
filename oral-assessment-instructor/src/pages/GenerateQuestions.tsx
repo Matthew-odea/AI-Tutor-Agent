@@ -35,14 +35,11 @@ export default function GenerateQuestions() {
 
   useEffect(() => {
     if (assessmentId && assessmentId !== selectedAssessment?.id) {
-      // Intentional: fetch the assessment when the route id changes and it is
-      // not already the selected one. loadAssessment toggles loading/error and
-      // seeds the brief — an effect-driven fetch, not a render cascade.
+      // Effect-driven fetch, not a render cascade.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       loadAssessment(assessmentId);
     } else if (selectedAssessment?.assignmentBrief) {
-      // Seed the local editable brief from the already-loaded assessment in the
-      // external store; runs only when the store id matches (no fetch needed).
+      // Already in the store: just seed the editable brief.
       setBrief(selectedAssessment.assignmentBrief);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on which assessment is open; re-seeding on every brief change would overwrite the instructor's unsaved edits
@@ -66,8 +63,6 @@ export default function GenerateQuestions() {
     }
   };
 
-  // Full-page error state — AppShell is only mounted once there is an assessment
-  // to title it with, so the retry lives on its own centred card.
   if (error && !selectedAssessment) {
     return (
       <div className="min-h-screen bg-paper flex items-center justify-center p-4">
@@ -110,7 +105,6 @@ export default function GenerateQuestions() {
       maxWidth="narrow"
       contentClassName="space-y-6"
     >
-      {/* Assignment Brief Editor */}
       <div className="bg-paper rounded-xl border border-hairline p-6">
         <div className="flex items-start justify-between gap-4 mb-3">
           <div>

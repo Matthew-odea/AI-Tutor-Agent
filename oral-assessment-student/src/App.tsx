@@ -16,7 +16,7 @@ function DefaultRoute() {
       const url = new URL(linkInput.trim());
       navigate(url.pathname);
     } catch {
-      // not a full URL — treat as pathname
+      // Not a full URL: treat as a pathname.
       navigate(linkInput.trim());
     }
   };
@@ -63,16 +63,12 @@ function App() {
       <OfflineBanner />
       <ToastContainer />
       <Routes>
-        {/* Invite link exchange - URL format: /invite?token=... */}
         <Route path="/invite" element={<InviteLanding />} />
 
-        {/* Assessment taking - URL format: /:studentId/:assessmentId */}
         <Route path="/:studentId/:assessmentId" element={<TakeAssessment />} />
 
-        {/* Results viewing - URL format: /:studentId/results/:assessmentId */}
         <Route path="/:studentId/results/:assessmentId" element={<ViewResults />} />
 
-        {/* Default/Home page */}
         <Route path="*" element={<DefaultRoute />} />
       </Routes>
     </BrowserRouter>

@@ -57,7 +57,7 @@ async def get_student_questions(
         loop = asyncio.get_event_loop()
         result = await loop.run_in_executor(None, lambda: svc.get_student_questions(student_id, assessment_id))
 
-        # result is now {"questions": [...], "answerMode": ..., "preparationTime": ...}
+        # Service returns a dict with questions + assessment config; bare list is the legacy shape
         raw_questions = result.get("questions", []) if isinstance(result, dict) else result
 
         question_dtos = [
@@ -146,20 +146,14 @@ async def submit_assessment(
             assessment_id=request.assessment_id,
         ))
 
-        # Auto-evaluate THIS student's answers as soon as they submit. Evaluation
-        # is per-student, not gated on the whole roster finishing: an open or
-        # formative assessment may never reach 100% submission (only a subset of
-        # enrolled students ever participate), so a "wait for all" gate would mean
-        # feedback never fires. Runs as a BackgroundTask so the student's submit
-        # response isn't blocked on enqueueing, and the work is owned by the server's
-        # request lifecycle rather than a daemon thread killed mid-flight on redeploy.
+        # Evaluate per student on submit, never gated on the whole roster: formative
+        # assessments rarely reach 100% submission, so a "wait for all" gate never fires.
+        # BackgroundTask rather than a daemon thread, which a redeploy kills mid-flight.
         def _auto_evaluate_student():
             try:
                 assessment = instructor_svc.get_assessment(request.assessment_id)
                 if not assessment.get("autoEvaluate"):
-                    # Logged rather than returning quietly: this branch silently
-                    # swallowed every auto-evaluation for months because the
-                    # assessment view dropped the flag entirely.
+                    # Logged on purpose: a dropped autoEvaluate flag once disabled auto-marking unnoticed.
                     logger.info(
                         "[AutoEval] Skipped for student %s — autoEvaluate is off for assessment %s",
                         student_id, request.assessment_id,
@@ -187,9 +181,7 @@ async def submit_assessment(
                         student_id, request.assessment_id, job_id, enqueued,
                     )
                 else:
-                    # enqueue_evaluation_batch swallows ClientError and returns 0,
-                    # so without this the job sits at pending forever and nobody
-                    # finds out the student was never marked.
+                    # enqueue_evaluation_batch swallows ClientError and returns 0; the job would sit pending forever.
                     logger.error(
                         "[AutoEval] Enqueue produced no message for student %s in assessment %s "
                         "(job %s) — student will not be marked until re-run",
@@ -198,11 +190,8 @@ async def submit_assessment(
             except Exception as auto_err:
                 logger.error("[AutoEval] Failed to trigger per-student auto-evaluation: %s", auto_err)
 
-        # Generate a cohort report once submissions cross a threshold multiple
-        # (default every 10). The old "all enrolled have submitted" gate never
-        # opened for a large cohort — Quiz 1 stalled at 26/395 — so the trigger
-        # is count-based. claim_milestone() makes this exactly-once per
-        # milestone even when several students submit concurrently.
+        # Cohort report every N submissions (default 10); "all enrolled submitted" never happens
+        # in large cohorts. claim_milestone() keeps it exactly-once under concurrent submits.
         def _maybe_generate_report():
             try:
                 decision = report_svc.should_generate_on_submit(request.assessment_id)
@@ -327,10 +316,6 @@ async def record_consent(
         raise ApiError(status_code=400, code="consent_failed", message=str(error))
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Sprint 8 – Student Results PDF (EPIC-6-3)
-# ──────────────────────────────────────────────────────────────────────────────
-
 @student_router.get("/{student_id}/assessment/{assessment_id}/results/pdf")
 async def get_student_results_pdf(
     student_id: str,
@@ -338,7 +323,7 @@ async def get_student_results_pdf(
     svc: OralAssessmentService = Depends(get_oral_assessment_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
-    """EPIC-6-3: Generate a PDF results report for a student."""
+    """Student results as a downloadable PDF."""
     try:
         _assert_student_access(_principal, student_id, assessment_id)
         loop = asyncio.get_event_loop()

@@ -1,7 +1,3 @@
-/**
- * TextAnswerInput - Text area for written answers.
- */
-
 interface TextAnswerInputProps {
   value: string;
   onChange: (value: string) => void;

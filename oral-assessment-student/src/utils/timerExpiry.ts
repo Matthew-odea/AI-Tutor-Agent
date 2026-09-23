@@ -1,46 +1,27 @@
 /**
- * Per-question timer-expiry orchestration.
- *
- * Extracted from TakeAssessment's handleTimerExpire so the decision logic is
- * pure and unit-testable. The cardinal rule: NEVER destroy a real answer at
- * expiry. Navigation is forward-only and server-driven, so a question burned
- * with a junk answer is lost permanently.
- *
- * Decision (always taken on FRESH state, i.e. re-read AFTER stopRecording):
- *  - oral + any captured audio   -> submit audio (never a text placeholder)
- *  - written + any non-empty text -> submit that text verbatim (no length floor)
- *  - otherwise                    -> explicit skip carrying the mode
- *                                    (so the store records a non-answer, not
- *                                     a fake '(time expired)' for oral)
+ * Timer-expiry decision. Never destroy a real answer: navigation is forward-only, so a
+ * question burned with a junk answer is lost for good. Decides on state re-read after
+ * stopRecording: captured audio or any non-empty text is submitted, otherwise skip.
  */
 
 export interface TimerExpiryDeps {
-  /** True when an upload/submit is already in flight — re-entrancy guard. */
-  inFlight: boolean;
+  inFlight: boolean; // re-entrancy guard
   answerMode: 'oral' | 'written';
-  /** Lazy reads so callers re-read store state AFTER stopRecording. */
+  // Getters, so state is re-read after stopRecording.
   getIsRecording: () => boolean;
   getRecordedBlob: () => Blob | null;
   getTextAnswer: () => string;
-  /** Stop an in-progress recording (resolves once the blob is captured). */
-  stopRecording: () => Promise<void>;
-  /** User-facing "time's up" message (wired to a toast). */
+  stopRecording: () => Promise<void>; // resolves once the blob is captured
   notify: (message: string) => void;
-  /** Submit the captured audio answer. */
   submitAudio: () => Promise<void>;
-  /** Submit the typed text answer. */
   submitText: () => Promise<void>;
-  /** Record an explicit non-answer for the given mode. */
   skip: (mode: 'oral' | 'written') => Promise<void>;
 }
 
 export async function runTimerExpiry(deps: TimerExpiryDeps): Promise<void> {
-  // Re-entrancy: if a submission is already running, do nothing (no double-submit).
   if (deps.inFlight) return;
 
-  // Oral: stop any active recording FIRST so the blob is captured before we read it.
-  // We must NOT gate the submit on a snapshot taken before stopRecording — that is
-  // exactly the bug that burned actively-recording answers.
+  // Stop first, then read. Gating on a pre-stop snapshot once burned in-progress answers.
   if (deps.answerMode === 'oral' && deps.getIsRecording()) {
     await deps.stopRecording();
   }
@@ -50,14 +31,13 @@ export async function runTimerExpiry(deps: TimerExpiryDeps): Promise<void> {
       deps.notify("Time's up! Submitting your audio answer.");
       await deps.submitAudio();
     } else {
-      // Genuinely no audio — student never recorded anything.
       deps.notify("Time's up! No answer recorded — moving on.");
       await deps.skip('oral');
     }
     return;
   }
 
-  // Written: submit any non-empty trimmed text verbatim (no >= 20 char threshold).
+  // Any non-empty text counts; there is deliberately no minimum length.
   if (deps.getTextAnswer().trim().length > 0) {
     deps.notify("Time's up! Submitting your written answer.");
     await deps.submitText();

@@ -1,15 +1,4 @@
-"""
-Request/response logging middleware.
-
-Emits one structured log line per request including:
-  method, path, status_code, duration_ms, request_id
-
-The request_id (first 8 chars of a UUID) is attached to the log record so it
-can be correlated in CloudWatch Insights:
-
-  fields @timestamp, request_id, method, path, status, duration_ms
-  | filter status >= 500
-"""
+"""One structured access-log line per request; request_id (8-char UUID prefix) is for CloudWatch Insights correlation."""
 from __future__ import annotations
 
 import logging
@@ -23,13 +12,11 @@ from starlette.responses import Response
 
 logger = logging.getLogger("access")
 
-# Paths that are too noisy to log at INFO (polled every few seconds)
+# Polled or static paths; skipped entirely to keep the access log readable
 _SKIP_PATHS = {"/health", "/openapi.json", "/docs", "/redoc"}
 
 
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
-    """Structured access log: one line per completed request."""
-
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         if request.url.path in _SKIP_PATHS:
             return await call_next(request)

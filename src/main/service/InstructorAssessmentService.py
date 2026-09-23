@@ -1,15 +1,5 @@
-"""
-InstructorAssessmentService - Manages instructor-side assessment operations
-
-Handles:
-- Creating and managing assessments
-- Uploading and managing students
-- Batch question generation coordination
-- Batch evaluation coordination
-- Progress monitoring across all students
-- Results aggregation and reporting
-
-Uses DynamoDB for data storage.
+"""Instructor-side facade over the assessment table: wraps catalog/enrollment/aggregator
+helpers and converts their failures to InstructorAssessmentServiceError.
 """
 
 from __future__ import annotations
@@ -28,17 +18,16 @@ from src.main.service.InstructorAssessmentEnrollment import InstructorAssessment
 from src.main.service.InstructorAssessmentProgressAggregator import InstructorAssessmentProgressAggregator
 from src.main.service.InstructorAssessmentResultsAggregator import InstructorAssessmentResultsAggregator
 from src.main.service.ResponseEvaluationRepository import ResponseEvaluationRepository
+from src.main.service.ScoringConfig import ScoringConfig
 
 logger = logging.getLogger(__name__)
 
 
 class InstructorAssessmentServiceError(Exception):
-    """Custom exception for instructor assessment service errors"""
     pass
 
 
 class DecimalEncoder(json.JSONEncoder):
-    """Helper to convert Decimal to int/float for JSON serialization"""
     def default(self, obj):
         if isinstance(obj, Decimal):
             return int(obj) if obj % 1 == 0 else float(obj)
@@ -46,15 +35,11 @@ class DecimalEncoder(json.JSONEncoder):
 
 
 class InstructorAssessmentService:
-    """Service for managing instructor assessment operations"""
-    
     def __init__(self):
-        """Initialize service with DynamoDB connection"""
         self.region = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
         self.table_name = os.getenv("DYNAMODB_ASSESSMENT_TABLE", "oral_assessments")
         
         try:
-            # Initialize DynamoDB
             self.dynamodb = boto3.resource('dynamodb', region_name=self.region)
             self.table = self.dynamodb.Table(self.table_name)
             self.catalog = InstructorAssessmentCatalog(table=self.table)
@@ -66,7 +51,8 @@ class InstructorAssessmentService:
                 table=self.table,
                 get_students=self.enrollment.get_assessment_students_lightweight,
             )
-            # Build presigner for S3 audio URLs
+            # Stored answer/chunk URLs are raw S3 URLs; presign with a client in the
+            # bucket's own region or the signature is rejected.
             s3_bucket = os.getenv("S3_ASSESSMENT_BUCKET", "")
             presign_url = None
             if s3_bucket:
@@ -103,7 +89,6 @@ class InstructorAssessmentService:
             raise InstructorAssessmentServiceError(f"Failed to connect to DynamoDB: {e}")
     
     def _convert_decimals(self, obj: Any) -> Any:
-        """Recursively convert Decimal objects to int/float"""
         if isinstance(obj, list):
             return [self._convert_decimals(i) for i in obj]
         elif isinstance(obj, dict):
@@ -136,24 +121,11 @@ class InstructorAssessmentService:
         max_score_per_question: Optional[int] = None,
         grade_cutoffs: Optional[Dict[str, float]] = None,
     ) -> Dict[str, Any]:
-        """
-        Create a new assessment.
+        """time_limit is per question, in minutes (stored as seconds).
 
-        Args:
-            title: Assessment title
-            course: Course name/code
-            description: Assessment description
-            due_date: Due date (ISO format)
-            total_questions: Number of questions to generate
-            time_limit: Time limit per question in minutes (optional)
-            auto_evaluate: Automatically evaluate each student's answers as soon as that student submits
-            rubric: Custom grading rubric injected into the evaluation prompt
-
-        Returns:
-            Created assessment data
+        auto_evaluate marks each student's answers as soon as that student submits.
         """
-        # Validate optional grade-cutoff override up front so a bad config is
-        # rejected with a clear error rather than silently ignored at scoring time.
+        # Reject bad cutoffs here; ScoringConfig would otherwise fall back to defaults at scoring time.
         if grade_cutoffs:
             excellent = grade_cutoffs.get("excellent", 90)
             competent = grade_cutoffs.get("competent", 75)
@@ -184,15 +156,12 @@ class InstructorAssessmentService:
                 'scheduledWindowStart': scheduled_window_start,
                 'scheduledWindowEnd': scheduled_window_end,
                 'autoEvaluate': auto_evaluate,
-                # Cohort report fires automatically at each multiple of the
-                # threshold; autoReport=False opts an assessment out entirely.
+                # Cohort report fires at each multiple of autoReportThreshold; False opts out.
                 'autoReport': bool(auto_report),
                 'rubric': rubric,
                 'answerMode': answer_mode,
                 'preparationTime': preparation_time,
-                # Behaviour flags. proctored defaults to (answer_mode == 'oral') so
-                # existing oral assessments are unchanged; allowReview/feedbackRelease
-                # default to today's locked, manual-release behaviour.
+                # Defaults preserve legacy behaviour: oral is proctored, no review, manual release.
                 'proctored': proctored if proctored is not None else (answer_mode == 'oral'),
                 'allowReview': bool(allow_review),
                 'feedbackRelease': feedback_release,
@@ -201,8 +170,7 @@ class InstructorAssessmentService:
                 'updatedAt': created_at
             }
 
-            # Optional per-assessment scoring overrides (Task 6). Stored only when
-            # provided so existing assessments with no override behave as before.
+            # Scoring overrides are stored only when set, so absent means ScoringConfig defaults.
             if auto_report_threshold is not None:
                 assessment['autoReportThreshold'] = int(auto_report_threshold)
             if max_score_per_question is not None:
@@ -220,12 +188,7 @@ class InstructorAssessmentService:
             raise InstructorAssessmentServiceError(f"Failed to create assessment: {e}")
     
     def list_assessments(self, owner_user_id: Optional[str] = None) -> List[Dict[str, Any]]:
-        """
-        List all assessments.
-        
-        Returns:
-            List of assessments ordered by creation date (newest first)
-        """
+        """Newest first. Items with no createdBy are visible to every owner."""
         try:
             assessments = self.catalog.list_assessments(owner_user_id=owner_user_id)
             
@@ -237,18 +200,6 @@ class InstructorAssessmentService:
             raise InstructorAssessmentServiceError(f"Failed to list assessments: {e}")
     
     def get_assessment(self, assessment_id: str) -> Dict[str, Any]:
-        """
-        Get assessment by ID.
-        
-        Args:
-            assessment_id: Assessment identifier
-        
-        Returns:
-            Assessment data
-        
-        Raises:
-            InstructorAssessmentServiceError: If assessment not found
-        """
         try:
             return self.catalog.get_assessment(assessment_id)
         except ValueError as e:
@@ -264,16 +215,6 @@ class InstructorAssessmentService:
         assessment_id: str,
         students: List[Dict[str, str]]
     ) -> Dict[str, Any]:
-        """
-        Upload students to an assessment (bulk enrollment).
-        
-        Args:
-            assessment_id: Assessment identifier
-            students: List of student data (name, email, studentId, code)
-        
-        Returns:
-            Upload confirmation with count
-        """
         try:
             result = self.enrollment.upload_students(assessment_id, students)
             logger.info(f"Uploaded {len(students)} students to assessment {assessment_id}")
@@ -287,11 +228,7 @@ class InstructorAssessmentService:
             raise InstructorAssessmentServiceError(f"Failed to upload students: {e}")
     
     def update_brief(self, assessment_id: str, brief: str) -> Dict[str, Any]:
-        """
-        Update the assignment brief for an assessment.
-        The brief must be at least 50 characters and cannot be changed once
-        question generation has started (status != 'draft').
-        """
+        """Brief must be >= 50 chars and is editable only while status is draft or scheduled."""
         if len(brief.strip()) < 50:
             raise InstructorAssessmentServiceError(
                 "Assignment brief must be at least 50 characters"
@@ -320,9 +257,7 @@ class InstructorAssessmentService:
         scheduled_window_start: Optional[str] = None,
         scheduled_window_end: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Update assessment access mode and scheduling window."""
         try:
-            # Validate
             if access_mode not in ("open", "scheduled"):
                 raise InstructorAssessmentServiceError("accessMode must be 'open' or 'scheduled'")
             if access_mode == "scheduled" and (not scheduled_window_start or not scheduled_window_end):
@@ -348,18 +283,14 @@ class InstructorAssessmentService:
             raise InstructorAssessmentServiceError(f"Failed to update schedule: {e}")
 
     def delete_assessment(self, assessment_id: str) -> None:
-        """
-        Delete an assessment and all its associated data.
-        """
+        """Delete the assessment partition plus every enrolled student's reverse lookup and per-student partition."""
         try:
-            self.get_assessment(assessment_id)  # verify it exists
+            self.get_assessment(assessment_id)  # raises if missing
 
-            # Get student IDs using lightweight query (no code)
+            # Must read the roster before the ASSESSMENT# partition (which holds it) is deleted.
             students = self.enrollment.get_assessment_students_lightweight(assessment_id)
             student_ids = [s["studentId"] for s in students]
 
-            # Delete all ASSESSMENT#{id} partition items (metadata + enrollment records)
-            # Use paginator in case there are many items
             last_key = None
             with self.table.batch_writer() as batch:
                 while True:
@@ -373,14 +304,11 @@ class InstructorAssessmentService:
                     if not last_key:
                         break
 
-            # Batch delete reverse lookups + all student-specific items
             with self.table.batch_writer() as batch:
                 for student_id in student_ids:
-                    # Reverse lookup
                     batch.delete_item(
                         Key={"PK": f"STUDENT#{student_id}", "SK": f"ASSESSMENT#{assessment_id}"}
                     )
-                    # All student-assessment items (questions, answers, progress, evaluations)
                     pk = f"STUDENT#{student_id}#ASSESSMENT#{assessment_id}"
                     s_last_key = None
                     while True:
@@ -403,15 +331,6 @@ class InstructorAssessmentService:
             raise InstructorAssessmentServiceError(f"Failed to delete assessment: {e}")
 
     def get_assessment_students(self, assessment_id: str) -> List[Dict[str, Any]]:
-        """
-        Get all students enrolled in an assessment.
-        
-        Args:
-            assessment_id: Assessment identifier
-        
-        Returns:
-            List of enrolled students
-        """
         try:
             students = self.enrollment.get_assessment_students(assessment_id)
             
@@ -423,15 +342,6 @@ class InstructorAssessmentService:
             raise InstructorAssessmentServiceError(f"Failed to get students: {e}")
     
     def get_assessment_progress(self, assessment_id: str) -> List[Dict[str, Any]]:
-        """
-        Get progress for all students in an assessment.
-        
-        Args:
-            assessment_id: Assessment identifier
-        
-        Returns:
-            List of student progress data
-        """
         try:
             progress_list = self.progress_aggregator.get_assessment_progress(assessment_id)
             logger.info(f"Retrieved progress for {len(progress_list)} students")
@@ -442,15 +352,6 @@ class InstructorAssessmentService:
             raise InstructorAssessmentServiceError(f"Failed to get assessment progress: {e}")
     
     def get_assessment_results(self, assessment_id: str) -> List[Dict[str, Any]]:
-        """
-        Get evaluation results for all students in an assessment.
-        
-        Args:
-            assessment_id: Assessment identifier
-        
-        Returns:
-            List of student results
-        """
         try:
             results_list = self.results_aggregator.get_assessment_results(assessment_id)
             logger.info(f"Retrieved results for {len(results_list)} students")
@@ -461,7 +362,6 @@ class InstructorAssessmentService:
             raise InstructorAssessmentServiceError(f"Failed to get assessment results: {e}")
 
     def get_student_detail(self, assessment_id: str, student_id: str) -> Dict[str, Any]:
-        """Return per-question detailed results for one student (instructor view)."""
         try:
             return self.results_aggregator.get_student_detail(assessment_id, student_id)
         except Exception as e:
@@ -476,10 +376,15 @@ class InstructorAssessmentService:
         score: int,
         comment: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Write instructor score override to the EVALUATION# item."""
+        """Sets instructorScore, which takes precedence over the AI score in grading."""
         try:
             pk = f"STUDENT#{student_id}#ASSESSMENT#{assessment_id}"
             sk = f"EVALUATION#{question_id}"
+            max_score = self._question_max_score(assessment_id, pk, sk)
+            if score < 0 or score > max_score:
+                raise InstructorAssessmentServiceError(
+                    f"Score {score} is outside 0-{max_score} for this question"
+                )
             update_expr = "SET instructorScore = :s, updatedAt = :ua"
             expr_vals: Dict[str, Any] = {":s": score, ":ua": datetime.now(timezone.utc).isoformat()}
             if comment is not None:
@@ -498,9 +403,22 @@ class InstructorAssessmentService:
                 "instructorScore": score,
                 "comment": comment,
             }
+        except InstructorAssessmentServiceError:
+            raise
         except Exception as e:
             logger.error(f"Failed to override score: {e}")
             raise InstructorAssessmentServiceError(f"Failed to override score: {e}")
+
+    def _question_max_score(self, assessment_id: str, pk: str, sk: str) -> int:
+        """Same rule the results aggregators grade with: the evaluation's stored maxScore,
+        else the assessment's maxScorePerQuestion (ScoringConfig default when unset)."""
+        evaluation = self.table.get_item(Key={"PK": pk, "SK": sk}).get("Item") or {}
+        if evaluation.get("maxScore") is not None:
+            return int(evaluation["maxScore"])
+        metadata = self.table.get_item(
+            Key={"PK": f"ASSESSMENT#{assessment_id}", "SK": "METADATA"}
+        ).get("Item") or {}
+        return ScoringConfig.from_metadata(metadata).max_score_per_question
 
     def record_human_score(
         self,
@@ -511,11 +429,8 @@ class InstructorAssessmentService:
         human_understanding_score: int,
         scored_by: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Record a HUMAN reference score for the dual-scoring validity harness
-        (Task 3). Separate from the instructor grade override — it does not change
-        the student's grade; it is the independent human score used to measure
-        AI-vs-human agreement.
+        """Independent human reference score for AI-vs-human agreement. Unlike the
+        instructor override, it never changes the student's grade.
         """
         try:
             repo = ResponseEvaluationRepository(table_name=self.table_name, region=self.region)
@@ -535,7 +450,6 @@ class InstructorAssessmentService:
             raise InstructorAssessmentServiceError(f"Failed to record human score: {e}")
 
     def get_score_agreement(self, assessment_id: str) -> Dict[str, Any]:
-        """AI-vs-human agreement summary across all dual-scored items (Task 3)."""
         try:
             return self.results_aggregator.compute_score_agreement(assessment_id)
         except Exception as e:
@@ -543,7 +457,6 @@ class InstructorAssessmentService:
             raise InstructorAssessmentServiceError(f"Failed to compute score agreement: {e}")
 
     def get_flagged_evaluations(self, assessment_id: str) -> Dict[str, Any]:
-        """Evaluations worth a human glance before release (Task 5)."""
         try:
             return self.results_aggregator.get_flagged_evaluations(assessment_id)
         except Exception as e:
@@ -551,11 +464,8 @@ class InstructorAssessmentService:
             raise InstructorAssessmentServiceError(f"Failed to get flagged evaluations: {e}")
 
     def release_results(self, assessment_id: str) -> Dict[str, Any]:
-        """Set resultsReleased=True on the assessment metadata item.
-        Warns if not all submitted students have evaluations, and surfaces a
-        count of evaluations flagged for review (Task 5)."""
+        """Never blocks: unevaluated submissions and flagged evaluations are only reported back."""
         try:
-            # Check how many submitted students have evaluations
             students = self.enrollment.get_assessment_students_lightweight(assessment_id)
             submitted = [s for s in students if s.get("status") == "submitted"]
 
@@ -578,9 +488,6 @@ class InstructorAssessmentService:
                     if future.result():
                         evaluated_count += 1
 
-            # Surface (do not block on) evaluations flagged for review so the
-            # instructor releases an informed result set. The release gate itself
-            # is unchanged.
             flagged_count = 0
             try:
                 flagged_count = self.results_aggregator.get_flagged_evaluations(assessment_id).get("flaggedCount", 0)
@@ -612,9 +519,8 @@ class InstructorAssessmentService:
             raise InstructorAssessmentServiceError(f"Failed to release results: {e}")
 
     def send_reminder_email(self, assessment_id: str, student_id: str) -> str:
-        """Send a reminder email to a student via SES. Returns a status message."""
+        """Returns a status message; silently skips (no error) when SES sender or student email is missing."""
         try:
-            # Fetch student enrollment for email/name
             resp = self.table.get_item(
                 Key={"PK": f"ASSESSMENT#{assessment_id}", "SK": f"STUDENT#{student_id}"}
             )
@@ -626,7 +532,6 @@ class InstructorAssessmentService:
             student_email = enrollment.get("email", "")
             student_name = enrollment.get("name", student_id)
 
-            # Fetch assessment title
             a_resp = self.table.get_item(
                 Key={"PK": f"ASSESSMENT#{assessment_id}", "SK": "METADATA"}
             )
@@ -673,10 +578,9 @@ class InstructorAssessmentService:
             logger.error(f"Failed to send reminder: {e}")
             raise InstructorAssessmentServiceError(f"Failed to send reminder: {e}")
 
-    # ── EPIC-3-3: Question Preview and Editing ────────────────────────
+    # Per-student question editing (locked once the assessment is open)
 
     def list_student_questions(self, assessment_id: str, student_id: str) -> List[Dict[str, Any]]:
-        """Return all generated questions for a student, sorted by questionNumber."""
         try:
             pk = f"STUDENT#{student_id}#ASSESSMENT#{assessment_id}"
             resp = self.table.query(
@@ -697,7 +601,7 @@ class InstructorAssessmentService:
         text: str,
         time_limit: Optional[int],
     ) -> Dict[str, Any]:
-        """Edit the text (and optionally time limit) of a student question. Locked once assessment is open."""
+        """time_limit=None removes the per-question override rather than leaving it unchanged."""
         try:
             assessment = self.catalog.get_assessment(assessment_id)
             if not assessment:
@@ -743,7 +647,7 @@ class InstructorAssessmentService:
         student_id: str,
         question_id: str,
     ) -> str:
-        """Delete a student question. At least one question must remain. Locked once assessment is open."""
+        """Refuses to delete a student's last question."""
         try:
             assessment = self.catalog.get_assessment(assessment_id)
             if not assessment:
@@ -781,7 +685,6 @@ class InstructorAssessmentService:
         topic: str = "general",
         time_limit: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Manually add a question for a specific student. Locked once assessment is open."""
         try:
             assessment = self.catalog.get_assessment(assessment_id)
             if not assessment:
@@ -821,10 +724,7 @@ class InstructorAssessmentService:
             raise InstructorAssessmentServiceError(f"Failed to add question: {e}")
 
     def update_status(self, assessment_id: str, new_status: str) -> Dict[str, Any]:
-        """
-        Transition assessment status.
-        Valid transitions: draft → open, open → closed.
-        """
+        """Only draft -> open and open -> closed are allowed."""
         if new_status not in ("open", "closed"):
             raise InstructorAssessmentServiceError("status must be 'open' or 'closed'")
 
@@ -850,40 +750,3 @@ class InstructorAssessmentService:
         logger.info("Assessment %s status: %s → %s", assessment_id, current_status, new_status)
         return self.get_assessment(assessment_id)
 
-    def count_submitted_students(self, assessment_id: str) -> tuple:
-        """
-        Return (submitted_count, total_enrolled_count) for an assessment.
-        Queries ASSESSMENT#{id} / STUDENT#* items and counts those with status='submitted'.
-
-        Uses a strongly-consistent, fully-paginated read. This is called from the
-        auto-evaluation trigger immediately after a student commits
-        status='submitted'; an eventually-consistent query can miss that just-written
-        value and make the "all students submitted" gate silently fail for the
-        last/only submitter (so the batch evaluation never fires). ConsistentRead
-        closes that race; pagination keeps the count correct for large rosters.
-        """
-        from boto3.dynamodb.conditions import Key
-        try:
-            total = 0
-            submitted = 0
-            last_key = None
-            while True:
-                kwargs = {
-                    "KeyConditionExpression": Key("PK").eq(f"ASSESSMENT#{assessment_id}")
-                    & Key("SK").begins_with("STUDENT#"),
-                    "ConsistentRead": True,
-                }
-                if last_key:
-                    kwargs["ExclusiveStartKey"] = last_key
-                response = self.table.query(**kwargs)
-                for item in response.get("Items", []):
-                    total += 1
-                    if item.get("status") == "submitted":
-                        submitted += 1
-                last_key = response.get("LastEvaluatedKey")
-                if not last_key:
-                    break
-            return submitted, total
-        except Exception as e:
-            logger.error(f"Failed to count submitted students for {assessment_id}: {e}")
-            raise InstructorAssessmentServiceError(f"Failed to count submitted students: {e}")

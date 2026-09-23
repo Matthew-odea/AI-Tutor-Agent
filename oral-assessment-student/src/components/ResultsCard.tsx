@@ -1,12 +1,4 @@
-/**
- * ResultsCard - Display evaluation results for a single question.
- *
- * Renders feedback as Markdown (matching QuestionDisplay), shows sub-scores with
- * their denominators, plays back the recording with a seekable wavesurfer
- * waveform, and renders a per-question status badge (graded / skipped /
- * not-attempted / grading-failed) so an ungraded question never shows a
- * misleading red 0%.
- */
+// Ungraded questions (skipped / not-attempted / grading-failed) must never show a misleading red 0%.
 
 import { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
@@ -19,7 +11,7 @@ import {
   totalMaxFor,
   scorePercent,
   statusBadgeFor,
-  TIME_EXPIRED_SENTINEL,
+  isSkipSentinel,
   type EffectiveStatus,
 } from '../utils/resultHelpers';
 
@@ -27,13 +19,7 @@ interface ResultsCardProps {
   result: QuestionResult;
 }
 
-/**
- * Restrained header-badge tint, keyed to the question's effective status (and,
- * for graded questions, its percentage band). Maps onto the success/caution/
- * danger tokens as soft tints instead of the old four-colour bright ramp.
- * Computed at the call site so the shared `resultHelpers` colour helper need
- * not change.
- */
+// Deliberately separate from resultHelpers.scoreColorClass (different bands).
 function badgeToneClass(status: EffectiveStatus, percentage: number | null): string {
   switch (status) {
     case 'graded': {
@@ -51,7 +37,6 @@ function badgeToneClass(status: EffectiveStatus, percentage: number | null): str
   }
 }
 
-/** Inline-friendly Markdown renderer reusing QuestionDisplay's plugin set. */
 function Markdown({ children, className }: { children: string; className?: string }) {
   return (
     <div className={className}>
@@ -60,7 +45,6 @@ function Markdown({ children, className }: { children: string; className?: strin
   );
 }
 
-/** Seekable waveform player for the student's recording (replaces bare <audio>). */
 function AudioPlayer({ url }: { url: string }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const wsRef = useRef<WaveSurfer | null>(null);
@@ -75,9 +59,10 @@ function AudioPlayer({ url }: { url: string }) {
     const ws = WaveSurfer.create({
       container: el,
       height: 48,
-      waveColor: '#99CCBF', // accent @ ~40% (resting wave)
-      progressColor: '#0E7C66', // accent (played)
-      cursorColor: '#0B6353', // accent-hover (cursor)
+      // Literal hex of the accent tokens: wavesurfer paints to canvas, not CSS.
+      waveColor: '#99CCBF',
+      progressColor: '#0E7C66',
+      cursorColor: '#0B6353',
       barWidth: 2,
       barGap: 1,
       barRadius: 2,
@@ -100,7 +85,7 @@ function AudioPlayer({ url }: { url: string }) {
       try {
         ws.destroy();
       } catch {
-        /* ignore teardown races (e.g. aborted load) */
+        /* teardown race, e.g. aborted load */
       }
       wsRef.current = null;
     };
@@ -149,16 +134,13 @@ export default function ResultsCard({ result }: ResultsCardProps) {
   const badge = statusBadgeFor(status, percentage);
   const badgeTone = badgeToneClass(status, percentage);
 
-  // Never render the skip sentinel as if it were a real transcript.
-  const showTranscript =
-    !!result.transcript && result.transcript.trim() !== TIME_EXPIRED_SENTINEL;
-  // Recording is only meaningful when the student actually answered.
+  // Never render a skip sentinel as if it were a real transcript.
+  const showTranscript = !!result.transcript && !isSkipSentinel(result.transcript);
   const showAudio = !!result.audioUrl && (status === 'graded' || status === 'grading-failed');
   const showFeedback = !!result.feedback && (status === 'graded' || status === 'grading-failed');
 
   return (
     <div className="bg-paper rounded-xl border border-hairline overflow-hidden">
-      {/* Header */}
       <div
         className="p-4 cursor-pointer hover:bg-ink/[0.03] transition-colors duration-200 ease-out"
         onClick={() => setIsExpanded(!isExpanded)}
@@ -174,12 +156,10 @@ export default function ResultsCard({ result }: ResultsCardProps) {
           </div>
 
           <div className="flex items-center space-x-4">
-            {/* Status / Score Badge — restrained token tint */}
             <div className={`px-4 py-2 rounded-xl font-serif font-semibold tabular-nums tracking-tight whitespace-nowrap ${badgeTone}`}>
               {badge.label}
             </div>
 
-            {/* Expand Icon */}
             <svg
               className={`w-5 h-5 text-slate transition-transform duration-200 ease-out ${
                 isExpanded ? 'rotate-180' : ''
@@ -198,13 +178,9 @@ export default function ResultsCard({ result }: ResultsCardProps) {
         </div>
       </div>
 
-      {/* Expanded Content */}
       {isExpanded && (
         <div className="border-t border-hairline p-6 bg-ink/[0.02]">
-          {/* Score Breakdown (graded only) — hairline-divided figure rows.
-              The QuestionResult type has no per-axis max, so correctness and
-              understanding render as single figures; only the total carries a
-              "{n} / {max}" denominator. */}
+          {/* Only the total shows a denominator; sub-scores render as bare figures. */}
           {status === 'graded' && (
             <div className="mb-6 rounded-xl border border-hairline divide-y divide-hairline overflow-hidden">
               <div className="flex items-baseline justify-between px-4 py-3">
@@ -229,7 +205,6 @@ export default function ResultsCard({ result }: ResultsCardProps) {
             </div>
           )}
 
-          {/* Non-graded status notices */}
           {status === 'skipped' && (
             <div className="mb-4 p-3 bg-ink/5 border border-hairline rounded-xl text-sm text-slate">
               You skipped this question — no answer was recorded.
@@ -247,7 +222,6 @@ export default function ResultsCard({ result }: ResultsCardProps) {
             </div>
           )}
 
-          {/* Feedback */}
           {showFeedback && (
             <div className="mb-4">
               <h4 className="text-sm font-semibold text-ink mb-2">Feedback</h4>
@@ -257,7 +231,6 @@ export default function ResultsCard({ result }: ResultsCardProps) {
             </div>
           )}
 
-          {/* Strengths */}
           {status === 'graded' && result.strengths && result.strengths.length > 0 && (
             <div className="mb-4">
               <h4 className="text-sm font-semibold text-ink mb-2">Strengths</h4>
@@ -285,7 +258,6 @@ export default function ResultsCard({ result }: ResultsCardProps) {
             </div>
           )}
 
-          {/* Weaknesses */}
           {status === 'graded' && result.weaknesses && result.weaknesses.length > 0 && (
             <div className="mb-4">
               <h4 className="text-sm font-semibold text-ink mb-2">Areas for Improvement</h4>
@@ -313,7 +285,6 @@ export default function ResultsCard({ result }: ResultsCardProps) {
             </div>
           )}
 
-          {/* Suggested Improvements */}
           {status === 'graded' &&
             result.suggestedImprovements &&
             result.suggestedImprovements.length > 0 && (
@@ -343,7 +314,6 @@ export default function ResultsCard({ result }: ResultsCardProps) {
               </div>
             )}
 
-          {/* Transcript */}
           {showTranscript && (
             <div className="mb-4">
               <h4 className="text-sm font-semibold text-ink mb-2">Transcript</h4>
@@ -353,11 +323,10 @@ export default function ResultsCard({ result }: ResultsCardProps) {
             </div>
           )}
 
-          {/* Audio Playback */}
           {showAudio && (
             <div className="mt-4">
               <h4 className="text-sm font-semibold text-ink mb-2">Your Recording</h4>
-              {/* key on url so a refreshed presigned link remounts with clean state */}
+              {/* Keyed on url so a refreshed presigned link remounts cleanly. */}
               <AudioPlayer key={result.audioUrl} url={result.audioUrl ?? ''} />
             </div>
           )}

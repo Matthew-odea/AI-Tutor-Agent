@@ -1,27 +1,19 @@
-/**
- * AudioRecorder - Audio recording component with playback controls
- */
-
 import { useEffect, useRef, useState } from 'react';
 import { formatDuration } from '../utils/helpers';
 import { useAssessmentStore } from '../store/assessmentStore';
 
 interface AudioRecorderProps {
   onSubmit?: () => void;
-  timeLimit?: number; // in seconds
+  timeLimit?: number; // seconds
   disabled?: boolean;
 }
 
-// Breathing-ring geometry. The ring is a single SVG circle whose radius eases
-// between a calm resting value and a fully-lit value driven by live mic
-// amplitude (0..1 RMS from audio.ts getAmplitude()). Frozen at REST_R under
-// prefers-reduced-motion or when no AudioContext is available.
-const RING_BOX = 112; // viewBox / px size of the ring svg
+// Breathing ring: radius eases between REST_R and MAX_R with live mic amplitude.
+const RING_BOX = 112; // px
 const RING_CENTER = RING_BOX / 2;
-const REST_R = 40; // calm resting radius
-const MAX_R = 52; // fully-lit radius at peak amplitude
+const REST_R = 40;
+const MAX_R = 52;
 
-/** True when the user has asked the OS to minimise motion. */
 function prefersReducedMotion(): boolean {
   if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
     return false;
@@ -31,7 +23,7 @@ function prefersReducedMotion(): boolean {
 
 export default function AudioRecorder({
   onSubmit,
-  timeLimit = 300, // 5 minutes default
+  timeLimit = 300,
   disabled = false,
 }: AudioRecorderProps) {
   const {
@@ -55,17 +47,12 @@ export default function AudioRecorder({
   const [initError, setInitError] = useState<string | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
 
-  // Seconds remaining in the recording budget. Mirrors the header QuestionTimer,
-  // which is the single clock that triggers stop+submit on expiry. recordingDuration
-  // and the header countdown are both anchored to recording start, so they agree.
+  // Display only. The header QuestionTimer is the single clock that stops+submits on expiry;
+  // this component deliberately has no auto-stop (two clocks racing caused double submits).
   const remainingSeconds = Math.max(0, timeLimit - recordingDuration);
 
-  // ── Signature #1: live mic-amplitude breathing ring ──────────────────────────
-  // The animated <circle> radius is driven directly on the SVG element from a
-  // requestAnimationFrame loop. Amplitude is read from the recorder instance via
-  // useAssessmentStore.getState() (NOT a hook subscription) so this never causes a
-  // React re-render — and the store is NEVER set() per frame. Reduced-motion or a
-  // missing AudioContext freezes the ring at REST_R.
+  // The rAF loop sets the circle's `r` directly and reads amplitude via getState(), so there
+  // is no per-frame re-render or store set().
   const ringRef = useRef<SVGCircleElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const smoothedRef = useRef(REST_R);
@@ -73,8 +60,6 @@ export default function AudioRecorder({
   useEffect(() => {
     const reduced = prefersReducedMotion();
 
-    // Freeze at the calm resting radius when recording is not live, motion is
-    // reduced, or there's no analyser to read. No rAF loop in those cases.
     if (!isRecording || isPaused || reduced) {
       if (rafRef.current !== null) {
         cancelAnimationFrame(rafRef.current);
@@ -86,11 +71,9 @@ export default function AudioRecorder({
     }
 
     const loop = () => {
-      // Read amplitude off the live recorder without subscribing to the store.
       const recorder = useAssessmentStore.getState().audioRecorder;
-      const amp = recorder ? recorder.getAmplitude() : 0; // 0..1 RMS (0 = static fallback)
-      // Map amplitude to a target radius, then ease toward it so the ring
-      // breathes smoothly instead of jittering frame-to-frame.
+      const amp = recorder ? recorder.getAmplitude() : 0;
+      // Ease toward the target so the ring doesn't jitter frame to frame.
       const target = REST_R + (MAX_R - REST_R) * Math.min(1, amp * 3.5);
       smoothedRef.current += (target - smoothedRef.current) * 0.18;
       if (ringRef.current) ringRef.current.setAttribute('r', smoothedRef.current.toFixed(2));
@@ -106,9 +89,7 @@ export default function AudioRecorder({
     };
   }, [isRecording, isPaused]);
 
-  // Amber -> vermillion top hairline: shifts as recording time approaches the
-  // limit. Driven from recordingDuration vs timeLimit (no new wiring); mirrors the
-  // header QuestionTimer thresholds (warning at ≤60s, danger at ≤30s remaining).
+  // Same thresholds as QuestionTimer (60s / 30s).
   const topHairlineClass = !isRecording
     ? 'bg-hairline'
     : remainingSeconds <= 30
@@ -117,7 +98,6 @@ export default function AudioRecorder({
     ? 'bg-caution'
     : 'bg-accent';
 
-  // Initialize recorder on mount
   useEffect(() => {
     const init = async () => {
       try {
@@ -138,12 +118,6 @@ export default function AudioRecorder({
     }
   }, [initializeRecorder, isInitialized, disabled]);
 
-  // NOTE: the auto-stop-at-time-limit effect was removed deliberately. The header
-  // QuestionTimer is now the single clock that stops + submits on expiry, anchored
-  // to recording start. Two independent clocks racing on the same blob caused
-  // truncated/double submissions; this component no longer runs its own.
-
-  // Create audio URL when blob is available; revoke previous URL to prevent memory leak
   useEffect(() => {
     if (recordedBlob) {
       const url = URL.createObjectURL(recordedBlob);
@@ -176,7 +150,6 @@ export default function AudioRecorder({
     }
   };
 
-  // Recording state
   const isIdle = !isRecording && !recordedBlob;
   const isRecordingState = isRecording && !isPaused;
   const isRecordedState = !isRecording && recordedBlob;
@@ -184,7 +157,6 @@ export default function AudioRecorder({
 
   return (
     <div className="relative overflow-hidden bg-paper rounded-card border border-hairline p-6">
-      {/* Top hairline — amber -> vermillion as recording time approaches the limit */}
       <div
         aria-hidden="true"
         className={`absolute inset-x-0 top-0 h-0.5 transition-colors duration-200 ease-out ${topHairlineClass}`}
@@ -194,7 +166,6 @@ export default function AudioRecorder({
         Record Your Answer
       </h3>
 
-      {/* Browser Support Warning / Error */}
       {!isInitialized && !disabled && (
         <div className={`mb-4 p-4 rounded-card border ${initError ? 'border-danger/30 bg-danger/5' : 'border-caution/30 bg-caution/5'}`}>
           <p className={`text-sm ${initError ? 'text-danger' : 'text-caution'}`}>
@@ -203,15 +174,12 @@ export default function AudioRecorder({
         </div>
       )}
 
-      {/* Timer Display */}
       <div className="mb-6 text-center">
         <div className="inline-flex items-center justify-center">
-          {/* Recording Indicator */}
           {isRecordingState && (
             <div className="w-3 h-3 bg-record rounded-full animate-pulse mr-3" />
           )}
 
-          {/* Time remaining (mirrors the header countdown — same record-start anchor) */}
           <div className="text-4xl font-serif font-semibold tabular-nums tracking-tight text-ink">
             {formatDuration(remainingSeconds)}
           </div>
@@ -226,12 +194,9 @@ export default function AudioRecorder({
         )}
       </div>
 
-      {/* Recording Controls */}
       <div className="flex flex-col items-center space-y-3 mb-6">
-        {/* Idle State: Start Recording — wrapped in the concentric breathing ring */}
         {isIdle && (
           <div className="relative inline-flex items-center justify-center" style={{ width: RING_BOX, height: RING_BOX }}>
-            {/* Breathing ring (decorative). Static at REST_R until recording starts. */}
             <svg
               aria-hidden="true"
               className="pointer-events-none absolute inset-0"
@@ -267,10 +232,8 @@ export default function AudioRecorder({
           </div>
         )}
 
-        {/* Recording State: Pause/Resume and Stop, wrapped in the breathing ring */}
         {isRecording && (
           <div className="relative inline-flex items-center justify-center" style={{ minHeight: RING_BOX }}>
-            {/* Breathing ring — responds to live mic amplitude while recording */}
             <svg
               aria-hidden="true"
               className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
@@ -290,7 +253,6 @@ export default function AudioRecorder({
               />
             </svg>
             <div className="relative flex space-x-3">
-              {/* Pause/Resume */}
               <button
                 onClick={isPaused ? resumeRecording : pauseRecording}
                 className="flex items-center space-x-2 bg-accent text-white px-6 py-3 rounded-full hover:bg-accent-hover transition-colors duration-200 ease-out"
@@ -320,7 +282,6 @@ export default function AudioRecorder({
                 )}
               </button>
 
-              {/* Stop */}
               <button
                 onClick={handleStopRecording}
                 className="flex items-center space-x-2 bg-ink text-paper px-6 py-3 rounded-full hover:bg-ink/90 transition-colors duration-200 ease-out"
@@ -338,10 +299,8 @@ export default function AudioRecorder({
           </div>
         )}
 
-        {/* Recorded State: Playback, Re-record, Submit */}
         {isRecordedState && (
           <div className="w-full space-y-3">
-            {/* Audio Player */}
             {audioUrl && (
               <div className="flex items-center justify-center p-4 bg-ink/5 rounded-card">
                 <audio
@@ -355,7 +314,6 @@ export default function AudioRecorder({
               </div>
             )}
 
-            {/* Action Buttons */}
             <div className="flex justify-center space-x-3">
               <button
                 onClick={handleRerecord}
@@ -379,7 +337,6 @@ export default function AudioRecorder({
               >
                 {isUploading ? (
                   <>
-                    {/* Determinate progress: a thin ring whose sweep tracks uploadProgress. */}
                     <svg className="w-5 h-5 -rotate-90" viewBox="0 0 36 36" aria-hidden="true">
                       <circle cx="18" cy="18" r="15" fill="none" stroke="currentColor" strokeWidth="3" className="text-white/30" />
                       <circle
@@ -415,7 +372,6 @@ export default function AudioRecorder({
         )}
       </div>
 
-      {/* Error Display */}
       {error && (
         <div className="p-3 bg-danger/5 border border-danger/30 rounded-card flex items-center justify-between">
           <p className="text-sm text-danger">{error.message}</p>

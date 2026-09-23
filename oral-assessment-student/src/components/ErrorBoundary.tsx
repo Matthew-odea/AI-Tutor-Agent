@@ -1,7 +1,3 @@
-/**
- * ErrorBoundary - Catches React errors and displays fallback UI
- */
-
 import React, { Component } from 'react';
 import type { ReactNode } from 'react';
 import useAssessmentStore from '../store/assessmentStore';
@@ -30,23 +26,12 @@ export default class ErrorBoundary extends Component<Props, State> {
     console.error('ErrorBoundary caught an error:', error, errorInfo);
   }
 
-  // Soft recovery: clear the error and re-render children WITHOUT a full page
-  // reload, which would wipe all in-memory Zustand state. The store (and the
-  // IndexedDB/sessionStorage draft) survive a re-render, so an unsubmitted
-  // answer is preserved. A hard reload remains available as a fallback.
+  // Re-render without a reload, which would wipe in-memory Zustand state (an unsubmitted answer).
   handleTryRecover = () => {
-    // Read imperatively — a class component can't use the Zustand hook. clearError
-    // is always defined; optional-chained purely defensively.
     useAssessmentStore.getState().clearError?.();
     this.setState({ hasError: false, error: null });
   };
 
-  /**
-   * Does the student likely have unsubmitted work in memory right now? Read the
-   * store imperatively (this is a class component mounted above the router). A
-   * recorded-but-not-uploaded blob or a non-empty typed answer both qualify; both
-   * have also been persisted durably, so they can be recovered after a reload.
-   */
   private hasUnsavedWork(): boolean {
     try {
       const { recordedBlob, textAnswer } = useAssessmentStore.getState();

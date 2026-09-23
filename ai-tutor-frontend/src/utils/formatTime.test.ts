@@ -1,12 +1,8 @@
-/**
- * Tests for formatTime utilities
- */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { formatRelativeTime } from "./formatTime";
 
 describe("formatTime utilities", () => {
   beforeEach(() => {
-    // Mock current time
     vi.setSystemTime(new Date("2024-01-15T12:00:00Z"));
   });
 

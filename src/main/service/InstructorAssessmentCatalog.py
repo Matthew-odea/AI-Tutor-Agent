@@ -11,12 +11,9 @@ class InstructorAssessmentCatalog:
 
     @staticmethod
     def to_assessment_view(item: Dict[str, Any]) -> Dict[str, Any]:
-        # This is the only read path for assessment config used by the instructor
-        # API, the auto-evaluation trigger and the cohort report service. Any
-        # stored attribute omitted here is silently invisible to all three — a
-        # missing autoEvaluate is what stopped auto-marking from ever firing.
-        # Defaults below reproduce pre-flag behaviour for items written before
-        # the flag existed.
+        # Sole read path for assessment config (instructor API, auto-eval trigger,
+        # reports): any stored attribute omitted here is silently invisible to all.
+        # Defaults reproduce legacy behaviour for items written before each flag.
         answer_mode = item.get("answerMode", "oral")
         cutoffs = item.get("gradeCutoffs")
 
@@ -28,7 +25,7 @@ class InstructorAssessmentCatalog:
             "description": item.get("description", ""),
             "dueDate": item["dueDate"],
             "totalQuestions": int(item["totalQuestions"]),
-            # timeLimit is stored in seconds; convert back to minutes for instructor display
+            # Stored in seconds; API contract is minutes.
             "timeLimit": int(int(item["timeLimit"]) / 60) if item.get("timeLimit") else None,
             "status": item.get("status", "draft"),
             "createdAt": item["createdAt"],

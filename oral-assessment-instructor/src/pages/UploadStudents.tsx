@@ -68,8 +68,6 @@ export default function UploadStudents() {
     }
   };
 
-  // Full-page error state — AppShell is only mounted once there is an assessment
-  // to title it with, so the retry lives on its own centred card.
   if (error && !selectedAssessment) {
     return (
       <div className="min-h-screen bg-paper flex items-center justify-center p-4">
@@ -94,7 +92,6 @@ export default function UploadStudents() {
     );
   }
 
-  // Shared so the two Ed credentials fields can't drift apart visually.
   const inputClass =
     'w-full px-3 py-2 border border-hairline rounded-xl bg-paper text-ink placeholder-slate focus:border-accent focus:ring-2 focus:ring-accent focus:outline-none';
 
@@ -117,15 +114,13 @@ export default function UploadStudents() {
       maxWidth="narrow"
       contentClassName="space-y-8"
     >
-      {/* Import from Ed */}
       <div className="bg-paper rounded-xl border border-hairline p-6">
         <h2 className="font-serif text-lg font-semibold text-ink mb-1">Import from Ed</h2>
         <p className="text-sm text-slate mb-4">
           Pull students and their code submissions directly from an Ed challenge.
         </p>
 
-        {/* A failed import is a rejection of what was typed into these two fields, so
-            both are marked invalid and point at the error region while it's showing. */}
+        {/* A failed import marks both fields invalid and points them at the error. */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div>
             <label htmlFor="challengeId" className="block text-sm font-medium text-ink mb-1">
@@ -214,7 +209,6 @@ export default function UploadStudents() {
         )}
       </div>
 
-      {/* CSV fallback */}
       <div className="bg-paper rounded-xl border border-hairline p-6">
         <h2 className="font-serif text-lg font-semibold text-ink mb-1">Or upload CSV</h2>
         <p className="text-sm text-slate mb-4">

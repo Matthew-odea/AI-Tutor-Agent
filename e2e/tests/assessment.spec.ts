@@ -348,11 +348,9 @@ test.describe('Student end-of-assessment edge cases', () => {
     );
     await page.getByRole('button', { name: /submit answer/i }).click();
 
-    // Click Submit Assessment
     await expect(page.getByRole('button', { name: /submit assessment/i })).toBeVisible({ timeout: 10_000 });
     await page.getByRole('button', { name: /submit assessment/i }).click();
 
-    // Confirm in modal
     await expect(page.getByText('Submit Assessment?')).toBeVisible({ timeout: 5_000 });
     await page.getByRole('button', { name: /^submit$/i }).click();
 

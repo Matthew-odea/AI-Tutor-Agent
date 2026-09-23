@@ -1,6 +1,3 @@
-/**
- * List of messages in the chat - Premium design
- */
 import {
   useEffect,
   useRef,
@@ -14,7 +11,6 @@ import { MessageSkeleton } from "../../shared/Skeletons";
 import { useChatStore } from "../../store/chatStore";
 import type { Message } from "../../types";
 
-// Lazy load CodeEditor for inline view
 const CodeEditor = lazy(() =>
   import("../code-editor").then((module) => ({ default: module.CodeEditor })),
 ) as LazyExoticComponent<
@@ -40,23 +36,21 @@ export const MessageList = ({
   const prevMessageCountRef = useRef(messages.length);
   const { codeEditor, setEditorMinimized, appMode } = useChatStore();
 
-  // Smart scroll: When new message arrives, scroll to show the TOP of the last message
+  // New assistant replies scroll to their top (so long answers start in view); everything else scrolls to the bottom.
   useEffect(() => {
     const messageCountIncreased = messages.length > prevMessageCountRef.current;
 
     if (messageCountIncreased && messages.length > 0) {
       const lastMessage = messages[messages.length - 1];
 
-      // If last message is from assistant, scroll to show the START of the message
       if (lastMessage.role === "assistant") {
         setTimeout(() => {
           lastMessageRef.current?.scrollIntoView({
             behavior: "smooth",
-            block: "start", // Show the TOP of the message
+            block: "start",
           });
         }, 100);
       } else {
-        // For user messages, scroll to bottom as usual
         bottomRef.current?.scrollIntoView({ behavior: "smooth" });
       }
     } else if (
@@ -64,7 +58,6 @@ export const MessageList = ({
       codeEditor.lastOutput ||
       codeEditor.lastError
     ) {
-      // For code editor state changes, scroll to bottom
       bottomRef.current?.scrollIntoView({ behavior: "smooth" });
     }
 
@@ -76,13 +69,12 @@ export const MessageList = ({
     codeEditor.lastError,
   ]);
 
-  // Smart auto-minimize: When AI finishes responding, auto-minimize editor after short delay
+  // Minimise the inline editor once a reply lands so the response is visible.
   useEffect(() => {
     const aiJustResponded =
       prevIsLoadingRef.current === true && isLoading === false;
 
     if (aiJustResponded && codeEditor.isOpen && !codeEditor.isMinimized) {
-      // Auto-minimize after AI responds so user can see the response
       setTimeout(() => setEditorMinimized(true), 500);
     }
 
@@ -98,7 +90,6 @@ export const MessageList = ({
     return (
       <div className="flex items-center justify-center h-full p-6">
         <div className="w-full max-w-4xl animate-fade-in space-y-6">
-          {/* Hero Section with Avatar */}
           <div className="text-center mb-6">
             <div className="mb-6 flex justify-center">
               <div className="relative">
@@ -114,7 +105,6 @@ export const MessageList = ({
             </h2>
           </div>
 
-          {/* Example Prompts */}
           <div className="bg-gradient-to-br from-primary-50 to-primary-100 rounded-2xl p-6 border border-primary-200">
             <p className="text-sm font-semibold text-gray-900 mb-3 flex items-center">
               Try one of these:
@@ -156,14 +146,13 @@ export const MessageList = ({
           );
         })}
 
-        {/* Code Editor - appears inline with messages (hidden in split view, never in general chat) */}
+        {/* Inline editor; hidden in split view (rendered alongside) and in general chat mode */}
         {!hideSplitEditor && appMode !== "chat" && (
           <Suspense fallback={<MessageSkeleton />}>
             <CodeEditor onSendMessage={onSendMessage} />
           </Suspense>
         )}
 
-        {/* Typing indicator */}
         {isLoading && (
           <div className="flex justify-start mb-6 animate-fade-in">
             <div className="flex space-x-3">
@@ -172,7 +161,6 @@ export const MessageList = ({
               </div>
               <div className="bg-white rounded-2xl px-5 py-4 shadow-message border border-gray-200">
                 <div className="flex items-center space-x-3">
-                  {/* Rotating spinner similar to ChatGPT/Gemini */}
                   <div className="relative w-5 h-5">
                     <div className="absolute inset-0 border-2 border-gray-200 rounded-full"></div>
                     <div className="absolute inset-0 border-2 border-primary-500 rounded-full border-t-transparent animate-spin"></div>
@@ -184,7 +172,6 @@ export const MessageList = ({
           </div>
         )}
 
-        {/* Scroll anchor */}
         <div ref={bottomRef} />
       </div>
     </div>

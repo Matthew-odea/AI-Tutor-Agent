@@ -13,8 +13,7 @@ interface ResultsDashboardProps {
   assessmentId: string;
 }
 
-// completedAt is null for enrolled-but-unsubmitted students; `new Date(null)` is
-// epoch 1970 ("56 years ago"), so guard before formatting and show a dash instead.
+// completedAt is null for unsubmitted students and `new Date(null)` is epoch 1970.
 function isValidDate(value: unknown): value is string | number | Date {
   if (value === null || value === undefined || value === '') return false;
   return !Number.isNaN(new Date(value as string | number | Date).getTime());
@@ -73,8 +72,7 @@ export default function ResultsDashboard({ assessmentId }: ResultsDashboardProps
   };
 
   useEffect(() => {
-    // Intentional reset-on-key-change: clear stale results/release state when
-    // switching assessments before the async loaders below refetch them.
+    // Reset stale state on assessment change before the loaders refetch.
     setResults([]);
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setResultsReleased(null);
@@ -140,7 +138,6 @@ export default function ResultsDashboard({ assessmentId }: ResultsDashboardProps
     <div className="space-y-6">
       {error && <ErrorMessage error={error} onDismiss={() => setError(null)} />}
 
-      {/* Release Results */}
       <div className="bg-paper border border-hairline rounded-xl p-4">
         {resultsReleased ? (
           <div className="flex items-center justify-between gap-4" role="status" aria-live="polite">
@@ -165,8 +162,7 @@ export default function ResultsDashboard({ assessmentId }: ResultsDashboardProps
               </div>
             )}
             <div className="flex items-center gap-3">
-              {/* Releasing cannot be undone from here, so the commit step carries
-                  danger weight rather than a reassuring "go" colour. */}
+              {/* Danger weight: releasing can't be undone from here. */}
               <button
                 onClick={async () => { await handleReleaseResults(); setShowReleaseConfirm(false); }}
                 disabled={isReleasing}
@@ -190,12 +186,11 @@ export default function ResultsDashboard({ assessmentId }: ResultsDashboardProps
         )}
       </div>
 
-      {/* Summary */}
       {gradeSummary && (
         <p className="text-sm text-slate tabular-nums">{resultsArray.length} students evaluated — {gradeSummary}</p>
       )}
 
-      {/* Review & validity (Tasks 3 & 5) */}
+      {/* Review & validity */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-paper border border-hairline rounded-xl p-4">
           <div className="flex items-center justify-between gap-3">
@@ -250,7 +245,6 @@ export default function ResultsDashboard({ assessmentId }: ResultsDashboardProps
         </div>
       </div>
 
-      {/* Results Table */}
       <div className="bg-paper border border-hairline rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -265,9 +259,7 @@ export default function ResultsDashboard({ assessmentId }: ResultsDashboardProps
             </thead>
             <tbody className="divide-y divide-hairline">
               {resultsArray.map((result) => (
-                // The whole row stays clickable as a convenience, but the "View"
-                // cell below is a real <Link> so the row is reachable (and
-                // announced) by keyboard and screen readers too.
+                // Row click is a mouse convenience; the "View" <Link> is the accessible path.
                 <tr key={result.studentId} className="hover:bg-ink/5 transition-colors" onClick={() => navigate(`/assessments/${assessmentId}/student/${result.studentId}/results`)}>
                   <td className="px-4 py-3">
                     <div className="text-sm font-medium text-ink">{result.name ?? result.studentId}</div>

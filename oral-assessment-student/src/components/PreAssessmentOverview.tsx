@@ -5,14 +5,9 @@ interface PreAssessmentOverviewProps {
   assessment: Assessment;
   questionCount: number;
   onStart: () => void;
-  /** Label for the action button. Defaults to "Start Assessment"; the oral flow now
-   *  passes "Continue" because this step leads to the mic device check, not the exam. */
+  /** Oral passes "Continue" since the next step is the device check, not the exam. */
   startLabel?: string;
-  /**
-   * Optional real per-question limits (seconds). When supplied, the total-time
-   * estimate sums them (most accurate); otherwise it falls back to
-   * questionCount × the assessment's representative per-question limit.
-   */
+  /** Seconds. Preferred over questionCount x assessment.timeLimit for the estimate. */
   perQuestionSeconds?: Array<number | null | undefined>;
 }
 
@@ -24,8 +19,6 @@ export default function PreAssessmentOverview({
   perQuestionSeconds,
 }: PreAssessmentOverviewProps) {
   const timeLimitMinutes = assessment.timeLimit ? Math.round(assessment.timeLimit / 60) : null;
-  // Whole-assessment estimate, clearly labelled as an estimate. Null when no
-  // per-question limit exists anywhere (then we show "No time limit" and omit it).
   const estimatedTotalMinutes = estimateTotalMinutes({
     questionCount,
     perQuestionSeconds,
@@ -41,7 +34,6 @@ export default function PreAssessmentOverview({
         <h2 className="font-serif text-2xl font-semibold text-ink mb-1">{assessment.title}</h2>
         <p className="text-sm text-slate mb-6">{assessment.course}</p>
 
-        {/* Hairline-divided metadata row: slate labels + ink values, tabular figures. */}
         <div className="flex items-stretch border-y border-ink/10 mb-6">
           <div className="flex-1 py-4 px-2">
             <div className="text-xs uppercase tracking-wide text-slate">Questions</div>
@@ -63,9 +55,6 @@ export default function PreAssessmentOverview({
           </div>
         </div>
 
-        {/* Whole-assessment time estimate, clearly labelled an estimate. Hidden
-            when there is no per-question limit (the metadata row already shows
-            "No limit" in that case). */}
         {estimatedTotalMinutes !== null && (
           <div className="flex items-center justify-center gap-2 text-sm text-slate mb-6 -mt-2">
             <svg className="w-4 h-4 text-slate flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

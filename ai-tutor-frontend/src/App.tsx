@@ -1,6 +1,3 @@
-/**
- * Main App component - Chat9021 Premium Theme with ChatGPT-style layout
- */
 import { useEffect, useState } from "react";
 import "./App.css";
 import { ChatContainer, ModeSelector } from "./features/chat";
@@ -182,7 +179,6 @@ function App() {
     };
   }, []);
 
-  // Show toast when network status changes
   useEffect(() => {
     if (!isOnline) {
       addToast(
@@ -195,7 +191,6 @@ function App() {
     }
   }, [isOnline, addToast]);
 
-  // Inject structured data for SEO
   useEffect(() => {
     const cleanupApp = injectStructuredData(webApplicationSchema);
     const cleanupOrg = injectStructuredData(organizationSchema);
@@ -206,7 +201,6 @@ function App() {
     };
   }, []);
 
-  // Global keyboard shortcuts
   useKeyboardShortcuts([
     {
       key: "/",
@@ -325,14 +319,12 @@ function App() {
 
   return (
     <>
-      {/* SEO Meta Tags */}
       <SEO
         title="Chat Interface"
         description="Interactive AI tutoring chat interface with code editor. Get help with programming, debug code, and learn through conversation."
         keywords="AI tutor, programming chat, code editor, Python learning, interactive coding"
       />
 
-      {/* Skip to main content link for screen readers */}
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-50 focus:px-4 focus:py-2 focus:bg-primary-600 focus:text-white focus:rounded-lg focus:shadow-lg"
@@ -345,18 +337,14 @@ function App() {
         role="application"
         aria-label="AI Tutor Chat Application"
       >
-        {/* Toast Notifications */}
         <ToastContainer />
 
-        {/* Keyboard Shortcuts Modal */}
         {showShortcuts && (
           <KeyboardShortcutsModal onClose={() => setShowShortcuts(false)} />
         )}
 
-        {/* Sidebar - ChatGPT Style */}
         <Sidebar />
 
-        {/* Main Content Area - Full Width */}
         <div className="flex-1 flex flex-col overflow-hidden">
           <main
             id="main-content"

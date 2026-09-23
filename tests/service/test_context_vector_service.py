@@ -1,7 +1,3 @@
-"""
-test_context_vector_service.py
-Unit tests for ContextVectorService.upload_document and embed.
-"""
 import pytest
 from unittest.mock import MagicMock
 from src.main.service.ContextVectorService import ContextVectorService

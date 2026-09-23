@@ -1,7 +1,4 @@
-"""
-AgentCoreClient.py
-Thin wrapper exposing generate, chat, embed, and streaming methods for AgentCoreProvider.
-"""
+"""Thin Bedrock invoke_model wrapper used by AgentCoreProvider. Only chat, chat_with_tool and embed are implemented."""
 from bedrock_agentcore.runtime import BedrockAgentCoreApp
 import boto3
 import json
@@ -10,8 +7,9 @@ import os
 
 
 def _is_nova_model(model_id) -> bool:
-    # Covers bare IDs, cross-region inference profiles (us./global.) and ARNs.
+    """Matches any Nova model: bare IDs, cross-region inference profiles (us./apac./global.) and ARNs."""
     return isinstance(model_id, str) and "amazon.nova-" in model_id
+
 
 class AgentCoreClient:
     def __init__(self):
@@ -23,22 +21,19 @@ class AgentCoreClient:
             logging.basicConfig(level=logging.INFO)
 
     def generate(self, prompt, model_id, **kwargs):
-        # TODO: Implement actual call to Bedrock model
         raise NotImplementedError("BedrockAgentCoreApp does not expose 'generate' directly. Implement model call here.")
 
     def chat(self, messages, model_id, **kwargs):
         self.logger.debug(f"chat called with model_id={model_id}")
         self.logger.debug(f"messages={messages}")
         
-        # Amazon Nova models use specific format
         if _is_nova_model(model_id):
             messages = self._adapt_messages_for_nova(messages)
-            # Ensure all message content fields are arrays (Nova requirement)
+            # Nova rejects string content; it must be a list of blocks
             for msg in messages:
                 c = msg.get("content")
                 if isinstance(c, str):
                     msg["content"] = [{"text": c}]
-            # Validate messages structure
             if not messages or not isinstance(messages, list):
                 self.logger.error("Nova chat: 'messages' must be a non-empty list.")
                 raise ValueError("Nova chat: 'messages' must be a non-empty list.")
@@ -59,23 +54,20 @@ class AgentCoreClient:
             except Exception as e:
                 self.logger.error(f"Nova Bedrock error: {e}")
                 raise
-            # Nova returns {"output": {"message": {"content": [{"text": "..."}], "role": "assistant"}}}
+            # Current Nova shape: {"output": {"message": {"content": [{"text": ...}]}}}
             if "output" in body and "message" in body["output"]:
                 msg = body["output"]["message"]
                 if "content" in msg and isinstance(msg["content"], list) and msg["content"]:
                     return {"text": msg["content"][0]["text"]}
-            # Legacy/other Nova formats
             elif "outputs" in body and body["outputs"]:
                 return {"text": body["outputs"][0]["text"]}
             elif "content" in body and isinstance(body["content"], list):
                 return {"text": body["content"][0]["text"]}
             else:
-                # NOTE: Unexpected Nova chat response structure
                 self.logger.error(f"Unexpected Nova chat response: {body}")
                 raise ValueError(f"Unexpected Nova chat response: {body}")
         
-        # GPT-OSS-120B and other standard Bedrock models
-        # Validate messages for standard Bedrock models
+        # GPT-OSS-120B and other non-Nova models
         if not messages or not isinstance(messages, list):
             self.logger.error("Bedrock chat: 'messages' must be a non-empty list.")
             raise ValueError("Bedrock chat: 'messages' must be a non-empty list.")
@@ -95,13 +87,11 @@ class AgentCoreClient:
             self.logger.error(f"Bedrock error for {model_id}: {e}")
             raise
         
-        # Handle standard Bedrock response formats
-        # OpenAI-compatible format (GPT-OSS-120B)
+        # OpenAI-compatible shape (GPT-OSS-120B)
         if "choices" in body and isinstance(body["choices"], list) and body["choices"]:
             choice = body["choices"][0]
             if "message" in choice and "content" in choice["message"]:
                 content = choice["message"]["content"]
-                # Extract token usage if available
                 tokens_input = body.get("usage", {}).get("prompt_tokens")
                 tokens_output = body.get("usage", {}).get("completion_tokens")
                 return {
@@ -110,7 +100,6 @@ class AgentCoreClient:
                     "tokens_output": tokens_output,
                     "model_id": body.get("model")
                 }
-        # Bedrock standard formats
         elif "content" in body and isinstance(body["content"], list):
             return {"text": body["content"][0]["text"]}
         elif "completions" in body and isinstance(body["completions"], list):
@@ -122,16 +111,9 @@ class AgentCoreClient:
             raise ValueError(f"Unexpected chat response: {body}")
 
     def chat_with_tool(self, messages, model_id, tool_config, system=None, **kwargs):
-        """
-        Invoke a chat model forcing a tool call (structured output) and return the
-        tool input.
+        """Force a Nova-native tool call and return {"tool_use", "tool_name", "stop_reason"}.
 
-        Uses the same invoke_model transport as chat(); only the request body
-        gains a `toolConfig` (Nova-native tool use). Returns:
-            {"tool_use": <input dict|None>, "tool_name": <str|None>, "stop_reason": <str|None>}
-
-        Raises on transport errors. A response with no toolUse block returns
-        tool_use=None so the caller can fall back to text parsing.
+        Raises on transport errors; no toolUse block gives tool_use=None so the caller can fall back to text parsing.
         """
         self.logger.debug(f"chat_with_tool called with model_id={model_id}")
 
@@ -163,9 +145,7 @@ class AgentCoreClient:
             self.logger.error(f"chat_with_tool Bedrock error for {model_id}: {e}")
             raise
 
-        # Nova/Bedrock tool-use response:
-        #   {"output": {"message": {"content": [{"toolUse": {"name","input","toolUseId"}} | {"text": ...}]}},
-        #    "stopReason": "tool_use"}
+        # Expected: {"output": {"message": {"content": [{"toolUse": {...}} | {"text": ...}]}}, "stopReason": ...}
         content_blocks = []
         output = resp_body.get("output") if isinstance(resp_body, dict) else None
         if isinstance(output, dict):
@@ -189,10 +169,7 @@ class AgentCoreClient:
         return {"tool_use": None, "tool_name": None, "stop_reason": resp_body.get("stopReason")}
 
     def _adapt_messages_for_nova(self, messages):
-        """
-        Nova requires the first message role to be 'user'.
-        If we receive leading system messages, fold them into the first user turn.
-        """
+        """Nova requires the first message to be 'user', so leading system messages are folded into it."""
         if not isinstance(messages, list) or not messages:
             return messages
 
@@ -214,7 +191,6 @@ class AgentCoreClient:
 
         if remainder and remainder[0].get("role") == "user":
             current = remainder[0].get("content", "")
-            # Extract text from content (may be string or list of {text: ...})
             if isinstance(current, list):
                 current_text = " ".join(c.get("text", "") for c in current if isinstance(c, dict))
             else:
@@ -233,7 +209,7 @@ class AgentCoreClient:
         return [injected_user, *remainder]
 
     def embed(self, texts, model_id):
-        # Cohere embedding expects 'texts' key
+        # Cohere takes a batch; Titan (below) takes one text per request
         if model_id == "cohere.embed-english-v3":
             if not texts or not isinstance(texts, list):
                 self.logger.error("Cohere embed: 'texts' must be a non-empty list.")
@@ -253,13 +229,11 @@ class AgentCoreClient:
             except Exception as e:
                 self.logger.error(f"Cohere embed Bedrock error: {e}")
                 raise
-            # Cohere returns {"embeddings": [[...]]}
             if "embeddings" in body and body["embeddings"]:
                 return {"vectors": body["embeddings"]}
             else:
                 self.logger.error(f"Unexpected Cohere embed response: {body}")
                 raise ValueError(f"Unexpected Cohere embed response: {body}")
-        # Actual embedding using AWS Bedrock
         vectors = []
         for text in texts:
             payload = json.dumps({"inputText": text})
@@ -270,7 +244,6 @@ class AgentCoreClient:
                 accept="application/json"
             )
             body = json.loads(response["body"].read())
-            # Titan returns {"embedding": [...]}, Cohere returns {"embeddings": [[...]]}
             if "embedding" in body:
                 vectors.append(body["embedding"])
             elif "embeddings" in body:
@@ -280,9 +253,7 @@ class AgentCoreClient:
         return {"vectors": vectors}
 
     def generate_stream(self, prompt, model_id, **kwargs):
-        # TODO: Implement streaming call
         raise NotImplementedError("Streaming not implemented.")
 
     def chat_stream(self, messages, model_id, **kwargs):
-        # TODO: Implement streaming call
         raise NotImplementedError("Streaming not implemented.")

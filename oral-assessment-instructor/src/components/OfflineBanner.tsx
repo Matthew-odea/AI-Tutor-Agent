@@ -1,16 +1,6 @@
 /**
- * OfflineBanner - always-mounted, only visible when the browser is offline.
- *
- * Ported from the student app, with one deliberate difference: the student
- * version reads an `isOnline` flag off its assessmentStore, and the instructor
- * store has no such field. Rather than widen that store, this component owns its
- * own state — `navigator.onLine` for the initial value plus online/offline
- * listeners — so it can be dropped in anywhere with no store contract.
- *
- * Sits next to the global ToastContainer in App.tsx so it appears on every
- * route. Caution palette, consistent with ErrorMessage's visual language. Copy
- * is authoring-oriented (unsaved edits are at risk) rather than the student
- * app's "your answers will submit when you reconnect".
+ * Always mounted in App.tsx; renders only while offline. Unlike the student app's
+ * version it owns its own online state (the instructor store has no isOnline field).
  */
 
 import { useEffect, useState } from 'react';
@@ -21,7 +11,6 @@ export default function OfflineBanner() {
     () => (typeof navigator !== 'undefined' && 'onLine' in navigator ? navigator.onLine : true)
   );
 
-  // Register online/offline listeners once for the lifetime of the app.
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
     const handleOffline = () => setIsOnline(false);
@@ -29,10 +18,7 @@ export default function OfflineBanner() {
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
-    // Re-sync in case the connection changed between the initial render and the
-    // listeners being attached — that transition fires no event we could catch.
-    // This is a subscription re-sync against an external system (the browser's
-    // network state), not derived state, and it no-ops when nothing changed.
+    // Re-sync: a change between first render and listener attach fires no event.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsOnline((prev) => (prev === navigator.onLine ? prev : navigator.onLine));
 

@@ -4,8 +4,6 @@ import type { ApiError } from '../types';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { useAssessmentStore } from '../store/assessmentStore';
 
-// A child that throws on demand, so we can simulate a render crash and then a
-// successful re-render after soft recovery.
 let shouldThrow = true;
 function Boom() {
   if (shouldThrow) throw new Error('kaboom');

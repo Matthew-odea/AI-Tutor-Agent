@@ -8,14 +8,8 @@ import {
   clearTextDraft,
 } from '../services/draftStore';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Minimal in-memory IndexedDB fake — just enough for draftStore's
-// open/put/get/delete. jsdom ships NO IndexedDB, so the audio-draft happy path
-// can only be exercised against an injected fake; the graceful-degradation
-// suite below runs with NO fake (real jsdom = no indexedDB) instead.
-// All callbacks fire on a microtask so they run AFTER draftStore assigns its
-// onsuccess/oncomplete handlers (matching real async IDB ordering).
-// ─────────────────────────────────────────────────────────────────────────────
+// Minimal IndexedDB fake (jsdom has none). Callbacks fire on a microtask so they run after
+// draftStore assigns its handlers, matching real IDB ordering.
 class FakeRequest {
   result: unknown = undefined;
   error: unknown = null;
@@ -115,7 +109,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-// ─── Text draft (sessionStorage — real in jsdom) ────────────────────────────
+// Text draft (sessionStorage — real in jsdom)
 describe('draftStore text draft', () => {
   it('save → load round-trips the question id and text', () => {
     saveTextDraft('a1', 'q1', 'my partial answer');
@@ -148,7 +142,7 @@ describe('draftStore text draft', () => {
   });
 });
 
-// ─── Audio draft graceful degradation (NO IndexedDB — real jsdom) ───────────
+// Audio draft graceful degradation (NO IndexedDB — real jsdom)
 describe('draftStore audio draft — graceful degradation without IndexedDB', () => {
   it('save/load/clear never throw and load resolves to null when IndexedDB is unavailable', async () => {
     // jsdom has no indexedDB, so these all hit the no-op / null path.
@@ -160,7 +154,7 @@ describe('draftStore audio draft — graceful degradation without IndexedDB', ()
   });
 });
 
-// ─── Audio draft happy path (injected fake IndexedDB) ───────────────────────
+// Audio draft happy path (injected fake IndexedDB)
 describe('draftStore audio draft — with IndexedDB', () => {
   beforeEach(() => {
     vi.stubGlobal('indexedDB', makeFakeIndexedDB());

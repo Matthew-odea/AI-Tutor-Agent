@@ -56,15 +56,12 @@ describe('deferSubmitWhileOffline', () => {
   });
 });
 
-// ── Integration: a registerReconnect mirroring TakeAssessment's one-shot wiring ──
-// Proves the deferred submit fires EXACTLY ONCE on the real `online` event and
-// never double-submits, even if `online` fires twice (flapping connection).
+// Integration: TakeAssessment-style one-shot registerReconnect against real `online` events.
 describe('deferred submit on reconnect (one-shot, no double-submit)', () => {
   let listener: (() => void) | null;
   let inFlight: boolean;
 
-  // Re-implements the component's registerDeferredSubmit semantics against the
-  // real window so we exercise the same one-shot detach + in-flight guard.
+  // Keep in sync with registerDeferredSubmit in TakeAssessment.
   function makeRegisterReconnect() {
     listener = null;
     return (run: () => void) => {

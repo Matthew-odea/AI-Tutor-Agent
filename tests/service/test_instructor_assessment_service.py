@@ -1,14 +1,4 @@
-"""
-Integration tests for InstructorAssessmentService using moto-mocked DynamoDB.
-
-Covers:
-- create_assessment
-- list_assessments
-- get_assessment
-- upload_students
-- update_brief
-- update_schedule
-"""
+"""Integration tests for InstructorAssessmentService using moto-mocked DynamoDB."""
 from __future__ import annotations
 
 from decimal import Decimal
@@ -72,10 +62,6 @@ def _create_service(table) -> InstructorAssessmentService:
     return svc
 
 
-# ─────────────────────────────────────────────────────────────
-# create_assessment
-# ─────────────────────────────────────────────────────────────
-
 class TestCreateAssessment:
     def test_create_returns_assessment_data(self, dynamo_env):
         svc = _create_service(dynamo_env)
@@ -135,10 +121,6 @@ class TestCreateAssessment:
         assert result["answerMode"] == "text"
 
 
-# ─────────────────────────────────────────────────────────────
-# list_assessments / get_assessment
-# ─────────────────────────────────────────────────────────────
-
 class TestListAndGet:
     def test_list_returns_created_assessments(self, dynamo_env):
         svc = _create_service(dynamo_env)
@@ -161,10 +143,6 @@ class TestListAndGet:
             svc.get_assessment("nonexistent-id")
 
 
-# ─────────────────────────────────────────────────────────────
-# upload_students
-# ─────────────────────────────────────────────────────────────
-
 class TestUploadStudents:
     def test_upload_students_enrolls(self, dynamo_env):
         table = dynamo_env
@@ -184,54 +162,6 @@ class TestUploadStudents:
             svc.upload_students("fake-id", [{"name": "A", "email": "a@b.com", "studentId": "s-1"}])
 
 
-# ─────────────────────────────────────────────────────────────
-# count_submitted_students (auto-evaluation gate)
-# ─────────────────────────────────────────────────────────────
-
-class TestCountSubmittedStudents:
-    def _setup(self, table):
-        svc = _create_service(table)
-        assessment = svc.create_assessment(
-            title="Count Test", course="C", description="D",
-            due_date="2026-04-01", total_questions=2,
-        )
-        aid = assessment["id"]
-        svc.upload_students(aid, [
-            {"name": "Alice", "email": "alice@test.com", "studentId": "s-1", "code": "x = 1"},
-            {"name": "Bob", "email": "bob@test.com", "studentId": "s-2", "code": "y = 2"},
-        ])
-        return svc, table, aid
-
-    def _mark_submitted(self, table, aid, student_id):
-        table.update_item(
-            Key={"PK": f"ASSESSMENT#{aid}", "SK": f"STUDENT#{student_id}"},
-            UpdateExpression="SET #s = :v",
-            ExpressionAttributeNames={"#s": "status"},
-            ExpressionAttributeValues={":v": "submitted"},
-        )
-
-    def test_counts_none_submitted(self, dynamo_env):
-        svc, table, aid = self._setup(dynamo_env)
-        assert svc.count_submitted_students(aid) == (0, 2)
-
-    def test_counts_partial_submitted(self, dynamo_env):
-        svc, table, aid = self._setup(dynamo_env)
-        self._mark_submitted(table, aid, "s-1")
-        # The auto-eval gate must see submitted < total here and hold off.
-        assert svc.count_submitted_students(aid) == (1, 2)
-
-    def test_counts_all_submitted(self, dynamo_env):
-        svc, table, aid = self._setup(dynamo_env)
-        self._mark_submitted(table, aid, "s-1")
-        self._mark_submitted(table, aid, "s-2")
-        # All submitted -> gate fires (submitted == total).
-        assert svc.count_submitted_students(aid) == (2, 2)
-
-
-# ─────────────────────────────────────────────────────────────
-# update_brief
-# ─────────────────────────────────────────────────────────────
-
 class TestUpdateBrief:
     def test_update_brief_success(self, dynamo_env):
         svc = _create_service(dynamo_env)
@@ -248,10 +178,6 @@ class TestUpdateBrief:
         with pytest.raises(InstructorAssessmentServiceError, match="50 characters"):
             svc.update_brief(assessment["id"], "too short")
 
-
-# ─────────────────────────────────────────────────────────────
-# update_schedule
-# ─────────────────────────────────────────────────────────────
 
 class TestUpdateSchedule:
     def test_update_to_scheduled(self, dynamo_env):
@@ -280,8 +206,6 @@ class TestUpdateSchedule:
         with pytest.raises(InstructorAssessmentServiceError, match="must be"):
             svc.update_schedule(assessment["id"], access_mode="invalid")
 
-
-# ── Task 6: configurable scoring + Task 3: dual-scoring service paths ────────
 
 class TestScoringConfigAndDualScoring:
     def test_create_assessment_persists_scoring_overrides(self, dynamo_env):
@@ -321,3 +245,55 @@ class TestScoringConfigAndDualScoring:
         assert int(item["humanTotalScore"]) == 8
         assert item["humanScoredBy"] == "grader"
         assert int(item["totalScore"]) == 8  # AI score untouched by the human reference
+
+
+class TestOverrideQuestionScore:
+    """Overrides are bounded by the question's real max, not a fixed 10."""
+
+    def _seed(self, table, *, eval_max=None, assessment_max=None):
+        svc = _create_service(table)
+        assessment = svc.create_assessment(
+            title="Override", course="C", description="D", due_date="2026-12-01",
+            total_questions=2, max_score_per_question=assessment_max,
+        )
+        aid = assessment["id"]
+        pk = f"STUDENT#s-1#ASSESSMENT#{aid}"
+        item = {"PK": pk, "SK": "EVALUATION#q-1", "totalScore": Decimal("7")}
+        if eval_max is not None:
+            item["maxScore"] = Decimal(str(eval_max))
+        table.put_item(Item=item)
+        return svc, aid, pk
+
+    def test_allows_score_above_10_when_question_max_is_higher(self, dynamo_env):
+        svc, aid, pk = self._seed(dynamo_env, eval_max=20, assessment_max=20)
+        res = svc.override_question_score(aid, "s-1", "q-1", 18, "strong answer")
+        assert res["instructorScore"] == 18
+        item = dynamo_env.get_item(Key={"PK": pk, "SK": "EVALUATION#q-1"})["Item"]
+        assert int(item["instructorScore"]) == 18
+
+    def test_rejects_score_above_question_max(self, dynamo_env):
+        svc, aid, pk = self._seed(dynamo_env, eval_max=5, assessment_max=5)
+        with pytest.raises(InstructorAssessmentServiceError, match="outside 0-5"):
+            svc.override_question_score(aid, "s-1", "q-1", 6)
+        item = dynamo_env.get_item(Key={"PK": pk, "SK": "EVALUATION#q-1"})["Item"]
+        assert "instructorScore" not in item
+
+    def test_falls_back_to_assessment_max_when_evaluation_has_none(self, dynamo_env):
+        svc, aid, _ = self._seed(dynamo_env, assessment_max=15)
+        assert svc.override_question_score(aid, "s-1", "q-1", 15)["instructorScore"] == 15
+        with pytest.raises(InstructorAssessmentServiceError):
+            svc.override_question_score(aid, "s-1", "q-1", 16)
+
+    def test_default_max_is_10(self, dynamo_env):
+        svc, aid, _ = self._seed(dynamo_env)
+        with pytest.raises(InstructorAssessmentServiceError):
+            svc.override_question_score(aid, "s-1", "q-1", 11)
+
+
+def test_score_override_request_accepts_scores_above_10():
+    from pydantic import ValidationError
+    from src.main.dtos.InstructorAssessmentDTOs import ScoreOverrideRequest
+
+    assert ScoreOverrideRequest(score=18).score == 18
+    with pytest.raises(ValidationError):
+        ScoreOverrideRequest(score=-1)

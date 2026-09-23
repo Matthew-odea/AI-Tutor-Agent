@@ -1,10 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AxiosError, AxiosHeaders } from 'axios';
 
-// ── Controllable fake axios instance ───────────────────────────────────────
-// We mock `axios.create` to return a callable instance whose response-interceptor
-// error handler we capture, then drive it directly. This lets us assert the
-// single-flight refresh behavior without a real network.
+// axios.create returns a callable fake whose response-interceptor error handler we capture and drive.
 
 type ErrorHandler = (err: AxiosError) => Promise<unknown>;
 

@@ -153,9 +153,7 @@ export const CodeEditor = ({
     try {
       const result = await runCode(codeEditor.code);
       setEditorOutput(result.output, result.error);
-      // Add to history after execution
       addToHistory(codeEditor.code, result.output, result.error);
-      // Track code execution
       trackCodeExecuted(
         !!result.error,
         result.executionTime,
@@ -177,17 +175,13 @@ export const CodeEditor = ({
     let message = "";
 
     if (codeEditor.lastError) {
-      // User has an error - format debugging help request
       message = `Help me debug this Python code:\n\n\`\`\`python\n${codeEditor.code}\n\`\`\`\n\nI'm getting this error:\n\`\`\`\n${codeEditor.lastError}\n\`\`\`\n\nWhat's wrong and how do I fix it?`;
     } else if (codeEditor.lastOutput) {
-      // Code ran successfully but user wants feedback
       message = `Help me with this Python code:\n\n\`\`\`python\n${codeEditor.code}\n\`\`\`\n\nIt produces this output:\n\`\`\`\n${codeEditor.lastOutput}\n\`\`\`\n\nCan you review it and provide feedback?`;
     } else {
-      // No execution yet - general help request
       message = `Help me with this Python code:\n\n\`\`\`python\n${codeEditor.code}\n\`\`\`\n\nCan you review it and provide feedback on how to improve it?`;
     }
 
-    // Send the formatted message to chat
     onSendMessage(message);
   };
 
@@ -199,7 +193,6 @@ export const CodeEditor = ({
     setEditorOutput(null, null);
   };
 
-  // Keyboard shortcuts for code editor
   useKeyboardShortcuts(
     [
       {
@@ -216,9 +209,8 @@ export const CodeEditor = ({
       },
     ],
     codeEditor.isOpen,
-  ); // Only active when editor is open
+  );
 
-  // Auto-scroll to editor when opened
   useEffect(() => {
     if (codeEditor.isOpen) {
       setTimeout(() => {
@@ -261,10 +253,8 @@ export const CodeEditor = ({
     return null;
   }
 
-  // Count lines of code
   const lineCount = codeEditor.code.split("\n").length;
 
-  // Determine status
   const hasError = !!codeEditor.lastError;
   const hasOutput = !!codeEditor.lastOutput;
   const status = hasError ? "Error" : hasOutput ? "Ready" : "Not Run";
@@ -275,7 +265,6 @@ export const CodeEditor = ({
       : "text-gray-400";
   const statusIcon = hasError ? "⚠️" : hasOutput ? "✓" : "○";
 
-  // Check if in split mode
   const isInSplitMode = layoutMode === "split" && window.innerWidth >= 1024;
 
   return (
@@ -295,7 +284,6 @@ export const CodeEditor = ({
         }`}
       >
         {codeEditor.isMinimized ? (
-          // Minimized View - Compact Bar
           <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-green-50 to-emerald-50">
             <div className="flex items-center space-x-4">
               <span className="font-semibold text-gray-900">Python Editor</span>
@@ -353,16 +341,13 @@ export const CodeEditor = ({
             </div>
           </div>
         ) : (
-          // Expanded View - Full Editor
           <>
-            {/* Header */}
             <CodeEditorHeader
               onRunCode={handleRunCode}
               isExecuting={codeEditor.isExecuting}
               isLoading={isLoading}
             />
 
-            {/* Editor */}
             <div
               className={
                 isInSplitMode
@@ -426,7 +411,6 @@ export const CodeEditor = ({
               </div>
             </div>
 
-            {/* Controls */}
             <CodeEditorControls
               onRunCode={handleRunCode}
               onAskAI={handleAskAI}
@@ -444,7 +428,6 @@ export const CodeEditor = ({
               </div>
             )}
 
-            {/* Output Display */}
             {(codeEditor.lastOutput || codeEditor.lastError) && (
               <div
                 className={`bg-slate-50 text-gray-800 ${isInSplitMode ? "flex flex-col overflow-hidden min-h-[35%] max-h-[55%]" : ""}`}

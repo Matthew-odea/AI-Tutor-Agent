@@ -1,16 +1,5 @@
-"""
-Per-student question CRUD, plus request logging and invite-sender coverage.
-
-Covers:
-
-- EPIC-3-3: GET  /api/assessment/{id}/students/{student_id}/questions
-- EPIC-3-3: PUT  /api/assessment/{id}/students/{student_id}/questions/{question_id}
-- EPIC-3-3: DELETE /api/assessment/{id}/students/{student_id}/questions/{question_id}
-- EPIC-3-3: POST /api/assessment/{id}/students/{student_id}/questions
-- InstructorAssessmentService question CRUD methods (moto integration tests)
-- EPIC-7-2: RequestLoggingMiddleware emits structured log records
-- EPIC-7-2: _JsonFormatter produces valid JSON
-- SES carry-over: send_reminder_email prefers INVITE_FROM_EMAIL over AUTH_PASSWORD_RESET_FROM_EMAIL
+"""Per-student question CRUD (endpoints and moto-backed service), structured request
+logging, and INVITE_FROM_EMAIL preference for reminder emails.
 """
 
 from __future__ import annotations
@@ -36,10 +25,6 @@ from src.main.service.InstructorAssessmentService import (
 )
 from src.main.middleware.logging_middleware import RequestLoggingMiddleware
 from src.main.utils.structured_logger import _JsonFormatter
-
-# ──────────────────────────────────────────────────────────────
-# Shared test data
-# ──────────────────────────────────────────────────────────────
 
 _INSTRUCTOR = AuthPrincipal(user_id="i-1", roles=["instructor"], source="jwt")
 _TABLE = "test_oral_assessments"
@@ -76,10 +61,6 @@ def _question(n: int = 1, qid: str = "q-1") -> dict:
         "createdAt": "2026-01-01T00:00:00",
     }
 
-
-# ──────────────────────────────────────────────────────────────
-# EPIC-3-3: Controller endpoint tests (mock service)
-# ──────────────────────────────────────────────────────────────
 
 class TestListStudentQuestionsEndpoint:
     def test_returns_questions(self):
@@ -219,10 +200,6 @@ class TestAddStudentQuestionEndpoint:
         assert r.status_code == 400
 
 
-# ──────────────────────────────────────────────────────────────
-# EPIC-3-3: Service unit tests (moto DynamoDB)
-# ──────────────────────────────────────────────────────────────
-
 @pytest.fixture()
 def dynamo_table(aws_credentials):
     """Spin up a moto DynamoDB table and patch the service to use it."""
@@ -302,7 +279,6 @@ class TestQuestionCrudMoto:
             _ASSESSMENT_ID, _STUDENT_ID, "q-1", "Updated question text here", None
         )
         assert result["text"] == "Updated question text here"
-        # Verify persisted
         raw = dynamo_table.get_item(
             Key={
                 "PK": f"STUDENT#{_STUDENT_ID}#ASSESSMENT#{_ASSESSMENT_ID}",
@@ -368,10 +344,6 @@ class TestQuestionCrudMoto:
                 _ASSESSMENT_ID, _STUDENT_ID, "Explain your approach please"
             )
 
-
-# ──────────────────────────────────────────────────────────────
-# EPIC-7-2: Structured logging tests
-# ──────────────────────────────────────────────────────────────
 
 class TestJsonFormatter:
     def test_produces_valid_json(self):
@@ -442,8 +414,7 @@ class TestRequestLoggingMiddleware:
         with patch.object(logging.getLogger("access"), "log") as mock_log:
             r = client.get("/health")
             assert r.status_code == 200
-            # The middleware should have called logger.log for /health
-            # (health is in _SKIP_PATHS so we use a different path)
+            # /health is in _SKIP_PATHS; this only checks the middleware doesn't break the request.
 
     def test_skips_health_path(self):
         """Health endpoint is in _SKIP_PATHS and must not generate an access log."""
@@ -451,18 +422,12 @@ class TestRequestLoggingMiddleware:
         assert "/health" in _SKIP_PATHS
 
     def test_logs_non_skipped_path(self, caplog):
-        """Non-skip paths should generate access log entries."""
         app = create_app()
         client = TestClient(app)
         with caplog.at_level(logging.INFO, logger="access"):
             client.get("/nonexistent-path-404")
-        # At least one access record should have been emitted
         assert any("nonexistent" in r.message or r.name == "access" for r in caplog.records)
 
-
-# ──────────────────────────────────────────────────────────────
-# SES carry-over: INVITE_FROM_EMAIL preference
-# ──────────────────────────────────────────────────────────────
 
 class TestInviteFromEmail:
     """send_reminder_email should prefer INVITE_FROM_EMAIL over AUTH_PASSWORD_RESET_FROM_EMAIL."""
@@ -490,7 +455,6 @@ class TestInviteFromEmail:
             with patch("boto3.client", return_value=ses) as mock_client:
                 svc.send_reminder_email(_ASSESSMENT_ID, _STUDENT_ID)
                 call_kwargs = mock_client.call_args
-                # Ensure boto3.client("ses", ...) was called
                 assert mock_client.called
 
     def test_falls_back_to_reset_email_when_invite_unset(self, dynamo_table, monkeypatch):

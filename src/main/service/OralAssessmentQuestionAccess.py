@@ -20,15 +20,15 @@ class OralAssessmentQuestionAccess:
             raise ValueError(f"Student {student_id} not enrolled in assessment {assessment_id}")
 
     def get_student_questions(self, student_id: str, assessment_id: str) -> List[Dict[str, Any]]:
-        """
-        Fetch questions generated for a specific student.
-        Stored at PK=STUDENT#{student_id}#ASSESSMENT#{assessment_id}, SK=QUESTION#{id}
-        """
         pk = f"STUDENT#{student_id}#ASSESSMENT#{assessment_id}"
         response = self.table.query(
             KeyConditionExpression=Key("PK").eq(pk) & Key("SK").begins_with("QUESTION#")
         )
         return response.get("Items", [])
+
+    def count_served_questions(self, student_id: str, assessment_id: str) -> int:
+        """Size of the student's own QUESTION# set; progress totals and submit gating use this."""
+        return len(self.get_student_questions(student_id, assessment_id))
 
     def to_student_question_view(
         self,
@@ -38,12 +38,9 @@ class OralAssessmentQuestionAccess:
         assessment_id: str,
         assessment_time_limit: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
-        """
-        Project raw DynamoDB items into the student-facing question shape,
-        numbered sequentially.
+        """Project DynamoDB items into the student view, numbered sequentially.
 
-        Attribute names in DynamoDB match what QuestionGenerationService stores:
-        lowercase camelCase (text, questionNumber, questionType, codeContext, etc.)
+        Item attribute names are the camelCase ones QuestionGenerationService writes.
         """
 
         def _to_view(item: Dict[str, Any], question_number: int) -> Dict[str, Any]:
@@ -65,7 +62,6 @@ class OralAssessmentQuestionAccess:
                 "createdAt": item.get("createdAt", ""),
             }
 
-        # Sort student questions by their stored question number
         student_items_sorted = sorted(
             student_items, key=lambda q: q.get("questionNumber", 999)
         )
@@ -81,13 +77,9 @@ class OralAssessmentQuestionAccess:
         questions: List[Dict[str, Any]],
         current_question_idx: int,
     ) -> List[Dict[str, Any]]:
-        """
-        Strip content from future questions so students cannot read ahead.
-        Questions at index <= current_question_idx get full content;
-        future questions get only metadata (id, questionNumber, assessmentId, studentId).
-        """
+        """Strip content from questions after current_question_idx so students cannot read ahead."""
         gated: List[Dict[str, Any]] = []
-        # Clamp index to valid range to prevent corrupted index from ungating everything
+        # Clamp so a corrupted index can't ungate everything.
         safe_idx = min(current_question_idx, len(questions) - 1) if questions else -1
         for idx, q in enumerate(questions):
             if idx <= safe_idx:

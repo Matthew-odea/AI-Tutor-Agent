@@ -1,17 +1,9 @@
 """
-Thin client for the Ed (edstem.org) REST API + WebSocket workspace protocol.
+Imports students and code submissions from Ed (edstem.org) challenges.
 
-Used to import students and their code submissions from Ed challenges
-into our assessment system, replacing the manual CSV upload flow.
-
-The Ed API is unofficial and undocumented — endpoints were reverse-engineered
-from browser network inspection and the glipR/terraform-provider-edstem repo.
-
-Code retrieval flow:
-  1. GET /api/challenges/{id}/users  → list students
-  2. GET /api/users/{uid}/challenges/{cid}/submissions  → get workspace_id
-  3. POST /api/challenges/{cid}/connect/scaffold  → get WebSocket ticket
-  4. WSS connect → list_folder → file_open → read buffer from file_ot_init
+The Ed API is unofficial and undocumented (reverse-engineered from the browser and
+glipR/terraform-provider-edstem). Code flow: challenge users -> latest submission's
+workspace_id -> connect/scaffold ticket -> WSS list_folder / file_open / file_ot_init.
 """
 
 from __future__ import annotations
@@ -30,9 +22,7 @@ logger = logging.getLogger(__name__)
 
 ED_API_BASE = "https://edstem.org/api"
 ED_WS_HOST = "wss://sahara.au.edstem.org/connect"
-# Per-student WebSocket timeout (seconds)
-WS_TIMEOUT = 20
-# Max concurrent WebSocket connections
+WS_TIMEOUT = 20  # seconds, per student
 MAX_WS_WORKERS = 8
 
 
@@ -79,14 +69,11 @@ class EdStemService:
         return ticket
 
     def _fetch_code_via_ws(self, ticket: str) -> str:
-        """
-        Connect to the Ed workspace WebSocket, list Python files, and read their content.
-        Returns concatenated code from all .py files found.
-        """
+        """Returns all top-level .py files concatenated, or partial/empty output on error or WS_TIMEOUT."""
         code_parts: List[str] = []
         done = threading.Event()
         pending_files: List[str] = []
-        opened_files: set = set()
+        received = [0]  # file_ot_init replies seen so far, empty buffers included
 
         def on_message(ws: websocket.WebSocketApp, raw: str) -> None:
             try:
@@ -104,26 +91,22 @@ class EdStemService:
                 py_files = [f["name"] for f in listing if isinstance(f, dict) and f.get("name", "").endswith(".py")]
                 pending_files.extend(py_files)
                 if py_files:
-                    # Open first file; subsequent opens triggered after file_ot_init
+                    # Files are opened one at a time; each file_ot_init triggers the next open
                     ws.send(json.dumps({"type": "file_open", "data": {"path": py_files[0], "soft": True}}))
-                    opened_files.add(py_files[0])
                 else:
                     done.set()
 
             elif msg_type == "file_ot_init":
                 buf = msg.get("data", {}).get("buffer", "")
-                # Determine which file this is (Ed sends fid, not path — use open order)
-                idx = len(code_parts)
+                # Ed sends fid, not path, so infer the file from open order (files are opened one at a time).
+                idx = received[0]
+                received[0] += 1
                 fname = pending_files[idx] if idx < len(pending_files) else "unknown.py"
                 if buf.strip():
                     code_parts.append(f"# === {fname} ===\n{buf}")
-                # Open next file if any
                 next_idx = idx + 1
                 if next_idx < len(pending_files):
-                    next_file = pending_files[next_idx]
-                    if next_file not in opened_files:
-                        ws.send(json.dumps({"type": "file_open", "data": {"path": next_file, "soft": True}}))
-                        opened_files.add(next_file)
+                    ws.send(json.dumps({"type": "file_open", "data": {"path": pending_files[next_idx], "soft": True}}))
                 else:
                     done.set()
 
@@ -151,7 +134,7 @@ class EdStemService:
         return "\n\n".join(code_parts)
 
     def _fetch_student_code(self, challenge_id: int, user_id: int) -> str:
-        """Fetch the latest submission code for a single student via WebSocket."""
+        """Assumes submissions[0] is the latest. Returns "" on any failure."""
         submissions = self.get_user_submissions(challenge_id, user_id)
         if not submissions:
             return ""
@@ -172,15 +155,10 @@ class EdStemService:
         student_id_field: str = "email",
     ) -> List[Dict[str, str]]:
         """
-        Fetch all students and their latest code submissions from an Ed challenge.
+        Returns rows shaped for upload_students(): {name, email, studentId, code, assignmentFile}.
 
-        Returns a list of dicts in the shape expected by upload_students():
-            [{name, email, studentId, code, assignmentFile}, ...]
-
-        Args:
-            challenge_id: The Ed challenge/assignment ID.
-            student_id_field: Which Ed user field to use as studentId.
-                              Options: "email", "username", "student_number", "id".
+        student_id_field: Ed user field used as studentId ("email", "username", "student_number", "id"),
+        falling back to email, username, then id.
         """
         users = self.get_challenge_users(challenge_id)
         students_only = [
@@ -193,7 +171,7 @@ class EdStemService:
 
         logger.info(f"[EdStem] Found {len(students_only)} students for challenge {challenge_id}")
 
-        # Build result shells first so order is preserved
+        # Build rows first so output order matches Ed's, regardless of fetch completion order
         results: List[Dict[str, str]] = []
         user_index: Dict[int, int] = {}  # ed_user_id → results index
 
@@ -217,7 +195,6 @@ class EdStemService:
             })
             user_index[ed_user_id] = idx
 
-        # Fetch code concurrently
         errors: List[str] = []
 
         def fetch_one(user: Dict[str, Any]) -> tuple[int, str]:

@@ -71,7 +71,7 @@ class InstructorAssessmentEnrollment:
         return students
 
     def get_assessment_students_lightweight(self, assessment_id: str) -> List[Dict[str, Any]]:
-        """Get students without code/assignmentFile — for progress and stats queries."""
+        """Omits the large code/assignmentFile attributes; for progress and stats queries."""
         response = self.table.query(
             KeyConditionExpression=Key("PK").eq(f"ASSESSMENT#{assessment_id}")
             & Key("SK").begins_with("STUDENT#"),

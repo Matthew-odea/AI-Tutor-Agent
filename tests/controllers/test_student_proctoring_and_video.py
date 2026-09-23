@@ -1,12 +1,4 @@
-"""
-Student video answers and proctoring chunk upload.
-
-Covers:
-- Video answer submission (answer_type='video')
-- Proctoring chunk manifest endpoint
-- video_url stored and returned correctly
-- Proctoring chunk requires assessment_id, chunk_url, chunk_index
-"""
+"""Student router: video answer submission and the proctoring chunk endpoint."""
 
 from unittest.mock import MagicMock
 
@@ -19,10 +11,6 @@ from src.main.auth.models import AuthPrincipal
 from src.main.controllers.controller_dependencies import get_oral_assessment_service
 from src.main.service.OralAssessmentService import OralAssessmentServiceError
 
-
-# ─────────────────────────────────────────────────────────────
-# Helpers
-# ─────────────────────────────────────────────────────────────
 
 _STUDENT = AuthPrincipal(user_id="s-1", roles=["student"], source="jwt", assessment_id="a-1")
 
@@ -63,9 +51,7 @@ def _mock_svc(**kwargs):
     return svc
 
 
-# ─────────────────────────────────────────────────────────────
-# POST answer — video
-# ─────────────────────────────────────────────────────────────
+# POST answer: video
 
 def test_submit_video_answer_returns_200():
     svc = _mock_svc(
@@ -146,9 +132,7 @@ def test_submit_video_answer_service_error_returns_400():
     assert resp.json()["error"]["code"] == "submit_answer_failed"
 
 
-# ─────────────────────────────────────────────────────────────
 # POST proctoring-chunk
-# ─────────────────────────────────────────────────────────────
 
 def test_submit_proctor_chunk_returns_200():
     svc = _mock_svc()

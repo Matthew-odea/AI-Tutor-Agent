@@ -1,7 +1,3 @@
-"""
-test_split_by_md.py
-Unit tests for SplitByMd.split_by_markdown_heading.
-"""
 import pytest
 from src.main.utils.SplitByMd import split_by_markdown_heading
 

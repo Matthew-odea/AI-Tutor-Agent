@@ -29,11 +29,7 @@ const toText = (value?: string | unknown[] | null): string => {
   return value ?? '';
 };
 
-/**
- * Score-band tint, mirroring the student app's ResultsCard header badge, so an
- * instructor and a student looking at the same question see the same visual
- * language. Ungraded questions get the neutral chip rather than a red 0%.
- */
+// Mirrors the student app's ResultsCard badge; ungraded gets neutral, not a red 0%.
 const scoreToneClass = (score?: number | null, maxScore?: number): string => {
   if (score === null || score === undefined || !maxScore) return 'text-slate bg-ink/5';
   const percent = (score / maxScore) * 100;
@@ -50,11 +46,8 @@ export default function StudentResultDetail() {
   const [overrideStates, setOverrideStates] = useState<Record<string, { score: string; comment: string; saving: boolean; scoreError?: string }>>({});
   const [humanScoreStates, setHumanScoreStates] = useState<Record<string, { correctness: string; understanding: string; saving: boolean; error?: string }>>({});
   const [expandedQuestion, setExpandedQuestion] = useState<string | null>(null);
-  // The breadcrumb carries the assessment-title level, like every other deep
-  // page, but the student-detail payload does not include the title — so it is
-  // fetched separately. Kept out of loadDetail because loadDetail re-runs after
-  // every override save, and a failure here must degrade the crumb to a generic
-  // label rather than take down the page.
+  // Fetched apart from loadDetail (the payload lacks it, and loadDetail re-runs after
+  // every save); failure only degrades the breadcrumb.
   const [assessmentTitle, setAssessmentTitle] = useState<string | null>(null);
   const addToast = useToastStore(s => s.addToast);
 
@@ -117,8 +110,7 @@ export default function StudentResultDetail() {
       });
       addToast('Score override saved.', 'success');
     } catch (err) {
-      // A failed save is transient — toast it instead of replacing the whole
-      // page with the full-page error state.
+      // Toast, not the full-page error state: a failed save is transient.
       addToast(err instanceof Error ? err.message : 'Failed to save override', 'error');
       // Only on failure: after a successful save the entry was deleted above, and
       // re-creating it here left the form open with an empty score box.
@@ -212,7 +204,6 @@ export default function StudentResultDetail() {
       maxWidth="medium"
       contentClassName="space-y-6"
     >
-      {/* Score Summary */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="bg-paper border border-hairline rounded-xl p-4">
           <div className="text-xs text-slate mb-1">Score</div>
@@ -227,8 +218,6 @@ export default function StudentResultDetail() {
         </div>
         <div className="bg-paper border border-hairline rounded-xl p-4">
           <div className="text-xs text-slate mb-1">Grade</div>
-          {/* Grade chip classes + label come from the shared status tokens, so an
-              unrecognised grade (e.g. "Not Evaluated") still renders readably. */}
           <span className={`inline-block px-2.5 py-1 rounded-full text-sm font-medium ${gradeToken(detail.grade).className}`}>
             {gradeToken(detail.grade).label}
           </span>
@@ -239,7 +228,6 @@ export default function StudentResultDetail() {
         </div>
       </div>
 
-      {/* Questions */}
       <div className="space-y-3">
         <h2 className="font-serif text-lg font-semibold text-ink">Question Results</h2>
         {detail.questions.map((q, i) => {
@@ -293,7 +281,6 @@ export default function StudentResultDetail() {
 
               {isExpanded && (
                 <div id={panelId} className="border-t border-hairline p-4 space-y-4">
-                  {/* Review flag banner (Tasks 4 & 5) */}
                   {q.needsReview && (
                     <div className="bg-caution/10 border border-caution/30 rounded-xl p-3">
                       <p className="text-sm font-medium text-caution">⚠ Flagged for instructor review</p>
@@ -312,13 +299,11 @@ export default function StudentResultDetail() {
                     </div>
                   )}
 
-                  {/* Question text */}
                   <div>
                     <p className="text-xs text-slate mb-1">Question</p>
                     <p className="text-sm text-ink">{q.questionText}</p>
                   </div>
 
-                  {/* Transcript */}
                   {q.transcript && (
                     <div>
                       <p className="text-xs text-slate mb-1">Transcript
@@ -328,7 +313,6 @@ export default function StudentResultDetail() {
                     </div>
                   )}
 
-                  {/* Text answer */}
                   {q.textContent && !q.transcript && (
                     <div>
                       <p className="text-xs text-slate mb-1">Written Answer</p>
@@ -336,7 +320,6 @@ export default function StudentResultDetail() {
                     </div>
                   )}
 
-                  {/* Audio playback */}
                   {q.audioUrl && (
                     <div>
                       <p className="text-xs text-slate mb-1">Audio Recording</p>
@@ -344,7 +327,6 @@ export default function StudentResultDetail() {
                     </div>
                   )}
 
-                  {/* Video playback */}
                   {q.videoUrl && (
                     <div>
                       <p className="text-xs text-slate mb-1">Video Recording</p>
@@ -352,8 +334,7 @@ export default function StudentResultDetail() {
                     </div>
                   )}
 
-                  {/* Scores — hairline-divided figure rows, echoing the student
-                      app's ResultsCard breakdown so both sides read the same. */}
+                  {/* Mirrors the student app's ResultsCard breakdown. */}
                   <div className="rounded-xl border border-hairline divide-y divide-hairline overflow-hidden">
                     <div className="flex items-baseline justify-between px-4 py-3">
                       <span className="text-sm text-slate">AI Score</span>
@@ -377,7 +358,6 @@ export default function StudentResultDetail() {
                     </div>
                   </div>
 
-                  {/* AI dimension breakdown */}
                   {(q.correctnessScore != null || q.understandingScore != null) && (
                     <p className="text-xs text-slate tabular-nums">
                       AI breakdown — correctness {q.correctnessScore ?? '—'}/5 · understanding {q.understandingScore ?? '—'}/5
@@ -385,7 +365,6 @@ export default function StudentResultDetail() {
                     </p>
                   )}
 
-                  {/* AI feedback */}
                   {q.feedback && (
                     <div>
                       <p className="text-xs text-slate mb-1">AI Feedback</p>
@@ -411,7 +390,7 @@ export default function StudentResultDetail() {
                     </div>
                   )}
 
-                  {/* Dual-scoring: human reference score (AI validity check) */}
+                  {/* Human reference score (AI validity check); does not change the grade. */}
                   <div className="border-t border-hairline pt-3">
                     <div className="flex items-center justify-between gap-3 mb-2">
                       <p className="text-xs font-medium text-slate">Human reference score</p>
@@ -481,7 +460,6 @@ export default function StudentResultDetail() {
                     </p>
                   </div>
 
-                  {/* Score override form */}
                   <div className="border-t border-hairline pt-3">
                     <p className="text-xs font-medium text-slate mb-2">Override Score</p>
                     {override ? (
@@ -550,7 +528,6 @@ export default function StudentResultDetail() {
         })}
       </div>
 
-      {/* Proctoring chunk health */}
       <div className="bg-paper border border-hairline rounded-xl p-4">
         <h2 className="font-serif text-base font-semibold text-ink mb-3">Proctoring Footage</h2>
         <div className="flex items-center gap-6 mb-3">

@@ -1,7 +1,3 @@
-/**
- * QuestionDisplay - Displays question text with Markdown and code highlighting
- */
-
 import ReactMarkdown from 'react-markdown';
 import rehypeHighlight from 'rehype-highlight';
 import 'highlight.js/styles/github.css';
@@ -18,14 +14,12 @@ export default function QuestionDisplay({
 }: QuestionDisplayProps) {
   return (
     <div className="bg-paper rounded-xl border border-hairline p-6">
-      {/* Question Text */}
       <div className="prose prose-sm max-w-none">
         <ReactMarkdown rehypePlugins={[rehypeHighlight]}>
           {question.text || '*Question text not yet available.*'}
         </ReactMarkdown>
       </div>
 
-      {/* Code Context (if present) */}
       {question.codeContext && (
         <div className="mt-4 border-t border-hairline pt-4">
           <h4 className="text-sm font-semibold text-slate mb-2">

@@ -1,6 +1,3 @@
-/**
- * Enhanced code block component with syntax highlighting, copy button, collapse, and insert-to-editor
- */
 import { useState, type ReactNode } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
@@ -21,17 +18,14 @@ export const CodeBlock = ({
   const [isExpanded, setIsExpanded] = useState(false);
   const { insertCodeIntoEditor, appMode, setAppMode } = useChatStore();
 
-  // Extract language from className (format: language-python)
   const match = /language-(\w+)/.exec(className || "");
   const lang = language || match?.[1] || "python";
 
-  // Count lines
   const code = (
     Array.isArray(children) ? children.join("") : String(children ?? "")
   ).replace(/\n$/, "");
   const lineCount = code.split("\n").length;
 
-  // Single-line code blocks: render as simple minimal block
   if (lineCount === 1) {
     return (
       <pre className="bg-gray-100 text-gray-800 px-3 py-2 rounded-lg text-sm font-mono my-2 border border-gray-200 overflow-x-auto">
@@ -42,7 +36,7 @@ export const CodeBlock = ({
 
   const isLong = lineCount > 10;
 
-  // Show only first 8 lines if collapsed
+  // Blocks over 10 lines collapse to their first 8.
   const displayCode =
     isLong && !isExpanded ? code.split("\n").slice(0, 8).join("\n") : code;
 
@@ -57,7 +51,6 @@ export const CodeBlock = ({
 
   return (
     <div className="relative group my-3 rounded-lg overflow-hidden bg-[#1E1E1E] shadow-lg">
-      {/* Header with language label and action buttons */}
       <div className="flex items-center justify-between px-3 py-1.5 bg-[#2D2D2D] border-b border-gray-700">
         <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">
           {lang}
@@ -134,7 +127,6 @@ export const CodeBlock = ({
         </div>
       </div>
 
-      {/* Code content */}
       <div className="relative">
         <SyntaxHighlighter
           language={lang}
@@ -157,13 +149,11 @@ export const CodeBlock = ({
           {displayCode}
         </SyntaxHighlighter>
 
-        {/* Gradient fade if collapsed */}
         {isLong && !isExpanded && (
           <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-[#1E1E1E] to-transparent pointer-events-none" />
         )}
       </div>
 
-      {/* Expand/Collapse button */}
       {isLong && (
         <button
           onClick={() => setIsExpanded(!isExpanded)}

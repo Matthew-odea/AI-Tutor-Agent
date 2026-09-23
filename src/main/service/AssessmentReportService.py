@@ -1,33 +1,13 @@
 """
-AssessmentReportService — cohort summary reports for an assessment.
+Cohort summary reports, auto-generated once `threshold` students have submitted
+(replacing the old all-enrolled-submitted gate, which large cohorts never reach).
 
-Motivation (docs/FEATURES_PLANNING.md): the batch-evaluation gate only opened
-when *every enrolled* student had submitted, which never happens for a large
-cohort — Quiz 1 sat at 26/395 and the first real report had to be assembled by
-hand from DynamoDB. This service replaces that gate with a count-based one: as
-soon as `threshold` students have submitted, a report is generated
-automatically.
+Reports are aggregate only: never names, emails or IDs, so a stored report can be
+exported or shared without carrying student identities.
 
-Reports are deliberately **aggregate only**. They carry distributions and
-averages, never per-student names, emails, or IDs — an instructor who wants
-per-student detail already has the results dashboard and
-`get_student_detail`. Keeping the stored report identifier-free means it can be
-handed around (exported, pasted into a thesis appendix) without carrying
-student identities with it.
-
-Regeneration policy
--------------------
-The feature note left this open ("consider regenerating on a debounce or at
-defined milestones"). We regenerate at **each multiple of the threshold** —
-10, 20, 30, … submissions with the default of 10. That fires at the first
-crossing as specified, keeps the report fresh as stragglers arrive, and bounds
-the total number of regenerations to ``submitted // threshold`` rather than one
-per submission.
-
-Exactly-once per milestone is enforced by a conditional write on a marker item
-(``ASSESSMENT#{id}`` / ``REPORT_TRIGGER``), not by a read-then-write check, so
-concurrent submissions racing across the same milestone still produce a single
-report job.
+Regenerates at each multiple of the threshold (10, 20, 30, ...). Exactly-once per
+milestone is enforced by a conditional write on ASSESSMENT#{id} / REPORT_TRIGGER,
+not read-then-write, so concurrent submissions crossing a milestone yield one job.
 """
 
 from __future__ import annotations
@@ -46,8 +26,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_REPORT_THRESHOLD = 10
 
-# Histogram buckets are fixed deciles so two reports for the same assessment
-# (or two different assessments) are always directly comparable.
+# Fixed deciles keep reports comparable across regenerations and assessments; 101 so 100% lands in the last bucket
 _HISTOGRAM_BUCKETS = [
     (0, 10), (10, 20), (20, 30), (30, 40), (40, 50),
     (50, 60), (60, 70), (70, 80), (80, 90), (90, 101),
@@ -70,7 +49,7 @@ def _to_float(value: Any, fallback: float = 0.0) -> float:
 
 
 def _decimalise(value: Any) -> Any:
-    """Recursively convert floats to Decimal for DynamoDB storage."""
+    """boto3 rejects Python floats, so convert them recursively."""
     if isinstance(value, float):
         return Decimal(str(value))
     if isinstance(value, dict):
@@ -106,12 +85,7 @@ class AssessmentReportService:
         self.get_assessment = get_assessment
         self.llm_client = llm_client
 
-    # ─────────────────────────────────────────────────────────────
-    # Threshold trigger
-    # ─────────────────────────────────────────────────────────────
-
     def count_submitted(self, assessment_id: str) -> int:
-        """Count enrolled students who have submitted, via a COUNT-only query."""
         total = 0
         kwargs: Dict[str, Any] = {
             "KeyConditionExpression": (
@@ -140,12 +114,7 @@ class AssessmentReportService:
             return DEFAULT_REPORT_THRESHOLD
 
     def claim_milestone(self, assessment_id: str, milestone: int) -> bool:
-        """
-        Atomically claim a milestone for report generation.
-
-        Returns True exactly once per milestone value, for whichever caller wins
-        the conditional write. Every other concurrent caller gets False.
-        """
+        """True for exactly one caller per milestone (whoever wins the conditional write)."""
         try:
             self.table.update_item(
                 Key={"PK": f"ASSESSMENT#{assessment_id}", "SK": "REPORT_TRIGGER"},
@@ -161,12 +130,7 @@ class AssessmentReportService:
             return False
 
     def should_generate_on_submit(self, assessment_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Decide whether this submission crosses a new report milestone.
-
-        Returns {'milestone', 'threshold', 'submittedCount'} when a report should
-        be generated now, else None. Safe to call on every submission.
-        """
+        """Returns {milestone, threshold, submittedCount} if this caller should generate now, else None. Call on every submit."""
         assessment = self.get_assessment(assessment_id)
         if assessment.get("autoReport") is False:
             return None
@@ -185,10 +149,6 @@ class AssessmentReportService:
 
         return {"milestone": milestone, "threshold": threshold, "submittedCount": submitted}
 
-    # ─────────────────────────────────────────────────────────────
-    # Report generation
-    # ─────────────────────────────────────────────────────────────
-
     def generate_report(
         self,
         assessment_id: str,
@@ -196,15 +156,12 @@ class AssessmentReportService:
         triggered_by: str = "manual",
         milestone: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """Build the cohort summary report and persist it. Returns the report."""
         try:
             assessment = self.get_assessment(assessment_id)
             results = self.results_aggregator.get_assessment_results(assessment_id)
             submitted_count = self.count_submitted(assessment_id)
 
-            # "Not Evaluated" rows carry a placeholder 0% that would drag every
-            # average down, so score statistics are computed over evaluated
-            # students only; the counts block reports both populations.
+            # "Not Evaluated" rows carry a placeholder 0%, so score stats use evaluated students only
             evaluated = [r for r in results if r.get("grade") != "Not Evaluated"]
             percentages = [_to_float(r.get("percentage")) for r in evaluated]
 
@@ -227,10 +184,7 @@ class AssessmentReportService:
                 "dimensions": self._dimension_averages(assessment_id),
             }
 
-            # Narrative is an optional layer over the finished statistics. It is
-            # generated last and failure-tolerant: the numbers are the report, the
-            # prose is a convenience, and an LLM outage must not cost the instructor
-            # their summary.
+            # Generated last and failure-tolerant: an LLM outage must not lose the statistics
             report["narrative"] = self._generate_narrative(report)
 
             self._store_report(assessment_id, report)
@@ -252,7 +206,7 @@ class AssessmentReportService:
             "median": round(statistics.median(percentages), 2),
             "min": round(min(percentages), 2),
             "max": round(max(percentages), 2),
-            # stdev needs n >= 2; a single evaluated student has no spread.
+            # statistics.stdev raises for n < 2
             "stdDev": round(statistics.stdev(percentages), 2) if len(percentages) > 1 else 0.0,
         }
 
@@ -286,13 +240,7 @@ class AssessmentReportService:
         return buckets
 
     def _dimension_averages(self, assessment_id: str) -> Dict[str, Any]:
-        """
-        Correctness vs understanding averages across every evaluated answer.
-
-        Questions are generated per student, so there is no shared question set to
-        average across — the score *dimensions* are the only cross-student
-        breakdown that is actually comparable.
-        """
+        """Per-dimension averages: questions are generated per student, so dimensions are the only comparable breakdown."""
         try:
             _, evaluations_map = self.results_aggregator._query_all_evaluations(assessment_id)
         except Exception as e:
@@ -316,10 +264,6 @@ class AssessmentReportService:
             "averageUnderstanding": round(statistics.fmean(understanding), 2) if understanding else None,
             "needsReviewCount": needs_review,
         }
-
-    # ─────────────────────────────────────────────────────────────
-    # Narrative layer (optional)
-    # ─────────────────────────────────────────────────────────────
 
     _NARRATIVE_SYSTEM = (
         "You are summarising cohort results for the instructor who set the assessment. "
@@ -355,11 +299,9 @@ class AssessmentReportService:
         )
 
     def _generate_narrative(self, report: Dict[str, Any]) -> Optional[str]:
-        """Prose summary of the statistics, or None if unavailable."""
         if self.llm_client is None:
             return None
         if not report["counts"]["evaluated"]:
-            # Nothing to describe yet — prose over an empty cohort is noise.
             return None
         try:
             from src.main.agentcore_setup.config import BEDROCK_MODEL_REPORT
@@ -377,10 +319,6 @@ class AssessmentReportService:
             logger.warning("Report narrative generation failed (report still saved): %s", e)
             return None
 
-    # ─────────────────────────────────────────────────────────────
-    # Persistence
-    # ─────────────────────────────────────────────────────────────
-
     def _store_report(self, assessment_id: str, report: Dict[str, Any]) -> None:
         item = {
             "PK": f"ASSESSMENT#{assessment_id}",
@@ -390,7 +328,6 @@ class AssessmentReportService:
         self.table.put_item(Item=item)
 
     def get_report(self, assessment_id: str) -> Optional[Dict[str, Any]]:
-        """Return the most recent stored report, or None if none generated yet."""
         resp = self.table.get_item(
             Key={"PK": f"ASSESSMENT#{assessment_id}", "SK": "REPORT#LATEST"}
         )

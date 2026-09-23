@@ -62,3 +62,39 @@ def test_password_reset_unknown_email_returns_generic_message(monkeypatch):
 
     assert "If an account exists" in message
     service.ses_client.send_email.assert_not_called()
+
+
+def test_password_reset_token_single_use_against_store(monkeypatch, aws_credentials):
+    """The jti is cleared in the same conditional write as the password, so a replay can't succeed."""
+    import boto3
+    from moto import mock_aws
+
+    with mock_aws():
+        dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
+        table = dynamodb.create_table(
+            TableName="test_auth_users",
+            KeySchema=[{"AttributeName": "email", "KeyType": "HASH"}],
+            AttributeDefinitions=[{"AttributeName": "email", "AttributeType": "S"}],
+            BillingMode="PAY_PER_REQUEST",
+        )
+        table.put_item(Item={"email": "student@example.com", "password": "old-password",
+                             "user_id": "student@example.com", "roles": ["student"]})
+        service = _build_service(monkeypatch)
+        service.auth_users_table = table
+        service._login_users.pop("student@example.com", None)
+
+        service.request_password_reset("student@example.com")
+        text_body = service.ses_client.send_email.call_args.kwargs["Message"]["Body"]["Text"]["Data"]
+        token = re.search(r"token=([^\s]+)", text_body).group(1)
+
+        # A second process whose cache still holds the pre-reset jti must not be able to replay.
+        stale = dict(service._login_users["student@example.com"])
+        service.reset_password(token, "new-password-123")
+        item = table.get_item(Key={"email": "student@example.com"})["Item"]
+        assert "password_reset_jti" not in item
+
+        service._login_users["student@example.com"] = stale
+        with pytest.raises(HTTPException) as exc_info:
+            service.reset_password(token, "attacker-password")
+        assert exc_info.value.status_code == 400
+        assert table.get_item(Key={"email": "student@example.com"})["Item"]["password"] == item["password"]

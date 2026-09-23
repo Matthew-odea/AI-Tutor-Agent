@@ -1,11 +1,5 @@
-"""
-Evaluation pipeline: batch dispatch, transcription, auto-eval trigger, rubric handling.
-
-Covers:
-- EPIC-7-1: evaluate_batch dispatches via SQS (not inline thread)
-- EPIC-5-1: TranscriptionService._parse_s3_url + transcribe_pending_answers
-- EPIC-5-3: autoEvaluate field persisted; auto-eval triggered on final submission
-- EPIC-5-4: rubric field persisted; evaluate_qa_pair receives rubric
+"""evaluate-batch via SQS, TranscriptionService, autoEvaluate/rubric persistence,
+on-submit auto-eval, and the workflow runner's transcription pre-pass and skip handling.
 """
 
 from unittest.mock import MagicMock, patch, call
@@ -27,10 +21,6 @@ from src.main.service.TranscriptionService import _parse_s3_url, TranscriptionSe
 from src.main.service.ResponseEvaluationEngine import ResponseEvaluationEngine
 from src.main.service.EvaluationWorkflowRunner import EvaluationWorkflowRunner
 
-
-# ─────────────────────────────────────────────────────────────
-# Shared fixtures / helpers
-# ─────────────────────────────────────────────────────────────
 
 _INSTRUCTOR = AuthPrincipal(user_id="i-1", roles=["instructor"], source="jwt")
 _STUDENT = AuthPrincipal(user_id="s-1", roles=["student"], source="jwt", assessment_id="a-1")
@@ -69,13 +59,8 @@ def _mock_instructor_svc(**overrides):
     svc.get_assessment_students.return_value = overrides.get("students", [
         {"studentId": "s-1"}, {"studentId": "s-2"},
     ])
-    svc.count_submitted_students.return_value = overrides.get("submitted_counts", (1, 2))
     return svc
 
-
-# ─────────────────────────────────────────────────────────────
-# EPIC-7-1: evaluate-batch uses SQS dispatcher
-# ─────────────────────────────────────────────────────────────
 
 class TestEvaluateBatchSQS:
     def test_returns_202_and_job_id(self):
@@ -140,10 +125,6 @@ class TestEvaluateBatchSQS:
         assert resp.json()["error"]["code"] == "assessment_not_found"
 
 
-# ─────────────────────────────────────────────────────────────
-# EPIC-5-1: TranscriptionService._parse_s3_url
-# ─────────────────────────────────────────────────────────────
-
 class TestParseS3Url:
     def test_virtual_hosted_with_region(self):
         bucket, key = _parse_s3_url("https://my-bucket.s3.us-east-1.amazonaws.com/audio/s1/q1.webm")
@@ -172,17 +153,13 @@ class TestParseS3Url:
         assert key == "a/b/c/d.webm"
 
 
-# ─────────────────────────────────────────────────────────────
-# EPIC-5-1: TranscriptionService.transcribe_pending_answers
-# ─────────────────────────────────────────────────────────────
-
 class TestTranscriptionService:
     def _make_svc(self, answers, deepgram_text="hello world"):
         table = MagicMock()
         table.query.return_value = {"Items": answers}
         deepgram = MagicMock()
         deepgram.transcribe.return_value = deepgram_text
-        # The service now reads transcript + confidence via transcribe_with_metadata.
+        # The service reads transcript + confidence via transcribe_with_metadata.
         deepgram.transcribe_with_metadata.return_value = {
             "transcript": deepgram_text,
             "confidence": 0.95,
@@ -239,10 +216,6 @@ class TestTranscriptionService:
         assert count == 1
 
 
-# ─────────────────────────────────────────────────────────────
-# EPIC-5-3: autoEvaluate — create_assessment persists field
-# ─────────────────────────────────────────────────────────────
-
 class TestAutoEvaluateField:
     def test_create_assessment_stores_auto_evaluate_true(self):
         instructor_svc = MagicMock()
@@ -281,10 +254,6 @@ class TestAutoEvaluateField:
         assert kwargs.get("auto_evaluate", False) is False
 
 
-# ─────────────────────────────────────────────────────────────
-# EPIC-5-3: auto-eval trigger on final student submission
-# ─────────────────────────────────────────────────────────────
-
 class TestAutoEvalTrigger:
     def _submission_result(self):
         return {
@@ -298,7 +267,6 @@ class TestAutoEvalTrigger:
         oral_svc.submit_assessment.return_value = self._submission_result()
         instructor_svc = _mock_instructor_svc(
             assessment={"id": "a-1", "title": "T", "createdBy": "i-1", "autoEvaluate": False, "rubric": None},
-            submitted_counts=(2, 2),
         )
         dispatcher = MagicMock()
         client = _student_client(oral_svc=oral_svc, instructor_svc=instructor_svc, dispatcher=dispatcher)
@@ -314,7 +282,6 @@ class TestAutoEvalTrigger:
         oral_svc.submit_assessment.return_value = self._submission_result()
         instructor_svc = _mock_instructor_svc(
             assessment={"id": "a-1", "title": "T", "createdBy": "i-1", "autoEvaluate": True, "rubric": None},
-            submitted_counts=(1, 2),  # only 1 of 2 submitted — must still trigger
         )
         dispatcher = MagicMock()
         dispatcher.enqueue_evaluation_batch.return_value = 1
@@ -459,10 +426,6 @@ class TestAutoEvalTrigger:
         )
 
 
-# ─────────────────────────────────────────────────────────────
-# EPIC-5-4: rubric field in create_assessment
-# ─────────────────────────────────────────────────────────────
-
 class TestRubricField:
     def test_rubric_passed_to_service(self):
         instructor_svc = MagicMock()
@@ -501,10 +464,6 @@ class TestRubricField:
         assert kwargs.get("rubric") is None
 
 
-# ─────────────────────────────────────────────────────────────
-# EPIC-5-4: rubric injected into evaluate_qa_pair prompt
-# ─────────────────────────────────────────────────────────────
-
 class TestEvaluateQaPairRubric:
     def _make_engine(self, response_text='{"correctness_score": 8, "understanding_score": 7, "total_score": 7.5, "feedback": "good"}'):
         agent_client = MagicMock()
@@ -540,10 +499,6 @@ class TestEvaluateQaPairRubric:
         assert result["understanding_score"] == 5  # clamped from 7
         assert result["total_score"] == 10  # 5 + 5, not the model's 7.5
 
-
-# ─────────────────────────────────────────────────────────────
-# EPIC-5-1: EvaluationWorkflowRunner transcription pre-pass
-# ─────────────────────────────────────────────────────────────
 
 class TestWorkflowRunnerTranscriptionPrePass:
     def _make_runner(self, transcription_service=None):

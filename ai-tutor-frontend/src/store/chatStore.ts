@@ -1,6 +1,3 @@
-/**
- * Zustand store for chat state management
- */
 import { create } from "zustand";
 import type {
   AppMode,
@@ -16,7 +13,6 @@ import { EDITOR_TEMPLATE } from "../config/editorDefaults";
 import { getUserSession } from "../utils/userSession";
 
 interface ChatStore {
-  // State
   messages: Message[];
   assistantMessages: Message[];
   sessionId: string | null;
@@ -28,16 +24,16 @@ interface ChatStore {
   error: string | null;
   layoutMode: "stacked" | "split";
 
-  // Session Management State
+  // Sessions
   sessions: SessionInfo[];
   isLoadingSessions: boolean;
 
-  // Code Editor State
+  // Code editor
   codeEditor: CodeEditorState;
   editorDecorations: EditorDecoration[];
   editorDeletionZones: EditorDeletionZone[];
 
-  // Program State
+  // Programs
   programs: CodeProgram[];
   activeProgramId: string | null;
   isLoadingPrograms: boolean;
@@ -59,13 +55,13 @@ interface ChatStore {
   clearAssistantMessages: () => void;
   clearSession: () => void;
 
-  // Session Management Actions
+  // Session actions
   setSessions: (sessions: SessionInfo[]) => void;
   loadSession: (sessionId: string, messages: Message[]) => void;
   deleteSessionFromStore: (sessionId: string) => void;
   setLoadingSessions: (loading: boolean) => void;
 
-  // Code Editor Actions
+  // Code editor actions
   setEditorCode: (code: string) => void;
   setEditorOpen: (isOpen: boolean) => void;
   setEditorMinimized: (isMinimized: boolean) => void;
@@ -85,7 +81,7 @@ interface ChatStore {
   ) => void;
   loadFromHistory: (index: number) => void;
 
-  // Program Actions
+  // Program actions
   setPrograms: (programs: CodeProgram[]) => void;
   setActiveProgramId: (programId: string | null) => void;
   setLoadingPrograms: (loading: boolean) => void;
@@ -94,7 +90,7 @@ interface ChatStore {
 }
 
 export const useChatStore = create<ChatStore>((set) => ({
-  // Initial state - always start with a new session
+  // SESSION_ID is persisted but deliberately not restored, so each page load starts a new chat.
   messages: [],
   assistantMessages: [],
   sessionId: null,
@@ -114,11 +110,9 @@ export const useChatStore = create<ChatStore>((set) => ({
   error: null,
   layoutMode: "split",
 
-  // Session Management Initial State
   sessions: [],
   isLoadingSessions: false,
 
-  // Code Editor Initial State
   codeEditor: {
     code: EDITOR_TEMPLATE,
     isOpen: false,
@@ -132,12 +126,10 @@ export const useChatStore = create<ChatStore>((set) => ({
   editorDecorations: [],
   editorDeletionZones: [],
 
-  // Program Initial State
   programs: [],
   activeProgramId: null,
   isLoadingPrograms: false,
 
-  // Actions
   addMessage: (message) =>
     set((state) => ({
       messages: [...state.messages, message],
@@ -163,7 +155,7 @@ export const useChatStore = create<ChatStore>((set) => ({
 
   setAssistantThreadId: (id) => set({ assistantThreadId: id }),
   setWorkspaceId: (id, userId) => {
-    // Clear any previous unscoped key
+    // Drop the legacy unscoped key; workspace ids are now stored per user.
     localStorage.removeItem(STORAGE_KEYS.WORKSPACE_ID);
     if (id && userId) {
       localStorage.setItem(`${STORAGE_KEYS.WORKSPACE_ID}:${userId}`, id);
@@ -196,7 +188,7 @@ export const useChatStore = create<ChatStore>((set) => ({
     set({ messages: [], sessionId: null, error: null });
   },
 
-  // Session Management Actions
+  // Session actions
   setSessions: (sessions) => set({ sessions }),
 
   loadSession: (sessionId, messages) => {
@@ -211,7 +203,7 @@ export const useChatStore = create<ChatStore>((set) => ({
 
   setLoadingSessions: (loading) => set({ isLoadingSessions: loading }),
 
-  // Code Editor Actions
+  // Code editor actions
   setEditorCode: (code) =>
     set((state) => ({
       codeEditor: { ...state.codeEditor, code },
@@ -280,7 +272,7 @@ export const useChatStore = create<ChatStore>((set) => ({
         ...state.codeEditor,
         history: [
           { code, output, error, timestamp: Date.now() },
-          ...state.codeEditor.history.slice(0, 19), // Keep last 20
+          ...state.codeEditor.history.slice(0, 19),
         ],
       },
     })),
@@ -301,7 +293,7 @@ export const useChatStore = create<ChatStore>((set) => ({
       };
     }),
 
-  // Program Actions
+  // Program actions
   setPrograms: (programs) => set({ programs }),
 
   setActiveProgramId: (programId) => set({ activeProgramId: programId }),

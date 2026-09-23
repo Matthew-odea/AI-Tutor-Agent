@@ -1,9 +1,7 @@
-"""
-HTTP-level tests for the dual-scoring (Task 3), review-flagging (Task 5), and
-configurable-scoring (Task 6) endpoints.
+"""HTTP tests for the dual-scoring, review-flagging and configurable-scoring endpoints.
 
-These build a minimal FastAPI app that mounts only the assessment_router, so they
-do not import app.py (which is unrelated to this change and may be mid-refactor).
+Mounts only assessment_router on a bare FastAPI app so app.py is never imported.
+
 """
 from __future__ import annotations
 

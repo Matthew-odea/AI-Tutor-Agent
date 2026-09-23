@@ -1,7 +1,3 @@
-/**
- * ErrorMessage - Display error messages
- */
-
 import type { ApiError } from '../types';
 
 interface ErrorMessageProps {

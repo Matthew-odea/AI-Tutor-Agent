@@ -1,7 +1,3 @@
-"""
-test_read_prompt.py
-Unit tests for ReadPrompt.read_prompt.
-"""
 import pytest
 from src.main.utils.ReadPrompt import read_prompt
 from pathlib import Path

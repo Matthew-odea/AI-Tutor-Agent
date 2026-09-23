@@ -5,7 +5,6 @@ import ErrorMessage from '../components/ErrorMessage';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
-/** Shared input styling — hairline border, subtle in-card fill, accent focus ring. */
 const INPUT_CLASS =
   'w-full px-4 py-2 bg-ink/5 border border-hairline rounded-xl text-ink placeholder-slate focus:border-accent focus:ring-2 focus:ring-accent focus:outline-none';
 
@@ -42,8 +41,7 @@ export default function Login() {
     }
   };
 
-  // A 401 is a credential failure, not a per-field one, so both fields are marked
-  // invalid and described by the single form-level error.
+  // A 401 isn't per-field, so both fields point at the form-level error.
   const errorId = error ? 'login-error' : undefined;
 
   return (

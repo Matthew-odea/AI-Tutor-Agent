@@ -1,40 +1,17 @@
 import { Helmet } from "react-helmet-async";
 
-/**
- * Props for the SEO component
- */
 interface SEOProps {
-  /** Page title - will be appended with site name */
+  /** Suffixed with " | AI Tutor" unless it equals the site name */
   title?: string;
-  /** Meta description for search engines */
   description?: string;
-  /** Keywords for the page (comma-separated) */
+  /** comma-separated */
   keywords?: string;
-  /** Canonical URL for the page */
   url?: string;
-  /** Open Graph image URL */
   image?: string;
-  /** Page type (website, article, etc.) */
   type?: "website" | "article";
-  /** Whether this page should be indexed by search engines */
   noIndex?: boolean;
 }
 
-/**
- * SEO component for managing document head meta tags
- *
- * Handles title, meta descriptions, Open Graph tags, Twitter cards,
- * and structured data for search engine optimization.
- *
- * @example
- * ```tsx
- * <SEO
- *   title="Chat Interface"
- *   description="Interactive AI tutoring chat"
- *   url="https://example.com/chat"
- * />
- * ```
- */
 export default function SEO({
   title = "AI Tutor",
   description = "An intelligent AI tutoring system that helps you learn programming through interactive conversations and code examples.",
@@ -49,16 +26,13 @@ export default function SEO({
 
   return (
     <Helmet>
-      {/* Primary Meta Tags */}
       <title>{fullTitle}</title>
       <meta name="title" content={fullTitle} />
       <meta name="description" content={description} />
       <meta name="keywords" content={keywords} />
 
-      {/* Robots */}
       {noIndex && <meta name="robots" content="noindex,nofollow" />}
 
-      {/* Open Graph / Facebook */}
       <meta property="og:type" content={type} />
       <meta property="og:url" content={url} />
       <meta property="og:title" content={fullTitle} />
@@ -66,20 +40,17 @@ export default function SEO({
       <meta property="og:image" content={image} />
       <meta property="og:site_name" content={siteTitle} />
 
-      {/* Twitter */}
       <meta name="twitter:card" content="summary_large_image" />
       <meta name="twitter:url" content={url} />
       <meta name="twitter:title" content={fullTitle} />
       <meta name="twitter:description" content={description} />
       <meta name="twitter:image" content={image} />
 
-      {/* Additional Meta Tags */}
       <meta name="viewport" content="width=device-width, initial-scale=1.0" />
       <meta httpEquiv="Content-Type" content="text/html; charset=utf-8" />
       <meta name="language" content="English" />
       <meta name="author" content="AI Tutor Team" />
 
-      {/* Canonical URL */}
       <link rel="canonical" href={url} />
     </Helmet>
   );

@@ -1,9 +1,4 @@
-"""
-TestClient tests for auth_router endpoints.
-
-Covers: login, signup, refresh, logout, student invite exchange,
-forgot-password, reset-password validate, reset-password.
-"""
+"""TestClient tests for auth_router endpoints."""
 from __future__ import annotations
 
 from unittest.mock import MagicMock

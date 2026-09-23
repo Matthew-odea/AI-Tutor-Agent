@@ -1,11 +1,4 @@
-"""
-Tests for the student consent endpoint: POST /api/student/{student_id}/consent
-- 200 + ok on success, fields forwarded to the service
-- granted=false accepted (decline signal)
-- missing required fields -> 422
-- wrong student -> 403
-- service error -> 400 (consent_failed)
-"""
+"""Tests for POST /api/student/{student_id}/consent."""
 
 from unittest.mock import MagicMock
 

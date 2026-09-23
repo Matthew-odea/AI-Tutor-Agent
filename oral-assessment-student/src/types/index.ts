@@ -1,10 +1,7 @@
 /**
- * Types for the student app.
- *
- * API shapes are aliases onto shared/types/api.ts, which is generated from the
- * backend's OpenAPI schema (./shared/generate-api-types.sh). A backend DTO
- * change therefore breaks `npm run type-check` here instead of the page at runtime.
- * Anything declared locally below is a client-only shape that never crosses the wire.
+ * API shapes alias shared/types/api.ts, generated from the backend's OpenAPI schema
+ * (./shared/generate-api-types.sh), so a DTO change breaks the type-check, not the page.
+ * Locally declared types are client-only shapes.
  */
 
 import type { components } from '../../../shared/types/api';
@@ -40,9 +37,9 @@ export interface Assessment {
   status: string;
   answerMode?: AnswerMode;
   preparationTime?: number | null;
-  /** Webcam proctoring. Unset → treat as (answerMode === 'oral'). */
+  /** Unset means answerMode === 'oral'. */
   proctored?: boolean;
-  /** Student may navigate back and revise answers before final submit (written v1). */
+  /** Navigate back and revise before final submit. Written mode only. */
   allowReview?: boolean;
 }
 

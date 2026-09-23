@@ -1,10 +1,6 @@
-/**
- * Message skeleton loader for chat messages
- */
 export const MessageSkeleton = () => {
   return (
     <div className="animate-pulse space-y-4 py-4">
-      {/* User message skeleton */}
       <div className="flex justify-end">
         <div className="max-w-[70%] bg-gray-200 rounded-2xl px-4 py-3">
           <div className="h-4 bg-gray-300 rounded w-48 mb-2"></div>
@@ -12,7 +8,6 @@ export const MessageSkeleton = () => {
         </div>
       </div>
 
-      {/* Assistant message skeleton */}
       <div className="flex justify-start">
         <div className="max-w-[85%] bg-gray-200 rounded-2xl px-4 py-3">
           <div className="h-4 bg-gray-300 rounded w-full mb-2"></div>
@@ -24,9 +19,6 @@ export const MessageSkeleton = () => {
   );
 };
 
-/**
- * Session list skeleton loader
- */
 export const SessionSkeleton = () => {
   return (
     <div className="animate-pulse space-y-2 p-4">
@@ -46,9 +38,6 @@ export const SessionSkeleton = () => {
   );
 };
 
-/**
- * Generic card skeleton loader
- */
 export const CardSkeleton = () => {
   return (
     <div className="animate-pulse bg-white rounded-lg shadow p-6">
@@ -62,9 +51,6 @@ export const CardSkeleton = () => {
   );
 };
 
-/**
- * Full page skeleton loader
- */
 export const PageSkeleton = () => {
   return (
     <div className="animate-pulse h-screen bg-gray-50 p-4">

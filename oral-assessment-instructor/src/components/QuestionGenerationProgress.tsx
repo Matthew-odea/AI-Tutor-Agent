@@ -21,9 +21,8 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
   const pollDelayRef = useRef(3000);
   const JOB_KEY = `genJob:${assessmentId}`;
 
-  // On opening an assessment, drop any job the global store holds for a different
-  // assessment (it used to be shown here as this one's), then restore this
-  // assessment's in-flight job from localStorage (survives page refresh).
+  // Drop any job the global store holds for another assessment, then resume
+  // this assessment's in-flight job from localStorage after a refresh.
   useEffect(() => {
     if (useAssessmentStore.getState().generationJob?.assessmentId === assessmentId) return;
     let restored = null;
@@ -35,16 +34,14 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
     setGenerationJob(restored);
   }, [assessmentId, JOB_KEY, setGenerationJob]);
 
-  // Persist this assessment's job to localStorage whenever it changes
   useEffect(() => {
     if (generationJob?.assessmentId === assessmentId) {
       localStorage.setItem(JOB_KEY, JSON.stringify(generationJob));
     }
   }, [generationJob, assessmentId, JOB_KEY]);
 
-  // Holds the latest scheduleNextPoll so the recursive re-schedule inside the
-  // setTimeout callback can call it without referencing the const before it is
-  // assigned (the ref is populated synchronously below, on every render).
+  // Lets the setTimeout callback re-schedule via the latest scheduleNextPoll
+  // without referencing the const before it is assigned.
   const scheduleNextPollRef = useRef<() => void>(() => {});
 
   const jobId = generationJob?.jobId;
@@ -56,7 +53,6 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
         const updatedJob = await apiService.getQuestionGenerationStatus(assessmentId, jobId);
         setGenerationJob(updatedJob);
 
-        // Stop polling if job is complete or failed
         if (updatedJob.status === 'completed' || updatedJob.status === 'failed') {
           setPollingInterval(null);
           pollDelayRef.current = 3000;
@@ -66,7 +62,7 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
         console.error('Error polling job status:', err);
       }
 
-      // Exponential backoff: 3s -> 5s -> 10s -> 20s -> 30s (max)
+      // Backoff x1.5 per poll from 3s, capped at 30s.
       pollDelayRef.current = Math.min(pollDelayRef.current * 1.5, 30000);
       scheduleNextPollRef.current();
     }, pollDelayRef.current);
@@ -74,19 +70,16 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
     setPollingInterval(timeout);
   }, [assessmentId, jobId, setGenerationJob]);
 
-  // Keep the ref pointing at the latest scheduleNextPoll so the recursive
-  // re-schedule inside the setTimeout callback always invokes the current one.
   useEffect(() => {
     scheduleNextPollRef.current = scheduleNextPoll;
   }, [scheduleNextPoll]);
 
   const startPolling = useCallback(() => {
-    if (pollingInterval) return; // Already polling
-    pollDelayRef.current = 3000; // reset on fresh start
+    if (pollingInterval) return;
+    pollDelayRef.current = 3000;
     scheduleNextPoll();
   }, [pollingInterval, scheduleNextPoll]);
 
-  // Clean up polling on unmount
   useEffect(() => {
     return () => {
       if (pollingInterval) {
@@ -95,11 +88,9 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
     };
   }, [pollingInterval]);
 
-  // Track elapsed time while job is running
   useEffect(() => {
     if (generationJob?.status === 'pending' || generationJob?.status === 'running') {
-      // Intentional: lazily stamp the job start time on the first running tick;
-      // guarded by !jobStartTime so it fires once per job, not a render cascade.
+      // Fires once per job (guarded by !jobStartTime), not a render cascade.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       if (!jobStartTime) setJobStartTime(Date.now());
       const timer = setInterval(() => {
@@ -113,23 +104,21 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
       return () => clearInterval(timer);
     } else {
       if (generationJob?.status === 'completed' || generationJob?.status === 'failed') {
-        // Keep final elapsed display, reset start time
+        // Leaves the final elapsed display in place.
         setJobStartTime(null);
       }
     }
   }, [generationJob?.status, jobStartTime]);
 
-  // Start polling when job is in progress
   useEffect(() => {
     if (generationJob && (generationJob.status === 'pending' || generationJob.status === 'running')) {
       startPolling();
     } else if (pollingInterval) {
       clearTimeout(pollingInterval);
-      // Intentional: tear down the polling handle when the job leaves an
-      // in-progress state. Mirrors an external timer; not a render cascade.
+      // Tears down an external timer handle; not a render cascade.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setPollingInterval(null);
-      pollDelayRef.current = 3000; // reset backoff
+      pollDelayRef.current = 3000;
     }
     // Keyed on status alone on purpose: startPolling and pollingInterval change on
     // every scheduled poll, and re-running this then would only hit the
@@ -137,7 +126,7 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [generationJob?.status]);
 
-  // Load students when job completes so we can show per-student question links
+  // Needed for the per-student question links shown on completion.
   useEffect(() => {
     if (generationJob?.status === 'completed' && students.length === 0) {
       apiService.getAssessmentStudents(assessmentId)
@@ -147,7 +136,6 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
   }, [generationJob?.status, assessmentId, students.length]);
 
   const handleStartGeneration = async () => {
-    // Prevent duplicate generation if a job is already in progress
     if (generationJob && (generationJob.status === 'pending' || generationJob.status === 'running')) {
       return;
     }
@@ -159,7 +147,6 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
       const job = await apiService.generateQuestions(assessmentId);
       setGenerationJob(job);
 
-      // Start polling for status updates
       startPolling();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start question generation');
@@ -170,7 +157,7 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
   };
 
   const handleCancel = () => {
-    // No server-side cancel endpoint exists; reset client-side state
+    // No server-side cancel endpoint: the backend job keeps running; this only resets the UI.
     if (pollingInterval) {
       clearTimeout(pollingInterval);
       setPollingInterval(null);
@@ -243,7 +230,6 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
   return (
     <div className="space-y-6">
 
-      {/* Generation Status */}
       {!generationJob ? (
         <div className="bg-paper border border-hairline rounded-xl p-6 text-center">
           <p className="text-slate mb-6">
@@ -266,9 +252,7 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
                 <h3 className="font-serif text-lg font-semibold text-ink">
                   Question Generation
                 </h3>
-                {/* The one live region for the job: a stable node whose text changes as
-                    the poll advances, so AT hears "Completed" without the 1s elapsed
-                    ticker below spamming announcements. */}
+                {/* The only live region for the job, so the 1s elapsed ticker isn't announced. */}
                 <p
                   role="status"
                   aria-live="polite"
@@ -280,7 +264,6 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
             </div>
           </div>
 
-          {/* Progress Bar */}
           <div className="mb-6">
             <div className="flex justify-between text-sm text-slate mb-2">
               <span>Progress</span>
@@ -315,7 +298,6 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
             </div>
           </div>
 
-          {/* Stats Grid */}
           <div className={`grid ${generationJob.failedCount > 0 ? 'grid-cols-3' : 'grid-cols-2'} gap-4 mb-6`}>
             <div className="bg-ink/5 rounded-xl p-4">
               <div className="text-sm text-slate mb-1">Total Students</div>
@@ -339,7 +321,6 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
             )}
           </div>
 
-          {/* Partial failure warning */}
           {generationJob.status === 'completed' && generationJob.failedCount > 0 && (
             <div className="bg-caution/10 border border-caution/30 rounded-xl p-4 mb-6" role="status">
               <div className="flex items-start">
@@ -356,14 +337,12 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
             </div>
           )}
 
-          {/* Error Display */}
           {generationJob.status === 'failed' && 'error' in generationJob && generationJob.error && (
             <div className="mb-6" role="alert">
               <ErrorMessage error={generationJob.error} />
             </div>
           )}
 
-          {/* Status Message */}
           <div className="text-center">
             {generationJob.status === 'pending' && (
               <div className="space-y-3">
@@ -423,9 +402,7 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
                 </button>
               </div>
             )}
-            {/* Retry is a RECOVERY action, not a destructive one, so it is accent
-                like the Retry on MonitorProgress and StudentResultDetail. Danger
-                is reserved for actions that destroy data. */}
+            {/* Retry is recovery, not destructive, so accent; danger is for data loss. */}
             {generationJob.status === 'failed' && (
               <button
                 onClick={handleStartGeneration}
@@ -439,7 +416,6 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
         </div>
       )}
 
-      {/* Additional Info */}
       <div className="bg-accent/[0.08] border border-accent/20 rounded-xl p-4">
         <div className="flex items-start">
           <svg

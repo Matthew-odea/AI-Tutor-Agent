@@ -1,7 +1,3 @@
-"""
-test_chat_dtos.py
-Unit tests for Chat DTOs (Request, Response, History, Sessions).
-"""
 import pytest
 from pydantic import ValidationError
 from src.main.dtos.ChatRequest import ChatRequest
@@ -11,18 +7,14 @@ from src.main.dtos.SessionListResponse import SessionListResponse, SessionInfo
 
 
 class TestChatRequest:
-    """Test ChatRequest DTO validation."""
-    
     def test_valid_minimal_request(self):
-        """Test valid request with only required fields."""
         req = ChatRequest(query="What is Python?")
         assert req.query == "What is Python?"
-        assert req.top_k == 5  # Default value
+        assert req.top_k == 5
         assert req.session_id is None
         assert req.include_history is True
     
     def test_valid_full_request(self):
-        """Test valid request with all fields."""
         req = ChatRequest(
             query="Explain inheritance",
             top_k=10,
@@ -35,31 +27,25 @@ class TestChatRequest:
         assert req.include_history is False
     
     def test_empty_query(self):
-        """Test that empty query is allowed (service handles it)."""
+        """Empty query is allowed; the service handles it."""
         req = ChatRequest(query="")
         assert req.query == ""
     
     def test_missing_query_raises_error(self):
-        """Test that missing query raises validation error."""
         with pytest.raises(ValidationError):
             ChatRequest()
     
     def test_invalid_top_k_type(self):
-        """Test that invalid top_k type raises error."""
         with pytest.raises(ValidationError):
             ChatRequest(query="Test", top_k="invalid")
     
     def test_session_id_optional(self):
-        """Test that session_id is truly optional."""
         req = ChatRequest(query="Test")
         assert req.session_id is None
 
 
 class TestChatResponse:
-    """Test ChatResponse DTO."""
-    
     def test_valid_minimal_response(self):
-        """Test valid response with only required fields."""
         resp = ChatResponse(
             answer="Python is a programming language",
             session_id="session-123",
@@ -70,10 +56,9 @@ class TestChatResponse:
         assert resp.session_id == "session-123"
         assert resp.is_new_session is True
         assert resp.history_length == 0
-        assert resp.context_ids == []  # Default
+        assert resp.context_ids == []
     
     def test_valid_full_response(self):
-        """Test valid response with all fields."""
         resp = ChatResponse(
             answer="Here's the explanation...",
             session_id="session-456",
@@ -94,15 +79,13 @@ class TestChatResponse:
         assert resp.model_id == "anthropic.claude-v2"
     
     def test_missing_required_fields(self):
-        """Test that ChatResponse can be created with just error field for error cases."""
-        # Since answer and session_id are optional (for error responses), this should work
+        """answer and session_id are optional so error responses can carry only `error`."""
         resp = ChatResponse(error="Test error")
         assert resp.error == "Test error"
         assert resp.answer is None
         assert resp.session_id is None
     
     def test_empty_answer_allowed(self):
-        """Test that empty answer is allowed."""
         resp = ChatResponse(
             answer="",
             session_id="session-123",
@@ -112,7 +95,6 @@ class TestChatResponse:
         assert resp.answer == ""
     
     def test_optional_fields_can_be_none(self):
-        """Test that optional fields can be None."""
         resp = ChatResponse(
             answer="Test answer",
             session_id="session-123",
@@ -128,10 +110,7 @@ class TestChatResponse:
 
 
 class TestChatMessage:
-    """Test ChatMessage DTO for history."""
-    
     def test_valid_user_message(self):
-        """Test valid user message."""
         msg = ChatMessage(
             role="user",
             content="What is Python?",
@@ -144,7 +123,6 @@ class TestChatMessage:
         assert msg.context_ids == []
     
     def test_valid_assistant_message(self):
-        """Test valid assistant message with metadata."""
         msg = ChatMessage(
             role="assistant",
             content="Python is a programming language",
@@ -157,16 +135,12 @@ class TestChatMessage:
         assert len(msg.context_ids) == 2
     
     def test_missing_required_fields(self):
-        """Test that missing required fields raise error."""
         with pytest.raises(ValidationError):
             ChatMessage(role="user")  # Missing content and timestamp
 
 
 class TestChatHistoryResponse:
-    """Test ChatHistoryResponse DTO."""
-    
     def test_valid_empty_history(self):
-        """Test valid history response with no messages."""
         resp = ChatHistoryResponse(
             session_id="session-123",
             messages=[],
@@ -181,7 +155,6 @@ class TestChatHistoryResponse:
         assert resp.total_tokens == 0
     
     def test_valid_history_with_messages(self):
-        """Test valid history response with multiple messages."""
         messages = [
             ChatMessage(
                 role="user",
@@ -226,16 +199,12 @@ class TestChatHistoryResponse:
         assert resp.messages[1].role == "assistant"
     
     def test_missing_required_fields(self):
-        """Test that missing required fields raise error."""
         with pytest.raises(ValidationError):
             ChatHistoryResponse(session_id="test")  # Missing other fields
 
 
 class TestSessionInfo:
-    """Test SessionInfo DTO."""
-    
     def test_valid_session_info(self):
-        """Test valid session info."""
         info = SessionInfo(
             session_id="session-123",
             message_count=6,
@@ -250,7 +219,6 @@ class TestSessionInfo:
         assert info.total_tokens == 500
     
     def test_zero_message_count(self):
-        """Test session info with zero messages."""
         info = SessionInfo(
             session_id="session-empty",
             message_count=0,
@@ -263,10 +231,7 @@ class TestSessionInfo:
 
 
 class TestSessionListResponse:
-    """Test SessionListResponse DTO."""
-    
     def test_valid_empty_list(self):
-        """Test valid response with no sessions."""
         resp = SessionListResponse(
             sessions=[],
             total=0
@@ -275,7 +240,6 @@ class TestSessionListResponse:
         assert resp.total == 0
     
     def test_valid_list_with_sessions(self):
-        """Test valid response with multiple sessions."""
         sessions = [
             SessionInfo(
                 session_id="session-1",
@@ -312,7 +276,6 @@ class TestSessionListResponse:
         assert resp.sessions[2].session_id == "session-3"
     
     def test_total_matches_session_count(self):
-        """Test that total field matches actual session count."""
         sessions = [
             SessionInfo(
                 session_id=f"session-{i}",
@@ -332,16 +295,12 @@ class TestSessionListResponse:
         assert len(resp.sessions) == resp.total
     
     def test_missing_required_fields(self):
-        """Test that missing required fields raise error."""
         with pytest.raises(ValidationError):
             SessionListResponse(sessions=[])  # Missing total
 
 
 class TestDTOSerialization:
-    """Test DTO serialization to JSON."""
-    
     def test_chat_request_to_dict(self):
-        """Test ChatRequest serialization."""
         req = ChatRequest(
             query="Test",
             top_k=10,
@@ -356,7 +315,6 @@ class TestDTOSerialization:
         assert data["include_history"] is False
     
     def test_chat_response_to_dict(self):
-        """Test ChatResponse serialization."""
         resp = ChatResponse(
             answer="Test answer",
             session_id="session-123",
@@ -376,7 +334,6 @@ class TestDTOSerialization:
         assert data["context_ids"] == ["doc-1"]
     
     def test_chat_history_to_dict(self):
-        """Test ChatHistoryResponse serialization."""
         messages = [
             ChatMessage(
                 role="user",

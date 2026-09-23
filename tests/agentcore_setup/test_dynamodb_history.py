@@ -1,8 +1,4 @@
-"""
-Integration tests for DynamoDBHistoryStore using moto.
-
-Covers workspaces, view sessions, messages, code memory, programs, threads.
-"""
+"""Integration tests for DynamoDBHistoryStore using moto."""
 from __future__ import annotations
 
 import boto3
@@ -38,8 +34,6 @@ def store(monkeypatch):
         yield DynamoDBHistoryStore(table_name=TABLE, region="us-east-1")
 
 
-# ── Workspace ─────────────────────────────────────────────
-
 class TestWorkspace:
     def test_create_and_get(self, store):
         ws = store.create_workspace("My Workspace", user_id="u-1")
@@ -50,8 +44,6 @@ class TestWorkspace:
     def test_get_nonexistent(self, store):
         assert store.get_workspace("nope") is None
 
-
-# ── View Sessions ────────────────────────────────────────
 
 class TestViewSessions:
     def test_create_and_list(self, store):
@@ -92,8 +84,6 @@ class TestViewSessions:
         assert store.get_view_history(view["view_session_id"]) == []
 
 
-# ── View Messages ────────────────────────────────────────
-
 class TestViewMessages:
     def test_add_and_get_history(self, store):
         ws = store.create_workspace("W1")
@@ -118,8 +108,6 @@ class TestViewMessages:
         assert int(meta["total_tokens"]) == 30
 
 
-# ── Code Memory ──────────────────────────────────────────
-
 class TestCodeMemory:
     def test_create_and_get(self, store):
         ws = store.create_workspace("W1")
@@ -134,8 +122,6 @@ class TestCodeMemory:
         assert updated["current_code"] == "x = 2"
         assert updated["last_output"] == "2"
 
-
-# ── Programs ─────────────────────────────────────────────
 
 class TestPrograms:
     def test_create_and_list(self, store):
@@ -169,8 +155,6 @@ class TestPrograms:
         store.delete_program(p["program_id"])
         assert store.get_program(p["program_id"]) is None
 
-
-# ── Threads ──────────────────────────────────────────────
 
 class TestThreads:
     def test_create_and_list(self, store):
@@ -207,3 +191,68 @@ class TestThreads:
         t = store.create_thread(cm["code_memory_id"], "T1")
         fetched = store.get_thread(t["thread_id"])
         assert fetched["title"] == "T1"
+
+
+class _PagedTable:
+    """Real moto table, but every query is capped at `page` items so LastEvaluatedKey paging kicks in."""
+
+    def __init__(self, table, page: int):
+        self._table = table
+        self._page = page
+
+    def query(self, **kwargs):
+        return self._table.query(Limit=self._page, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._table, name)
+
+
+class TestPagination:
+    def test_view_history_and_delete_follow_last_evaluated_key(self, store):
+        ws = store.create_workspace("W1")
+        view = store.create_view_session(ws["workspace_id"], "chat", None)
+        for i in range(5):
+            store.add_view_message(view["view_session_id"], "user", f"msg-{i}")
+        raw_table = store.table
+        store.table = _PagedTable(raw_table, page=2)
+
+        history = store.get_view_history(view["view_session_id"])
+        assert [m["content"] for m in history] == [f"msg-{i}" for i in range(5)]
+
+        store.delete_view_session(view["view_session_id"])
+        leftover = raw_table.query(
+            KeyConditionExpression="PK = :pk",
+            ExpressionAttributeValues={":pk": f"VIEW#{view['view_session_id']}"},
+        )["Items"]
+        assert leftover == []
+
+    def test_thread_history_and_delete_follow_last_evaluated_key(self, store):
+        ws = store.create_workspace("W1")
+        cm = store.create_code_memory(ws["workspace_id"], "python", "")
+        thread = store.create_thread(cm["code_memory_id"], "T")
+        for i in range(5):
+            store.add_thread_message(thread["thread_id"], "user", f"msg-{i}")
+        raw_table = store.table
+        store.table = _PagedTable(raw_table, page=2)
+
+        assert len(store.get_thread_history(thread["thread_id"])) == 5
+
+        store.delete_thread(thread["thread_id"])
+        leftover = raw_table.query(
+            KeyConditionExpression="PK = :pk",
+            ExpressionAttributeValues={":pk": f"THREAD#{thread['thread_id']}"},
+        )["Items"]
+        assert leftover == []
+
+    def test_list_queries_follow_last_evaluated_key(self, store):
+        ws = store.create_workspace("W1")
+        cm = store.create_code_memory(ws["workspace_id"], "python", "")
+        for i in range(3):
+            store.create_view_session(ws["workspace_id"], "chat", None)
+            store.create_program(ws["workspace_id"], cm["code_memory_id"], "python", f"P{i}", "")
+            store.create_thread(cm["code_memory_id"], f"T{i}")
+        store.table = _PagedTable(store.table, page=1)
+
+        assert len(store.list_view_sessions(ws["workspace_id"])) == 3
+        assert len(store.list_programs(ws["workspace_id"])) == 3
+        assert len(store.list_threads(cm["code_memory_id"])) == 3

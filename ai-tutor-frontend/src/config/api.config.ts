@@ -1,7 +1,3 @@
-/**
- * API configuration
- */
-
 const DEFAULT_DEV_API_BASE_URL = "http://localhost:8000";
 const DEFAULT_PROD_API_BASE_URL = "https://api.chat9021.org";
 
@@ -15,6 +11,7 @@ const resolveApiBaseUrl = (): string => {
     return configured;
   }
 
+  // Avoid mixed-content blocks on HTTPS pages: upgrade http URLs, and map the legacy bare EC2 IP (no TLS cert) to the prod domain.
   const isSecurePage = window.location.protocol === "https:";
   if (!isSecurePage || !configured.startsWith("http://")) {
     return configured;

@@ -1,18 +1,12 @@
-/**
- * CameraRevokedOverlay — full-screen blocking overlay shown when the student
- * revokes camera/microphone permission mid-session.
- */
 import { useRef, useEffect } from 'react';
 
 interface CameraRevokedOverlayProps {
   onRestore: () => void;
   isRestoring?: boolean;
-  // When true (proctoring is optional — the student originally declined or policy
-  // allows it), render a secondary "Continue without recording" escape. Default
-  // (undefined/false) keeps the blocking restore-only behavior exactly as before.
+  // Adds a "Continue without recording" escape; otherwise the overlay is restore-only.
   proctoringOptional?: boolean;
   onContinueWithout?: () => void;
-  // Optional copy override for the "resume / re-grant" variant.
+  // Copy override for the resume re-grant variant.
   title?: string;
   description?: string;
 }

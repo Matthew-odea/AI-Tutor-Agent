@@ -1,6 +1,3 @@
-/**
- * Delete confirmation modal for session deletion
- */
 import { useEffect } from "react";
 
 interface DeleteConfirmModalProps {
@@ -18,7 +15,6 @@ export const DeleteConfirmModal = ({
   sessionTitle,
   entityLabel = "Session",
 }: DeleteConfirmModalProps) => {
-  // Handle escape key
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === "Escape" && isOpen) {
@@ -35,7 +31,6 @@ export const DeleteConfirmModal = ({
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
       <div className="bg-gray-800 rounded-xl p-6 max-w-sm w-full shadow-2xl border border-gray-700">
-        {/* Icon */}
         <div className="w-12 h-12 rounded-full bg-red-900/30 flex items-center justify-center mx-auto mb-4">
           <svg
             className="w-6 h-6 text-red-500"
@@ -52,12 +47,10 @@ export const DeleteConfirmModal = ({
           </svg>
         </div>
 
-        {/* Title */}
         <h3 className="text-lg font-semibold text-white text-center mb-2">
           Delete {entityLabel}?
         </h3>
 
-        {/* Message */}
         <p className="text-sm text-gray-400 text-center mb-6">
           {sessionTitle ? (
             <>
@@ -72,7 +65,6 @@ export const DeleteConfirmModal = ({
           This action cannot be undone.
         </p>
 
-        {/* Buttons */}
         <div className="flex space-x-3">
           <button
             onClick={onCancel}

@@ -153,7 +153,7 @@ def get_assessment_report_service() -> AssessmentReportService:
 
 
 def _extract_sqs_region(queue_url: str, fallback: str) -> str:
-    """Extract the AWS region from an SQS queue URL (sqs.<region>.amazonaws.com)."""
+    # SQS lives in us-east-1 while AWS_DEFAULT_REGION may be ap-southeast-2; trust the URL's region.
     import re
     match = re.search(r"sqs\.([a-z0-9-]+)\.amazonaws\.com", queue_url)
     return match.group(1) if match else fallback

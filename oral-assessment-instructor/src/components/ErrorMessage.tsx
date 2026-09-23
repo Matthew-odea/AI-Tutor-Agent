@@ -1,14 +1,4 @@
-/**
- * ErrorMessage - Display error messages
- *
- * Ported from the student app. Accepts either a plain string or anything with a
- * `message` field (an Error, an axios-normalised API error), so callers can pass
- * `err instanceof Error ? err : String(err)` straight through.
- *
- * The student app imports `ApiError` from its `types` module; the instructor app
- * has no local types module (it shares `shared/types/assessment.ts`, which has
- * no error type), so the minimal shape is declared and exported here.
- */
+/** Accepts a string or anything with `message` (Error, axios-normalised API error). */
 
 export interface ApiError {
   message: string;

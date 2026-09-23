@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import AudioRecorder, { isMicConfirmed } from '../services/audio';
 
-// ─── Shared media stubs (mirrors audioInitialize.test.ts) ──────────────────────
 beforeEach(() => {
   vi.restoreAllMocks();
   class FakeMediaRecorder {

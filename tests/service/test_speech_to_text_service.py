@@ -1,13 +1,4 @@
-"""
-Unit tests for DeepgramTranscribeService with mocked HTTP requests.
-
-Covers:
-- Successful transcription
-- Missing API key
-- File not found
-- HTTP error handling
-- Response parsing (standard and fallback formats)
-"""
+"""Unit tests for DeepgramTranscribeService with mocked HTTP."""
 from __future__ import annotations
 
 import os
@@ -27,7 +18,6 @@ def api_key(monkeypatch):
 
 @pytest.fixture()
 def audio_file():
-    """Create a temporary audio file."""
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         f.write(b"fake audio data")
         path = f.name

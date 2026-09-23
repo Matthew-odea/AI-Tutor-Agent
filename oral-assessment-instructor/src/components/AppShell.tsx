@@ -1,73 +1,14 @@
 /**
- * AppShell — the single page chrome for every instructor screen.
+ * Page chrome for every instructor screen: header, breadcrumbs, global user menu
+ * (Settings + Log out), and the <main> column. Pages must not render their own
+ * header, logout button or Settings modal.
  *
- * Before this existed, all ten instructor pages hand-rolled their own
- * `<header className="bg-white border-b border-gray-200">` + `max-w-7xl mx-auto`
- * block. The consequences: Settings and Log out existed ONLY on AssessmentList,
- * back-links were ad hoc ("← Back", "← Back to Assessments", `navigate(-1)`),
- * content column widths drifted between 4xl/5xl/7xl, and there was no product
- * identity anywhere in the chrome. AppShell owns all of that.
- *
- * WHAT IT GIVES YOU, ON EVERY PAGE
- *   - the product mark + wordmark (links back to /assessments)
- *   - a real <nav aria-label="Breadcrumb"> trail — use it instead of a back-link
- *   - the global user menu (Settings + Log out), including the logout handler and
- *     the user-management Settings modal, both moved out of AssessmentList
- *   - a header action row that WRAPS instead of overflowing on narrow viewports
- *   - a <main> landmark with the standard content column
- *
- * USAGE
- *   Replace the page's outer `<div className="min-h-screen …">`, its `<header>`
- *   and its `<main>` with a single <AppShell>. Do NOT render your own header,
- *   your own logout button, or your own Settings modal.
- *
- *     <AppShell
- *       breadcrumbs={[
- *         { label: 'Assessments', to: '/assessments' },
- *         { label: assessment.title, to: `/assessments/${assessmentId}/results` },
- *         { label: 'Monitor Progress' },
- *       ]}
- *       title={`Monitor Progress: ${assessment.title}`}
- *       subtitle={assessment.course}
- *       actions={
- *         <Link to={`/assessments/${assessmentId}/results`} className="…">View Results</Link>
- *       }
- *     >
- *       <StudentProgressTable assessmentId={assessmentId} />
- *     </AppShell>
- *
- * PROPS
- *   title            ReactNode. Required. Rendered as the page's font-serif <h1>.
- *   subtitle         ReactNode. Optional secondary line under the title — the
- *                    course code, a student's email + id, etc.
- *   breadcrumbs      { label, to? }[]. Max three levels, and the LAST entry must
- *                    be the current page's own name — never the assessment
- *                    title, unless the assessment title IS the page (ViewResults).
- *                    Ancestor entries with `to` render as <Link>s; the last entry
- *                    always renders as plain text with aria-current="page", so a
- *                    `to` on it is ignored. Omit entirely on the root page
- *                    (AssessmentList).
- *                      Assessments > {title} > "Monitor Progress"
- *   actions          ReactNode. Right-aligned page actions. Any nodes are fine —
- *                    buttons, <Link>s, or a read-only status pill (e.g.
- *                    QuestionEditor's "Locked" badge). The row wraps under the
- *                    title on small screens, so four buttons is safe.
- *   banner           ReactNode. Rendered FULL BLEED directly under the header and
- *                    above <main> — e.g. <SetupStepIndicator />. The banner owns
- *                    its own padding, width container and bottom border.
- *   maxWidth         'default' (max-w-7xl, tables/dashboards — the default)
- *                    | 'medium'  (max-w-5xl, StudentResultDetail)
- *                    | 'narrow'  (max-w-4xl, forms: create/upload/generate/editor).
- *                    Applies to the header rows AND <main> so the chrome and the
- *                    content share one column.
- *   contentClassName Extra classes for <main>, for pages that want vertical
- *                    rhythm between sections (e.g. "space-y-6"). Padding and the
- *                    width container are already applied.
- *   children         Page content, rendered inside <main>.
- *
- * NOT AppShell's job: full-page loading and error states. Keep returning your own
- * centred spinner / retry card before the data arrives; mount AppShell once you
- * have something to title it with.
+ * breadcrumbs: max three levels; the last entry is the current page and always
+ * renders as unlinked text (its `to` is ignored). Omit on the root page.
+ * banner: rendered full bleed under the header and owns its own padding/border.
+ * maxWidth: applies to both the header rows and <main> so they share one column.
+ * Full-page loading/error states are not AppShell's job; mount it once you have
+ * a title.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -117,14 +58,7 @@ function currentUserLabel(): string | null {
   }
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
-   Settings modal — user management.
-
-   Moved wholesale out of AssessmentList (which had it as an untitled, un-trapped
-   `fixed inset-0` div) and reimplemented tokenized + accessible: role="dialog",
-   aria-modal, labelled by its heading, Escape to close, focus trapped inside,
-   background scroll locked. Focus is returned to the trigger by the caller.
-   ──────────────────────────────────────────────────────────────────────────── */
+// Settings modal (user management). Focus is returned to the trigger by the caller.
 
 type UserRecord = Schemas['UserRecord'];
 
@@ -139,9 +73,6 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     let cancelled = false;
-    // Intentional: fetch the user list once when the dialog mounts. Every state
-    // toggle below happens after an await, i.e. in the fetch's own
-    // loading/data/error transitions rather than synchronously during the effect.
     (async () => {
       try {
         const data = await apiService.listUsers();
@@ -319,10 +250,6 @@ function SettingsModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
-   User menu — the global Settings + Log out popover.
-   ──────────────────────────────────────────────────────────────────────────── */
-
 function UserMenu({ onOpenSettings }: { onOpenSettings: () => void }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
@@ -349,7 +276,6 @@ function UserMenu({ onOpenSettings }: { onOpenSettings: () => void }) {
     return () => document.removeEventListener('mousedown', handlePointerDown);
   }, [open]);
 
-  // Move focus into the menu when it opens.
   useEffect(() => {
     if (!open) return;
     menuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
@@ -481,20 +407,8 @@ function UserMenu({ onOpenSettings }: { onOpenSettings: () => void }) {
   );
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
-   Breadcrumbs
-   ──────────────────────────────────────────────────────────────────────────── */
-
-/**
- * The trail is always `Assessments` → (`{assessment.title}`) → the current
- * page's own name. The LAST crumb is the current page by definition, so it is
- * rendered as unlinked text carrying aria-current="page" even if the caller
- * supplied a `to`. A self-link on the leaf is a no-op for sighted users but,
- * left as a <Link>, it would silently drop aria-current and announce the wrong
- * page — ViewResults in particular ends on the assessment title, whose crumb is
- * linked on every other screen. Dropping the leaf's `to` is the cheap fix and
- * keeps the rule to one sentence.
- */
+// The leaf crumb ignores `to` so it keeps aria-current="page" (ViewResults ends on
+// the assessment title, which is a linked crumb on every other screen).
 function Breadcrumbs({ items }: { items: Breadcrumb[] }) {
   return (
     <nav aria-label="Breadcrumb">
@@ -531,10 +445,6 @@ function Breadcrumbs({ items }: { items: Breadcrumb[] }) {
   );
 }
 
-/* ────────────────────────────────────────────────────────────────────────────
-   AppShell
-   ──────────────────────────────────────────────────────────────────────────── */
-
 export default function AppShell({
   title,
   subtitle,
@@ -549,8 +459,7 @@ export default function AppShell({
   const width = MAX_WIDTH_CLASS[maxWidth];
   const column = `${width} mx-auto px-4 sm:px-6 lg:px-8`;
 
-  // The user menu's trigger lives inside <UserMenu>; when the Settings dialog it
-  // opened closes, focus must land back on something sensible in the chrome.
+  // The menu trigger lives inside <UserMenu>, so remember what had focus to restore it.
   const settingsReturnRef = useRef<HTMLElement | null>(null);
 
   const openSettings = () => {
@@ -566,7 +475,6 @@ export default function AppShell({
   return (
     <div className="min-h-screen bg-paper">
       <header className="bg-paper border-b border-hairline">
-        {/* Product chrome: identity on the left, account menu on the right. */}
         <div className="border-b border-hairline">
           <div className={`${column} flex items-center justify-between gap-4 h-14`}>
             <Link
@@ -585,7 +493,6 @@ export default function AppShell({
           </div>
         </div>
 
-        {/* Page identity: breadcrumbs, title/subtitle, and the wrapping action row. */}
         <div className={`${column} py-4`}>
           {breadcrumbs && breadcrumbs.length > 0 && (
             <div className="mb-2">

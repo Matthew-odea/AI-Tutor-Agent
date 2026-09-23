@@ -22,12 +22,10 @@ type StudentProgressWithInfo = StudentProgress & {
   student: Pick<Student, 'studentId' | 'name' | 'email'>;
 };
 
-/**
- * Row actions are a single family of small ghost buttons — before this they were
- * bare text links colour-coded yellow/blue/green/primary, so colour was the only
- * differentiator and there was no button affordance at all. Exactly ONE action per
- * row is promoted (accent); everything else stays neutral.
- */
+const EVAL_STREAM_MAX_RETRIES = 5;
+const EVAL_STREAM_RETRY_DELAY_MS = 3000;
+
+// Promote at most one action per row (accent); the rest stay neutral.
 const rowActionClass = (promoted: boolean) =>
   `text-xs font-medium px-2 py-1 rounded-xl border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
     promoted
@@ -64,7 +62,6 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
   })();
   const EVAL_DONE_KEY = `evalDone:${assessmentId}`;
   const [evalProgress, setEvalProgress] = useState<Record<string, EvalProgress>>(() => {
-    // Restore completed evaluations from localStorage
     try {
       const stored = localStorage.getItem(EVAL_DONE_KEY);
       const doneIds: string[] = stored ? JSON.parse(stored) : [];
@@ -77,14 +74,12 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
   });
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [secondsSinceUpdate, setSecondsSinceUpdate] = useState(0);
-  // Current time, refreshed by the 1s ticker below. Read during render to drive
-  // the "Inactive 30m+" badge without calling the impure Date.now() in render.
+  // Refreshed by the 1s ticker so render never calls the impure Date.now().
   const [now, setNow] = useState(() => Date.now());
   const evalStreams = useRef<Record<string, ProgressStream>>({});
-  const INACTIVE_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
+  const evalRetryTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const INACTIVE_THRESHOLD_MS = 30 * 60 * 1000;
 
-  // Invite modal focus management: the dialog traps Tab, closes on Escape, and
-  // returns focus to whatever opened it (the banner button).
   const inviteDialogRef = useRef<HTMLDivElement>(null);
   const inviteSubjectRef = useRef<HTMLInputElement>(null);
   const inviteReturnFocusRef = useRef<HTMLElement | null>(null);
@@ -112,14 +107,12 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
   };
 
   const filteredProgress = useMemo<StudentProgressWithInfo[]>(() => {
-    // Ensure progress is an array
     const progressArray = Array.isArray(progress) ? progress : [];
     const studentsArray = Array.isArray(students) ? students : [];
 
     let filtered = progressArray.map(p => {
       const student = studentsArray.find(s => s.studentId === p.studentId);
-      // The progress payload already carries name/email, so fall back to those
-      // before degrading to the raw ID if the students list hasn't loaded yet.
+      // Students list may not have loaded yet; the progress payload carries name/email.
       return {
         ...p,
         student: student || {
@@ -130,14 +123,12 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
       };
     });
 
-    // Status filter
     if (statusFilter === 'done') {
       filtered = filtered.filter(p => p.status === 'completed' || p.status === 'submitted');
     } else if (statusFilter !== 'all') {
       filtered = filtered.filter(p => p.status === statusFilter);
     }
 
-    // Search filter
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(p =>
@@ -150,7 +141,7 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
     return filtered;
   }, [progress, students, statusFilter, searchQuery]);
 
-  // Load initial data (reset stale data first to avoid showing previous assessment's state)
+  // Reset first so the previous assessment's rows never flash.
   useEffect(() => {
     setProgress([]);
     setStudents([]);
@@ -159,10 +150,7 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
     // eslint-disable-next-line react-hooks/exhaustive-deps -- the loaders are recreated each render but only read assessmentId, which is the dep; store setters are stable
   }, [assessmentId]);
 
-  // Poll for progress updates every 10s. The handle lives in the effect so the
-  // cleanup clears the interval it started (it used to read a stale null from
-  // state and never clear, so polling outlived the page and kept overwriting the
-  // shared progress store with this assessment's students).
+  // The interval handle lives in the effect so cleanup clears the one it started.
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
@@ -177,7 +165,6 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
     return () => clearInterval(interval);
   }, [assessmentId, setProgress]);
 
-  // Tick the "last updated" counter (and current time) every second
   useEffect(() => {
     const ticker = setInterval(() => {
       setNow(Date.now());
@@ -188,8 +175,10 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
     return () => clearInterval(ticker);
   }, [lastUpdated]);
 
-  const openEvalProgressStream = (studentId: string) => {
+  const openEvalProgressStream = (studentId: string, attempt = 0) => {
     if (evalStreams.current[studentId]) evalStreams.current[studentId].close();
+    clearTimeout(evalRetryTimers.current[studentId]);
+    delete evalRetryTimers.current[studentId];
     const es = apiService.openStudentEvaluationProgressStream(assessmentId, studentId);
     evalStreams.current[studentId] = es;
     // Tracked per stream: the evalProgress state this closure captured is from
@@ -201,7 +190,7 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
         lastStatus = data.status;
         setEvalProgress(prev => ({ ...prev, [studentId]: data }));
         if (data.status === 'completed') {
-          // Persist to localStorage so Evaluate button stays hidden after refresh
+          // Persisted so the Evaluate button stays hidden after a refresh.
           try {
             const stored = localStorage.getItem(EVAL_DONE_KEY);
             const doneIds: string[] = stored ? JSON.parse(stored) : [];
@@ -220,24 +209,26 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
     es.onerror = () => {
       es.close();
       delete evalStreams.current[studentId];
-      // Re-open the stream after a brief delay if evaluation was still in progress
-      if (lastStatus === 'evaluating') {
-        setTimeout(() => openEvalProgressStream(studentId), 3000);
+      // Re-open only while still evaluating, and at most EVAL_STREAM_MAX_RETRIES times.
+      if (lastStatus === 'evaluating' && attempt < EVAL_STREAM_MAX_RETRIES) {
+        evalRetryTimers.current[studentId] = setTimeout(
+          () => openEvalProgressStream(studentId, attempt + 1),
+          EVAL_STREAM_RETRY_DELAY_MS,
+        );
       }
     };
   };
 
-  // Close all eval streams on unmount
   useEffect(() => {
-    // The ref's object is never replaced (only its keys change), so this is the same map at cleanup.
     const streams = evalStreams.current;
+    const retryTimers = evalRetryTimers.current;
     return () => {
       Object.values(streams).forEach(es => es.close());
+      Object.values(retryTimers).forEach(t => clearTimeout(t));
     };
   }, []);
 
   const handleEvaluateAll = async () => {
-    // Ensure progress is an array
     const progressArray = Array.isArray(progress) ? progress : [];
 
     // Same "finished" test as the Evaluate All (N) count and the per-row Evaluate button.
@@ -256,7 +247,6 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
       setError(null);
       await apiService.evaluateAssessment(assessmentId, completedStudents);
       setError(null);
-      // Open per-student progress streams
       completedStudents.forEach(sid => openEvalProgressStream(sid));
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to start evaluation';
@@ -287,7 +277,7 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
     try {
       await navigator.clipboard.writeText(link);
     } catch {
-      // Fallback for browsers that block clipboard
+      // Fallback for contexts where the async clipboard API is blocked.
       const ta = document.createElement('textarea');
       ta.value = link;
       ta.style.position = 'fixed';
@@ -316,9 +306,8 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
     }
   };
 
-  // Resend a fresh single-use invite link to one student (for expired/used links).
-  // Reuses the bulk modal's subject/message if the instructor has customised them,
-  // otherwise the backend falls back to the default invite template.
+  // Fresh single-use link for one student. Reuses the bulk modal's subject/message
+  // if set; otherwise the backend uses its default template.
   const handleResendInvite = async (studentId: string) => {
     setResendingInvite(studentId);
     try {
@@ -344,7 +333,6 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
   };
 
   const openInviteModal = () => {
-    // Remember the trigger so focus can return to it when the dialog closes.
     inviteReturnFocusRef.current = document.activeElement as HTMLElement | null;
     const title = useAssessmentStore.getState().selectedAssessment?.title || 'your assessment';
     setInviteSubject(`Your assessment invitation: ${title}`);
@@ -363,8 +351,7 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
     inviteReturnFocusRef.current?.focus();
   }, []);
 
-  // Focus the first field on open, trap Tab inside the dialog, close on Escape,
-  // and lock background scroll — mirrors AppShell's SettingsModal.
+  // Focus trap + Escape + scroll lock, mirroring AppShell's SettingsModal.
   useEffect(() => {
     if (!showInviteModal) return;
     inviteSubjectRef.current?.focus();
@@ -424,8 +411,6 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
       closeInviteModal();
       setInvitesSent(true);
       try { localStorage.setItem(`invitesSent:${assessmentId}`, 'true'); } catch { /* */ }
-      // Transient send result goes to the global toast queue rather than a local
-      // ad-hoc message pinned inside the banner.
       addToast(
         `Sent ${result.sent} invite${result.sent !== 1 ? 's' : ''}${result.skipped > 0 ? ` (${result.skipped} skipped — no email)` : ''}`,
         'success',
@@ -451,7 +436,6 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
     return p.totalQuestions > 0 ? Math.round((p.answeredQuestions / p.totalQuestions) * 100) : 0;
   };
 
-  // Ensure progress is an array for stats calculation
   const progressArray = Array.isArray(progress) ? progress : [];
 
   const stats = {
@@ -464,11 +448,7 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
   const allSubmitted = stats.total > 0 && stats.completed === stats.total;
   const allEvaluated = stats.completed > 0 && evaluatedCount >= stats.completed;
 
-  // Assessment phase status. This component owns the derivation; the chip's
-  // colour and label come from the shared statusTokens module so the cohort
-  // roll-up can never disagree with the per-row chips again (`All Submitted`
-  // used to be success here while row `submitted` was accent, and `Evaluated`
-  // shared `Open`'s accent tint despite being the opposite end of the lifecycle).
+  // Chip colour/label come from statusTokens so the roll-up matches the row chips.
   const assessmentPhase: AssessmentPhase = allEvaluated ? 'Evaluated' : allSubmitted ? 'All Submitted' : stats.inProgress > 0 ? 'In Progress' : stats.notStarted === stats.total ? 'Not Started' : 'Open';
   const phaseToken = assessmentPhaseToken(assessmentPhase);
   const evaluateAllLabel = isEvaluating
@@ -479,7 +459,6 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
 
   return (
     <div className="space-y-6">
-      {/* Status Pill + Stats Cards */}
       <div className="flex items-center gap-3 mb-2">
         <span className={`px-3 py-1 rounded-full text-sm font-medium ${phaseToken.className}`}>
           {phaseToken.label}
@@ -491,10 +470,7 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
         )}
       </div>
 
-      {/* All-submitted notice. Informational only: the single canonical "run the
-          evaluation" control is the toolbar button below, which is always present
-          and carries the count — this banner used to duplicate it in a different
-          colour, giving the page two competing primary actions. */}
+      {/* Informational only: the toolbar button is the single "evaluate" control. */}
       {allSubmitted && !allEvaluated && !isEvaluating && (
         <div
           className="bg-success/10 border border-success/30 rounded-xl p-4"
@@ -510,9 +486,7 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
         </div>
       )}
 
-      {/* Invite banner. Unlike evaluation, sending invites has no toolbar
-          equivalent, so the button stays here as the only way to open the
-          compose modal. */}
+      {/* This button is the only entry point to the invite compose modal. */}
       {stats.total > 0 && stats.notStarted > 0 && (
         <div
           className={`${invitesSent ? 'bg-paper border-hairline' : 'bg-accent/[0.08] border-accent/20'} border rounded-xl p-4 flex items-center justify-between gap-4`}
@@ -558,11 +532,9 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
         </div>
       </div>
 
-      {/* Filters and Actions */}
       <div className="bg-paper border border-hairline rounded-xl p-4">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-4 flex-1">
-            {/* Search */}
             <div className="relative flex-1 max-w-md">
               <label htmlFor="progress-search" className="sr-only">
                 Search students by name, email, or ID
@@ -591,7 +563,6 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
               </svg>
             </div>
 
-            {/* Status Filter */}
             <label htmlFor="progress-status-filter" className="sr-only">
               Filter by status
             </label>
@@ -608,17 +579,13 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
             </select>
           </div>
 
-          {/* Action Buttons */}
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={handleEvaluateAll}
               disabled={isEvaluating || stats.completed === 0}
               aria-busy={isEvaluating}
-              /* Stays accent once everything is evaluated: a solid success fill is
-                 ~3.4:1 against white and fails the 4.5:1 floor, and re-running the
-                 evaluation is the same forward action either way. The state lives
-                 in evaluateAllLabel ("Re-evaluate All"), not in the hue. */
+              /* Stays accent when all evaluated: solid success on white fails 4.5:1 contrast. */
               className="px-4 py-2 rounded-xl text-sm font-medium text-white bg-accent hover:bg-accent-hover transition-colors focus:outline-none focus:ring-2 focus:ring-accent disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {evaluateAllLabel}
@@ -639,7 +606,6 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
         </div>
       </div>
 
-      {/* Progress Table */}
       <div className="bg-paper border border-hairline rounded-xl overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full">
@@ -704,7 +670,6 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
                     <td className="px-4 py-3">
                       <div className="flex items-center space-x-3">
                         <div className="flex-1 space-y-2">
-                          {/* Submission progress */}
                           <div>
                             <div className="flex justify-between text-xs text-slate mb-1">
                               <span className="tabular-nums">{p.answeredQuestions} / {p.totalQuestions} answered</span>
@@ -722,7 +687,6 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
                               />
                             </div>
                           </div>
-                          {/* Per-question evaluation progress (shown when evaluating) */}
                           {evalProgress[p.studentId] && evalProgress[p.studentId].status !== 'not_started' && (
                             <div>
                               <div className="flex justify-between text-xs mb-1">
@@ -774,9 +738,7 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
                               onClick={() => handleSendReminder(p.studentId)}
                               disabled={sendingReminder === p.studentId}
                               aria-label={`Send reminder to ${p.student.name}`}
-                              /* Promoted for a student who has started but stalled —
-                                 nudging them is the useful move; for a student who
-                                 never opened the link, a fresh invite is. */
+                              /* Promoted for stalled starters; never-started get Resend Invite promoted. */
                               className={rowActionClass(p.status === 'in-progress')}
                             >
                               {sendingReminder === p.studentId ? 'Sending…' : 'Send Reminder'}
@@ -853,7 +815,6 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
         </div>
       </div>
 
-      {/* Invite Email Modal */}
       {showInviteModal && (
         <div
           className="fixed inset-0 backdrop-blur-[2px] flex items-center justify-center p-4 z-50"

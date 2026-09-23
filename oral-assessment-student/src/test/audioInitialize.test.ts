@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import AudioRecorder from '../services/audio';
 
-// Minimal MediaStreamTrack-like stub.
 function fakeTrack(readyState: MediaStreamTrackState = 'live'): MediaStreamTrack {
   return {
     readyState,
@@ -12,7 +11,6 @@ function fakeTrack(readyState: MediaStreamTrackState = 'live'): MediaStreamTrack
 
 beforeEach(() => {
   vi.restoreAllMocks();
-  // MediaRecorder + isTypeSupported stubs.
   class FakeMediaRecorder {
     static isTypeSupported() {
       return true;

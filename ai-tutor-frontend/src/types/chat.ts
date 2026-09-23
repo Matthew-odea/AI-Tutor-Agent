@@ -1,7 +1,3 @@
-/**
- * Type definitions for chat-related entities
- */
-
 export interface Message {
   role: "user" | "assistant";
   content: string;

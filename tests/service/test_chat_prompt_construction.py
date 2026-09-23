@@ -111,3 +111,28 @@ def test_chat_level_context_budget_is_respected(conversation_memory):
     payload_start = context_start + len(heading)
     context_payload = user_content[payload_start:question_start].rstrip()
     assert len(context_payload) <= 220
+
+
+def test_intent_override_weak_adds_clarify_instruction_without_edit_contract(conversation_memory):
+    svc = _build_service(conversation_memory)
+
+    calls = []
+    original_chat = svc.agent_client.chat
+    svc.agent_client.chat = lambda messages: calls.append(messages) or original_chat(messages)
+
+    svc.chat("write something", session_id="weak-override", intent_override="weak")
+
+    user_turn = next(m[-1]["content"] for m in calls if "Current question:" in m[-1]["content"])
+    assert "ask one short clarifying question" in user_turn
+    assert "Edit Block Contract" not in user_turn
+
+
+def test_edit_intent_heuristic_is_local_and_binary(monkeypatch, conversation_memory):
+    monkeypatch.setenv("USE_LLM_INTENT", "true")
+    svc = _build_service(conversation_memory)
+
+    assert svc._classify_edit_intent("create a helper") == "strong"
+    assert svc._classify_edit_intent("fix the loop") == "strong"
+    assert svc._classify_edit_intent("explain this code") == "none"
+    assert svc._classify_edit_intent("hello there") == "none"
+    assert svc.agent_client.last_messages is None

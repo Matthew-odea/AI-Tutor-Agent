@@ -1,6 +1,4 @@
-"""
-DynamoDB-backed History store.
-"""
+"""DynamoDB-backed counterpart of HistoryStore (history.py), sharing the chat sessions table."""
 from __future__ import annotations
 from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
@@ -25,6 +23,17 @@ class DynamoDBHistoryStore:
         self.dynamodb = boto3.resource('dynamodb', region_name=self.region)
         self.table = self.dynamodb.Table(self.table_name)
         logger.info(f"DynamoDBHistoryStore initialized: table={self.table_name}, region={self.region}")
+
+    def _query_all(self, **kwargs: Any) -> List[Dict[str, Any]]:
+        """Query following LastEvaluatedKey, since a single page stops at 1MB."""
+        items: List[Dict[str, Any]] = []
+        while True:
+            response = self.table.query(**kwargs)
+            items.extend(response.get("Items", []))
+            last_key = response.get("LastEvaluatedKey")
+            if not last_key:
+                return items
+            kwargs["ExclusiveStartKey"] = last_key
 
     def create_workspace(self, title: str, user_id: Optional[str] = None) -> Dict[str, Any]:
         workspace_id = str(uuid.uuid4())
@@ -155,21 +164,19 @@ class DynamoDBHistoryStore:
             pass
 
     def get_view_history(self, view_session_id: str) -> List[Dict[str, Any]]:
-        response = self.table.query(
+        return self._query_all(
             KeyConditionExpression="PK = :pk AND begins_with(SK, :sk)",
             ExpressionAttributeValues={":pk": f"VIEW#{view_session_id}", ":sk": "MESSAGE#"},
             ScanIndexForward=True,
         )
-        return response.get("Items", [])
 
     def list_view_sessions(self, workspace_id: str, view_type: Optional[str] = None) -> List[Dict[str, Any]]:
         prefix = "VIEW#" if not view_type else f"VIEW#{view_type}#"
-        response = self.table.query(
+        return self._query_all(
             KeyConditionExpression="PK = :pk AND begins_with(SK, :sk)",
             ExpressionAttributeValues={":pk": f"WORKSPACE#{workspace_id}", ":sk": prefix},
             ScanIndexForward=False,
         )
-        return response.get("Items", [])
 
     def delete_view_session(self, view_session_id: str) -> None:
         metadata = self.get_view_session(view_session_id)
@@ -185,11 +192,10 @@ class DynamoDBHistoryStore:
         except ClientError:
             pass
 
-        response = self.table.query(
+        for item in self._query_all(
             KeyConditionExpression="PK = :pk AND begins_with(SK, :sk)",
             ExpressionAttributeValues={":pk": f"VIEW#{view_session_id}", ":sk": "MESSAGE#"},
-        )
-        for item in response.get("Items", []):
+        ):
             self.table.delete_item(Key={"PK": item["PK"], "SK": item["SK"]})
 
     def create_code_memory(self, workspace_id: str, language: str, current_code: str) -> Dict[str, Any]:
@@ -283,12 +289,11 @@ class DynamoDBHistoryStore:
         return response.get("Item")
 
     def list_programs(self, workspace_id: str) -> List[Dict[str, Any]]:
-        response = self.table.query(
+        return self._query_all(
             KeyConditionExpression="PK = :pk AND begins_with(SK, :sk)",
             ExpressionAttributeValues={":pk": f"WORKSPACE#{workspace_id}", ":sk": "PROGRAM#"},
             ScanIndexForward=True,
         )
-        return response.get("Items", [])
 
     def update_program(
         self,
@@ -420,18 +425,16 @@ class DynamoDBHistoryStore:
 
     def delete_thread(self, thread_id: str) -> None:
         metadata = self.get_thread(thread_id)
-        # Delete all messages for this thread
-        messages = self.table.query(
+        messages = self._query_all(
             KeyConditionExpression="PK = :pk AND begins_with(SK, :sk)",
             ExpressionAttributeValues={":pk": f"THREAD#{thread_id}", ":sk": "MESSAGE#"},
             ProjectionExpression="PK, SK",
-        ).get("Items", [])
+        )
         with self.table.batch_writer() as batch:
             for msg in messages:
                 batch.delete_item(Key={"PK": msg["PK"], "SK": msg["SK"]})
-        # Delete thread metadata
         self.table.delete_item(Key={"PK": f"THREAD#{thread_id}", "SK": "METADATA"})
-        # Delete index entry
+        # CODEMEM# -> THREAD# reverse-index row
         if metadata:
             try:
                 self.table.delete_item(
@@ -441,12 +444,11 @@ class DynamoDBHistoryStore:
                 pass
 
     def get_thread_history(self, thread_id: str) -> List[Dict[str, Any]]:
-        response = self.table.query(
+        return self._query_all(
             KeyConditionExpression="PK = :pk AND begins_with(SK, :sk)",
             ExpressionAttributeValues={":pk": f"THREAD#{thread_id}", ":sk": "MESSAGE#"},
             ScanIndexForward=True,
         )
-        return response.get("Items", [])
 
     def get_thread(self, thread_id: str) -> Optional[Dict[str, Any]]:
         response = self.table.get_item(Key={"PK": f"THREAD#{thread_id}", "SK": "METADATA"})
@@ -474,9 +476,8 @@ class DynamoDBHistoryStore:
         return updated
 
     def list_threads(self, code_memory_id: str) -> List[Dict[str, Any]]:
-        response = self.table.query(
+        return self._query_all(
             KeyConditionExpression="PK = :pk AND begins_with(SK, :sk)",
             ExpressionAttributeValues={":pk": f"CODEMEM#{code_memory_id}", ":sk": "THREAD#"},
             ScanIndexForward=True,
         )
-        return response.get("Items", [])

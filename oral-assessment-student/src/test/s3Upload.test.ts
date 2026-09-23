@@ -2,9 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { AxiosError, AxiosHeaders } from 'axios';
 import type { ApiError } from '../types';
 
-// ── Part A: uploadAudioToS3 passes an explicit finite timeout to the bare PUT ──
-// Mock the `axios` module so we can inspect the PUT config. The api module also
-// calls axios.create() for its instance, so provide a benign instance too.
+// Part A: uploadAudioToS3's timeout. api.ts also calls axios.create(), so provide a benign instance.
 const { putMock } = vi.hoisted(() => ({ putMock: vi.fn() }));
 
 vi.mock('axios', async (importOriginal) => {
@@ -71,9 +69,7 @@ describe('uploadAudioToS3 — S3 PUT timeout', () => {
   });
 });
 
-// ── Part B: uploadMedia refetches a fresh presigned URL on a 403 PUT failure ──
-// Reset the module mock and mock the api module instead, so we exercise the s3
-// recovery path directly.
+// Part B: uploadMedia refetches a presigned URL on a 403 PUT.
 vi.resetModules();
 
 const getUploadUrlMock = vi.fn();
@@ -131,9 +127,7 @@ describe('uploadMedia — presigned URL refetch on 403', () => {
     uploadToS3Mock.mockRejectedValue({ message: 'Failed to upload audio file', details: netErr });
 
     const blob = new Blob(['x'], { type: 'audio/webm' });
-    // Regression guard: uploadAudioToS3 throws an ApiError *plain object* (not an
-    // Error instance). The friendly-message mapping must still inspect .details
-    // and surface the specific network message — NOT the generic fallback.
+    // uploadAudioToS3 throws a plain ApiError object, not an Error; mapping must read .details.
     await expect(uploadAudio(blob, 'q1')).rejects.toThrow(
       'Network error: please check your internet connection and try again.'
     );
@@ -164,8 +158,6 @@ describe('uploadMedia — presigned URL refetch on 403', () => {
     uploadToS3Mock.mockRejectedValue(expired403());
 
     const blob = new Blob(['x'], { type: 'audio/webm' });
-    // The surviving 403 (an ApiError plain object) must map to the auth-expired
-    // message, proving the instanceof-Error gap is closed for the 403 path too.
     await expect(uploadAudio(blob, 'q1')).rejects.toThrow(
       'Upload authorization expired. Please try again.'
     );

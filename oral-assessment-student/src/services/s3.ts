@@ -1,7 +1,3 @@
-/**
- * S3 Upload Service - Handles audio file uploads
- */
-
 import axios, { AxiosError } from 'axios';
 import { getUploadUrl, uploadAudioToS3 } from './api';
 import type { UploadTarget } from './api';
@@ -13,14 +9,8 @@ export interface UploadProgress {
   percentage: number;
 }
 
-/**
- * A presigned S3 PUT can fail because the URL expired (S3 returns 403, often with
- * a `SignatureDoesNotMatch`/`AuthorizationExpired` body) — this is distinct from
- * the network/5xx transient retries handled inside uploadAudioToS3's withRetry.
- * uploadAudioToS3 rethrows an ApiError whose `details` is the underlying
- * AxiosError, so we inspect that to decide whether refetching a fresh URL would
- * help.
- */
+// Expired presigned URL (S3 403 / SignatureDoesNotMatch), distinct from the transient retries
+// in uploadAudioToS3. The AxiosError lives on the ApiError's `details`.
 function isPresignedUrlExpired(err: unknown): boolean {
   const details = (err as ApiError | undefined)?.details;
   if (axios.isAxiosError(details)) {
@@ -33,10 +23,7 @@ function isPresignedUrlExpired(err: unknown): boolean {
   return false;
 }
 
-/**
- * Upload a media blob (audio or video) to S3 via a presigned URL.
- * Returns the permanent S3 file URL.
- */
+/** Returns the permanent S3 file URL. */
 async function uploadMedia(
   blob: Blob,
   target: UploadTarget,
@@ -57,9 +44,7 @@ async function uploadMedia(
     await uploadAudioToS3(uploadUrl, blob, reportProgress);
     return fileUrl;
   } catch (error) {
-    // If the presigned URL expired (403), refetch a FRESH url exactly once and
-    // retry the PUT against it. Any other failure (including a second expiry)
-    // propagates to uploadAudio's error-message mapping unchanged.
+    // Expired URL: refetch once and retry. Anything else, or a second expiry, propagates.
     if (!isPresignedUrlExpired(error)) throw error;
     const refreshed = await getUploadUrl(target, blob.type);
     await uploadAudioToS3(refreshed.uploadUrl, blob, reportProgress);
@@ -67,18 +52,9 @@ async function uploadMedia(
   }
 }
 
-/**
- * Map an upload failure to a friendly, user-facing Error.
- *
- * Important: uploadAudioToS3 rethrows an `ApiError` *plain object*
- * `{ message: 'Failed to upload audio file', details: <AxiosError> }`, which is
- * NOT an `instanceof Error`. So the AxiosError-derived cases (timeout / 403 /
- * network) must be detected by inspecting `details`, BEFORE the
- * `instanceof Error` string-matching branch (which only catches the
- * descriptive validation Errors thrown by validateAudioBlob et al).
- */
+// uploadAudioToS3 throws a plain ApiError object (not instanceof Error) with the AxiosError
+// on `details`, so check that first; the instanceof branch is for validation Errors.
 function toFriendlyUploadError(error: unknown): Error {
-  // ApiError-shaped failures from uploadAudioToS3 carry the AxiosError on .details.
   const details = (error as ApiError | undefined)?.details;
   if (axios.isAxiosError(details)) {
     const ax = details as AxiosError;
@@ -96,7 +72,7 @@ function toFriendlyUploadError(error: unknown): Error {
 
   if (error instanceof Error) {
     if (error.message.includes('too large') || error.message.includes('Maximum size')) {
-      return error; // Already a descriptive validation error
+      return error;
     }
     if (error.message.includes('Network Error') || error.message.includes('ERR_NETWORK') || error.message === 'Failed to fetch') {
       return new Error('Network error: please check your internet connection and try again.');
@@ -112,17 +88,13 @@ function toFriendlyUploadError(error: unknown): Error {
   return new Error('Failed to upload audio file. Please try again.');
 }
 
-/**
- * Upload audio blob to S3 and return the file URL
- */
 export async function uploadAudio(
   audioBlob: Blob,
   questionId: string,
   onProgress?: (progress: UploadProgress) => void
 ): Promise<string> {
   try {
-    // The key (audio/<student>/<question>_<timestamp>.<ext>) is built server-side
-    // from the auth token, so no student id is sent from here.
+    // The server builds the key from the auth token, so no student id is sent.
     return await uploadMedia(audioBlob, { kind: 'audio', questionId }, onProgress);
   } catch (error) {
     console.error('Failed to upload audio:', error);
@@ -130,9 +102,6 @@ export async function uploadAudio(
   }
 }
 
-/**
- * Validate audio blob before upload
- */
 export function validateAudioBlob(blob: Blob, maxSizeMB: number = 50): boolean {
   if (!blob || blob.size === 0) {
     throw new Error('Audio recording is empty');
@@ -150,9 +119,6 @@ export function validateAudioBlob(blob: Blob, maxSizeMB: number = 50): boolean {
   return true;
 }
 
-/**
- * Format file size for display
- */
 export function formatFileSize(bytes: number): string {
   if (bytes === 0) return '0 Bytes';
 

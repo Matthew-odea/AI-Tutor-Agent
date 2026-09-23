@@ -299,7 +299,7 @@ async def delete_assessment(
         assessment = await loop.run_in_executor(None, lambda: svc.get_assessment(id))
         _assert_assessment_owner(_principal, assessment)
         await loop.run_in_executor(None, svc.delete_assessment, id)
-        return None  # 204 No Content
+        return None
 
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=400, code="delete_assessment_failed", message=str(error))
@@ -314,13 +314,10 @@ async def generate_student_invite(
     auth_service: AuthService = Depends(get_auth_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
-    """Generate a single-use invitation link for a specific student.
+    """Mint a fresh single-use 7-day invite link for one student and email it.
 
-    Also backs the instructor "Resend invite" action: each call mints a *fresh*
-    token (new jti, new 7-day expiry, unused) so a student whose previous link
-    expired or was consumed gets a working one. Accepts optional
-    { "subject": "...", "message": "..." } with {{name}}, {{title}}, {{link}}
-    placeholders, matching the bulk send-invites endpoint."""
+    Also backs "Resend invite". Optional body {"subject", "message"} supports
+    {{name}}, {{title}}, {{link}} placeholders, as in send-invites."""
     try:
         _assert_instructor_access(_principal)
         loop = asyncio.get_event_loop()
@@ -339,7 +336,7 @@ async def generate_student_invite(
         base_url = os.getenv("STUDENT_ASSESSMENT_BASE_URL", "http://localhost:5176")
         invite_link = f"{base_url}/invite?token={token}"
 
-        # Send invite email (non-blocking — logs warning on failure)
+        # send_student_invite_email never raises; delivery failures are only logged
         student = next((s for s in students if s["studentId"] == student_id), {})
         request = request or StudentInviteRequest()
         custom_subject = (request.subject or "").strip()
@@ -374,17 +371,11 @@ async def send_bulk_invites(
     auth_service: AuthService = Depends(get_auth_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
-    """Send invite emails to enrolled students.  Accepts optional customisation:
-    { "subject": "...", "message": "...", "studentIds": [...], "next": "results" }
-    Use {{name}}, {{title}}, {{link}} as placeholders in subject/message.
+    """Email invites to enrolled students.
 
-    studentIds restricts the send to those students; omit it to mail everyone
-    enrolled. Needed for follow-up mail aimed at a subset (e.g. only students
-    who actually submitted), so a targeted notice doesn't reach the whole roster.
-
-    next="results" points {{link}} at the student's feedback rather than the
-    assessment itself. Without it a student who has already submitted lands back
-    in the question UI.
+    Optional body: {"subject", "message", "studentIds", "next"}; {{name}}, {{title}},
+    {{link}} placeholders. studentIds limits the send to a subset (omit for everyone).
+    next="results" links to feedback, otherwise submitted students land back in the question UI.
     """
     try:
         _assert_instructor_access(_principal)
@@ -457,11 +448,7 @@ async def update_assessment_brief(
     svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
-    """
-    Update the assignment brief for an assessment.
-    The brief must be at least 50 characters.
-    Only editable while the assessment is in draft or scheduled status.
-    """
+    """Update the assignment brief (min 50 chars, draft/scheduled only)."""
     try:
         _assert_instructor_access(_principal)
         loop = asyncio.get_event_loop()
@@ -482,12 +469,7 @@ async def generate_questions_batch(
     dispatcher: SQSJobDispatcher = Depends(get_sqs_job_dispatcher),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
-    """
-    Trigger batch question generation for all (or specified) enrolled students.
-    One SQS message is enqueued per student; the in-process consumer processes
-    them asynchronously. Job state is persisted to DynamoDB so it survives
-    server restarts.
-    """
+    """Enqueue question generation (one SQS message per student) for all or listed students."""
     try:
         _assert_instructor_access(_principal)
         loop = asyncio.get_event_loop()
@@ -503,7 +485,7 @@ async def generate_questions_batch(
         if not students_to_process:
             raise ApiError(status_code=400, code="no_students_to_process", message="No students found to process")
 
-        # Prevent duplicate generation: check if a job is already running for this assessment
+        # Idempotent while a job is in flight: return the existing job instead of starting another
         job_manager = get_batch_job_manager()
         existing_job_id = assessment.get("activeGenerationJobId")
         if existing_job_id:
@@ -519,7 +501,6 @@ async def generate_questions_batch(
                     message="Question generation is already in progress",
                 )
 
-        # Prefer the dedicated assignmentBrief field; fall back to description
         assignment_brief = (
             assessment.get("assignmentBrief")
             or assessment.get("description")
@@ -533,7 +514,6 @@ async def generate_questions_batch(
             metadata={"assessment_title": assessment["title"]},
         ))
 
-        # Persist active job ID on assessment so duplicate requests are blocked server-side
         await loop.run_in_executor(None, lambda: instructor_svc.table.update_item(
             Key={"PK": f"ASSESSMENT#{id}", "SK": "METADATA"},
             UpdateExpression="SET activeGenerationJobId = :jid",
@@ -570,13 +550,7 @@ async def stream_student_evaluation_progress(
     svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
-    """SSE stream for per-question evaluation progress for a single student.
-
-    Emits one event per poll cycle (2 s) with:
-      { questionsEvaluated, totalQuestions, percentage, status }
-
-    Closes when status is 'completed' or 'failed', or after 10 min (300 polls).
-    """
+    """SSE: one student's per-question evaluation progress every 2 s; closes on completed/failed or after 10 min."""
     import json as _json
     _assert_instructor_access(_principal)
     loop = asyncio.get_event_loop()
@@ -588,7 +562,7 @@ async def stream_student_evaluation_progress(
 
     async def event_stream():
         _loop = asyncio.get_event_loop()
-        for _ in range(300):  # max 10 min
+        for _ in range(300):
             item = await _loop.run_in_executor(None, lambda: repo.get_evaluation_progress(studentId, id))
             if item is None:
                 yield f"data: {_json.dumps({'status': 'not_started', 'questionsEvaluated': 0, 'totalQuestions': 0, 'percentage': 0})}\n\n"
@@ -806,9 +780,7 @@ async def get_assessment_results(
         raise ApiError(status_code=404, code="assessment_results_not_found", message=str(error))
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Cohort summary report (auto-generated on submission threshold)
-# ──────────────────────────────────────────────────────────────────────────────
+# --- Cohort report ---
 
 @assessment_router.get("/{id}/report", response_model=AssessmentReportResponse)
 async def get_assessment_report(
@@ -841,13 +813,10 @@ async def generate_assessment_report(
     report_svc: AssessmentReportService = Depends(get_assessment_report_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
-    """
-    Generate the cohort report on demand.
+    """Generate the cohort report on demand.
 
-    Runs inline rather than via SQS: the instructor is waiting on the response,
-    and the aggregation is a handful of DynamoDB queries. The automatic
-    threshold path goes through the queue instead so it never blocks a
-    student's submit.
+    Inline, not via SQS: the instructor is waiting and it is a few DynamoDB queries.
+    The auto-threshold path uses the queue so it never blocks a student's submit.
     """
     try:
         _assert_instructor_access(_principal)
@@ -918,9 +887,7 @@ async def get_assessment_report_pdf(
         raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
 
 
-# ──────────────────────────────────────────────────────────────────────────────
-# Sprint 8 – Results Dashboards (EPIC-6-1 to 6-4)
-# ──────────────────────────────────────────────────────────────────────────────
+# --- Results dashboards ---
 
 import json as _json
 
@@ -932,7 +899,7 @@ async def get_student_detail(
     svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
-    """EPIC-6-2: Instructor per-student detailed results with transcript, playback URLs, and proctor chunk health."""
+    """Instructor per-student detailed results with transcript, playback URLs, and proctor chunk health."""
     try:
         _assert_instructor_access(_principal)
         loop = asyncio.get_event_loop()
@@ -962,7 +929,7 @@ async def override_question_score(
     svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
-    """EPIC-6-2: Override an AI-assigned score for a specific question."""
+    """Override an AI-assigned score for a specific question."""
     try:
         _assert_instructor_access(_principal)
         loop = asyncio.get_event_loop()
@@ -981,7 +948,7 @@ async def release_results(
     svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
-    """EPIC-6-3: Release results so students can view their feedback."""
+    """Release results so students can view their feedback."""
     try:
         _assert_instructor_access(_principal)
         loop = asyncio.get_event_loop()
@@ -989,10 +956,8 @@ async def release_results(
         _assert_assessment_owner(_principal, assessment)
         result = await loop.run_in_executor(None, lambda: svc.release_results(id))
 
-        # Email every submitted student after the response is sent. A BackgroundTask,
-        # not a daemon thread: a redeploy killed daemon threads mid-send, so released
-        # results silently never reached some students. One bad address is logged
-        # and skipped; it must not fail the instructor's release.
+        # BackgroundTask, not a daemon thread: a redeploy killed daemon threads mid-send,
+        # so some students never got their email. A bad address is logged and skipped.
         def _notify_students():
             try:
                 students = svc.get_assessment_students(id)
@@ -1046,8 +1011,7 @@ async def record_human_score(
     svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
-    """Dual-scoring harness: record a HUMAN reference score for a question.
-    Separate from the grade override — it does not change the student's grade."""
+    """Record a human reference score for the dual-scoring harness; does not change the student's grade."""
     try:
         _assert_instructor_access(_principal)
         loop = asyncio.get_event_loop()
@@ -1110,7 +1074,7 @@ async def send_reminder(
     svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
-    """EPIC-6-4: Send an email reminder to a student who has not yet submitted."""
+    """Send an email reminder to a student who has not yet submitted."""
     try:
         _assert_instructor_access(_principal)
         loop = asyncio.get_event_loop()
@@ -1122,7 +1086,7 @@ async def send_reminder(
         raise ApiError(status_code=400, code="reminder_failed", message=str(error))
 
 
-# ── EPIC-3-3: Question Preview and Editing ───────────────────────────────────
+# --- Question preview and editing ---
 
 @assessment_router.get("/{id}/students/{student_id}/questions", response_model=StudentQuestionListResponse)
 async def list_student_questions(
@@ -1131,7 +1095,7 @@ async def list_student_questions(
     svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
-    """EPIC-3-3: List all generated questions for a student."""
+    """List all generated questions for a student."""
     try:
         _assert_instructor_access(_principal)
         loop = asyncio.get_event_loop()
@@ -1155,7 +1119,7 @@ async def update_student_question(
     svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
-    """EPIC-3-3: Edit a student question's text. Locked once assessment is open."""
+    """Edit a student question's text. Draft/scheduled only."""
     try:
         _assert_instructor_access(_principal)
         loop = asyncio.get_event_loop()
@@ -1175,7 +1139,7 @@ async def delete_student_question(
     svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
-    """EPIC-3-3: Delete a student question. Min 1 must remain. Locked once assessment is open."""
+    """Delete a student question. Min 1 must remain. Draft/scheduled only."""
     try:
         _assert_instructor_access(_principal)
         loop = asyncio.get_event_loop()
@@ -1195,7 +1159,7 @@ async def add_student_question(
     svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
-    """EPIC-3-3: Manually add a question for a specific student. Locked once assessment is open."""
+    """Manually add a question for a specific student. Draft/scheduled only."""
     try:
         _assert_instructor_access(_principal)
         loop = asyncio.get_event_loop()
@@ -1216,7 +1180,7 @@ async def stream_evaluation_status(
     svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
-    """EPIC-6-1: SSE stream for evaluation job status (auto-refreshes results dashboard)."""
+    """SSE stream for evaluation job status (auto-refreshes results dashboard)."""
     _assert_instructor_access(_principal)
     loop = asyncio.get_event_loop()
     assessment = await loop.run_in_executor(None, lambda: svc.get_assessment(id))

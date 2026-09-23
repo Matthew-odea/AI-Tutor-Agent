@@ -80,18 +80,11 @@ def _assert_instructor_access(principal: AuthPrincipal) -> None:
 
 
 def _assert_student_access(principal: AuthPrincipal, student_id: str, assessment_id: str) -> None:
-    """A student route serves one student's record in one assessment.
+    """Only an admin or a session token scoped to exactly this (student, assessment) pair passes.
 
-    Only a session token issued for exactly that (student, assessment) pair may
-    reach it, or an admin. Session tokens come from an invite exchange, and an
-    invite is only minted for an enrolled student, so the token stands for the
-    enrolment. Two things deliberately do not pass:
-
-    - Instructors. Their views of a student go through /api/assessment/{id}/...,
-      which checks they own the assessment; here nothing would.
-    - An unscoped login token whose subject equals the student id. Signup is open
-      and a signed-up user's id is their email, so anyone could sign up as an email
-      an instructor used for a student id.
+    Deliberately refused: instructors (their student views go through /api/assessment/{id}/...,
+    which checks ownership), and unscoped login tokens whose subject equals the student id
+    (signup is open, so anyone could sign up as an email used as a student id).
     """
     if _has_role(principal, {"admin"}):
         return
@@ -102,11 +95,7 @@ def _assert_student_access(principal: AuthPrincipal, student_id: str, assessment
 
 
 def _assert_assessment_owner(principal: AuthPrincipal, assessment: dict | None) -> None:
-    """Refuse anyone but the assessment's creator (or an admin).
-
-    Answers exactly as a missing assessment does, so a caller cannot use it to learn
-    which assessment ids exist. An assessment with no createdBy belongs to nobody.
-    """
+    """Creator or admin only. Answers as a missing assessment would, so ids can't be probed; no createdBy means no owner."""
     if _has_role(principal, {"admin"}):
         return
     created_by = (assessment or {}).get("createdBy")

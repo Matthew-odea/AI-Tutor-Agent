@@ -207,7 +207,7 @@ class TestShouldGenerateOnSubmit:
         assert decision == {"milestone": 1, "threshold": 10, "submittedCount": 10}
 
     def test_does_not_refire_within_same_milestone(self, table):
-        """The bug the feature note warns about: firing on every later submission."""
+        """Must not re-fire on every later submission inside the same milestone."""
         seed_students(table, submitted=10)
         svc = make_service(table)
         assert svc.should_generate_on_submit(ASSESSMENT_ID) is not None

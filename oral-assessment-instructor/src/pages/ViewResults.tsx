@@ -32,8 +32,6 @@ export default function ViewResults() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- fetch only when the route id changes; loadAssessment is recreated each render and uses only stable setters
   }, [assessmentId]);
 
-  // Full-page loading / error state — AppShell is only mounted once there is an
-  // assessment to title it with.
   if (!selectedAssessment || !assessmentId) {
     return (
       <div className="min-h-screen bg-paper flex items-center justify-center p-4">
@@ -50,9 +48,7 @@ export default function ViewResults() {
 
   return (
     <AppShell
-      // ViewResults is the assessment's canonical landing page, so the assessment
-      // title IS the leaf here — unlinked, and stamped aria-current="page" by
-      // AppShell. This is the one screen whose trail stops at the title.
+      // The one screen whose breadcrumb leaf is the assessment title itself.
       breadcrumbs={[
         { label: 'Assessments', to: '/assessments' },
         { label: selectedAssessment.title },

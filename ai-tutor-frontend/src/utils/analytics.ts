@@ -1,10 +1,6 @@
 /**
- * Analytics Service
- *
- * Privacy principles:
- * - No message body content
- * - No email addresses
- * - Respect Do Not Track settings
+ * Batched analytics events posted to the backend. Never send message bodies or email addresses.
+ * Disabled when Do Not Track is set.
  */
 
 import { API_CONFIG, API_ENDPOINTS } from "../config/api.config";
@@ -24,17 +20,11 @@ type QueuedEvent = {
 };
 
 interface PageViewProperties {
-  /** Page path */
   path: string;
-  /** Page title */
   title?: string;
-  /** Referrer */
   referrer?: string;
 }
 
-/**
- * Analytics configuration
- */
 const config = {
   enabled:
     (import.meta.env.VITE_ANALYTICS_ENABLED
@@ -75,6 +65,7 @@ const flushQueue = async (useBeacon = false) => {
     events,
   });
 
+  // sendBeacon survives page unload but cannot carry the Authorization header.
   if (useBeacon && navigator.sendBeacon) {
     const blob = new Blob([payload], { type: "application/json" });
     const ok = navigator.sendBeacon(
@@ -118,10 +109,6 @@ const scheduleFlush = () => {
   }, config.flushIntervalMs);
 };
 
-/**
- * Initialize analytics tracking
- * Call this once at app startup
- */
 export const initAnalytics = () => {
   if (!config.enabled) {
     console.log("[Analytics] Disabled (dev mode or DNT enabled)");
@@ -142,12 +129,6 @@ export const initAnalytics = () => {
   console.log("[Analytics] Initialized");
 };
 
-/**
- * Track a custom event
- *
- * @param eventName - Name of the event
- * @param properties - Event properties
- */
 export const trackEvent = (eventName: string, properties?: EventProperties) => {
   if (config.debug) {
     console.log("[Analytics] Event:", eventName, properties);
@@ -167,11 +148,6 @@ export const trackEvent = (eventName: string, properties?: EventProperties) => {
   scheduleFlush();
 };
 
-/**
- * Track a page view
- *
- * @param properties - Page view properties
- */
 export const trackPageView = (properties: PageViewProperties) => {
   if (config.debug) {
     console.log("[Analytics] Page view:", properties);
@@ -184,11 +160,7 @@ export const trackPageView = (properties: PageViewProperties) => {
   });
 };
 
-/**
- * Set user properties (no PII)
- *
- * @param properties - User properties
- */
+/** Must not contain PII. */
 export const setUserProperties = (properties: EventProperties) => {
   if (config.debug) {
     console.log("[Analytics] User properties:", properties);
@@ -197,11 +169,6 @@ export const setUserProperties = (properties: EventProperties) => {
   trackEvent("user_properties_updated", properties);
 };
 
-// Predefined event tracking functions for common actions
-
-/**
- * Track when a message is sent
- */
 export const trackMessageSent = (
   experienceMode: string,
   messageLength: number,
@@ -222,9 +189,6 @@ export const trackMessageSent = (
   });
 };
 
-/**
- * Track when code is executed
- */
 export const trackCodeExecuted = (
   hasError: boolean,
   executionTimeMs?: number,
@@ -239,9 +203,6 @@ export const trackCodeExecuted = (
   });
 };
 
-/**
- * Track when a new session is created
- */
 export const trackSessionCreated = () => {
   trackEvent("session_created");
 };
@@ -250,9 +211,6 @@ export const trackSessionResumed = () => {
   trackEvent("session_resumed");
 };
 
-/**
- * Track when pedagogy mode is changed
- */
 export const trackModeChanged = (fromMode: string, toMode: string) => {
   trackEvent("mode_changed", {
     from_mode: fromMode,
@@ -301,18 +259,12 @@ export const trackUIEvent = (
   });
 };
 
-/**
- * Track when code editor is toggled
- */
 export const trackCodeEditorToggled = (isOpen: boolean) => {
   trackEvent("code_editor_toggled", {
     is_open: isOpen,
   });
 };
 
-/**
- * Track when a file is uploaded
- */
 export const trackFileUploaded = (fileType: string, fileSize: number) => {
   trackEvent("file_uploaded", {
     file_type: fileType,
@@ -320,9 +272,6 @@ export const trackFileUploaded = (fileType: string, fileSize: number) => {
   });
 };
 
-/**
- * Track API errors
- */
 export const trackAPIError = (endpoint: string, statusCode: number) => {
   trackEvent("api_error", {
     endpoint,
@@ -330,9 +279,6 @@ export const trackAPIError = (endpoint: string, statusCode: number) => {
   });
 };
 
-/**
- * Track when user goes offline/online
- */
 export const trackNetworkStatus = (isOnline: boolean) => {
   trackEvent("network_status_changed", {
     is_online: isOnline,

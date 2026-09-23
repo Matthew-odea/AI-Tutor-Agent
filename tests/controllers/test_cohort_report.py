@@ -1,10 +1,5 @@
-"""
-Controller tests for the cohort report endpoints and the per-question
-evaluation progress SSE stream.
-
-    GET  /api/assessment/{id}/report
-    POST /api/assessment/{id}/report/generate
-    GET  /api/assessment/{id}/students/{studentId}/evaluation-progress
+"""Controller tests for the cohort report endpoints and the per-question
+evaluation-progress SSE stream.
 """
 
 from unittest.mock import MagicMock, patch

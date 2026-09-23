@@ -1,16 +1,11 @@
-"""
-DTOs for Instructor Assessment endpoints
-"""
-
 from pydantic import BaseModel, Field
 from typing import Dict, List, Optional, Union
 from datetime import datetime
 
 
-# --- Request Models ---
+# Requests
 
 class CreateAssessmentRequest(BaseModel):
-    """Request to create a new assessment"""
     title: str = Field(..., description="Assessment title")
     course: str = Field(..., description="Course name/code")
     description: str = Field(default="", description="Assessment description")
@@ -34,7 +29,6 @@ class CreateAssessmentRequest(BaseModel):
 
 
 class UploadedStudent(BaseModel):
-    """Student data for bulk upload"""
     name: str
     email: str
     studentId: str
@@ -43,29 +37,24 @@ class UploadedStudent(BaseModel):
 
 
 class UploadStudentsRequest(BaseModel):
-    """Request to upload students to an assessment"""
     students: List[UploadedStudent] = Field(..., description="List of students to enroll")
 
 
 class GenerateQuestionsBatchRequest(BaseModel):
-    """Request to start batch question generation"""
     studentIds: Optional[List[str]] = Field(None, description="Specific student IDs (or all if empty)")
 
 
 class EvaluateBatchRequest(BaseModel):
-    """Request to start batch evaluation"""
     studentIds: Optional[List[str]] = Field(None, description="Specific student IDs (or all if empty)")
 
 
 class UpdateBriefRequest(BaseModel):
-    """Request to update the assignment brief"""
     brief: str = Field(..., description="Assignment brief text (min 50 characters)", min_length=50)
 
 
-# --- Response Models ---
+# Responses
 
 class AssessmentResponse(BaseModel):
-    """Assessment data response"""
     id: str
     createdBy: Optional[str] = None
     title: str
@@ -96,14 +85,12 @@ class AssessmentResponse(BaseModel):
 
 
 class AssessmentListResponse(BaseModel):
-    """Response with list of assessments"""
     ok: bool = True
     assessments: List[AssessmentResponse]
     total: int
 
 
 class StudentResponse(BaseModel):
-    """Student enrollment data"""
     studentId: str
     name: str = ""
     email: str = ""
@@ -114,7 +101,6 @@ class StudentResponse(BaseModel):
 
 
 class StudentListResponse(BaseModel):
-    """Response with list of students"""
     ok: bool = True
     assessmentId: str
     students: List[StudentResponse]
@@ -122,7 +108,6 @@ class StudentListResponse(BaseModel):
 
 
 class StudentProgressItem(BaseModel):
-    """Individual student progress"""
     studentId: str
     name: str
     email: str
@@ -143,7 +128,6 @@ class ProgressSummary(BaseModel):
 
 
 class ProgressSummaryResponse(BaseModel):
-    """Response with progress for all students"""
     ok: bool = True
     assessmentId: str
     students: List[StudentProgressItem]
@@ -151,7 +135,6 @@ class ProgressSummaryResponse(BaseModel):
 
 
 class StudentResultItem(BaseModel):
-    """Individual student result"""
     studentId: str
     name: str
     email: str
@@ -168,7 +151,6 @@ class ResultsSummary(BaseModel):
 
 
 class ResultsSummaryResponse(BaseModel):
-    """Response with results for all students"""
     ok: bool = True
     assessmentId: str
     results: List[StudentResultItem]
@@ -227,7 +209,7 @@ class AssessmentReport(BaseModel):
 
 
 class AssessmentReportResponse(BaseModel):
-    """Cohort summary report. Aggregate only — carries no per-student identifiers."""
+    """Cohort summary report. Aggregate only, carries no per-student identifiers."""
     ok: bool = True
     assessmentId: str
     generated: bool = Field(..., description="False when no report has been generated yet")
@@ -235,14 +217,12 @@ class AssessmentReportResponse(BaseModel):
 
 
 class GenerateReportResponse(BaseModel):
-    """Response after a manual report generation request."""
     ok: bool = True
     assessmentId: str
     report: AssessmentReport
 
 
 class QuestionGenerationJobResponse(BaseModel):
-    """Response after starting question generation"""
     ok: bool = True
     jobId: str
     assessmentId: str
@@ -254,7 +234,6 @@ class QuestionGenerationJobResponse(BaseModel):
 
 
 class QuestionGenerationStatusResponse(BaseModel):
-    """Response for generation job status check"""
     jobId: str
     assessmentId: str
     status: str
@@ -267,7 +246,6 @@ class QuestionGenerationStatusResponse(BaseModel):
 
 
 class EvaluationJobResponse(BaseModel):
-    """Response after starting evaluation"""
     ok: bool = True
     jobId: str
     assessmentId: str
@@ -278,7 +256,6 @@ class EvaluationJobResponse(BaseModel):
 
 
 class EvaluationStatusResponse(BaseModel):
-    """Response for evaluation job status check"""
     jobId: str
     assessmentId: str
     status: str
@@ -289,16 +266,16 @@ class EvaluationStatusResponse(BaseModel):
     error: Optional[str] = None
 
 
-# ── Sprint 8: Results Dashboards (EPIC-6-1 to 6-4) ───────────────
+# Results, overrides and proctoring
 
 class ScoreOverrideRequest(BaseModel):
-    """Instructor override for a question score"""
-    score: int = Field(..., description="Override score (0-10)", ge=0, le=10)
+    # le=100 is only the absolute ceiling (maxScorePerQuestion's own cap); the service
+    # validates against the question's actual max.
+    score: int = Field(..., description="Override score (0 to the question's max score)", ge=0, le=100)
     comment: Optional[str] = Field(None, description="Instructor comment")
 
 
 class ScoreOverrideResponse(BaseModel):
-    """Response after applying a score override"""
     ok: bool = True
     assessmentId: str
     studentId: str
@@ -308,14 +285,12 @@ class ScoreOverrideResponse(BaseModel):
 
 
 class ProctorChunkItem(BaseModel):
-    """Single proctoring chunk entry"""
     chunkIndex: int
     chunkUrl: str
     recordedAt: Optional[str] = None
 
 
 class ProctorChunkHealthResponse(BaseModel):
-    """Proctoring chunk manifest for a student"""
     ok: bool = True
     studentId: str
     assessmentId: str
@@ -325,7 +300,6 @@ class ProctorChunkHealthResponse(BaseModel):
 
 
 class InstructorQuestionDetail(BaseModel):
-    """Per-question detail in instructor student view"""
     questionId: str
     questionText: str
     answerType: Optional[str] = None
@@ -349,11 +323,10 @@ class InstructorQuestionDetail(BaseModel):
     suggestedImprovements: Optional[str | List[str]] = None
     instructorComment: Optional[str] = None
     evaluatedAt: Optional[str] = None
-    # Review flags (Tasks 4 & 5)
     needsReview: bool = False
     reviewReasons: Optional[List[str]] = None
     evaluationMethod: Optional[str] = None
-    # Human reference score for the dual-scoring validity harness (Task 3)
+    # Dual-scoring harness reference score, separate from instructorScore
     humanCorrectnessScore: Optional[int] = None
     humanUnderstandingScore: Optional[int] = None
     humanTotalScore: Optional[int] = None
@@ -362,7 +335,7 @@ class InstructorQuestionDetail(BaseModel):
 
 
 class ConsentInfo(BaseModel):
-    """Student's webcam-proctoring consent decision (granted=False = declined)."""
+    """Webcam-proctoring consent decision (granted=False means declined)."""
     granted: bool
     consentVersion: Optional[str] = None
     recordedAt: Optional[str] = None
@@ -370,7 +343,6 @@ class ConsentInfo(BaseModel):
 
 
 class InstructorStudentDetailResponse(BaseModel):
-    """Per-student detailed results for instructor view"""
     ok: bool = True
     studentId: str
     studentName: str
@@ -388,7 +360,6 @@ class InstructorStudentDetailResponse(BaseModel):
 
 
 class ReleaseResultsResponse(BaseModel):
-    """Response after releasing results to students"""
     ok: bool = True
     assessmentId: str
     resultsReleased: bool
@@ -396,17 +367,16 @@ class ReleaseResultsResponse(BaseModel):
     flaggedCount: Optional[int] = None
 
 
-# ── Dual-scoring validity harness (Task 3) + review flagging (Task 5) ────────
+# Dual-scoring harness and review flags
 
 class RecordHumanScoreRequest(BaseModel):
-    """Record a human reference score for a question (dual-scoring harness)."""
+    """Human reference score for the dual-scoring harness; kept separate from the instructor override."""
     humanCorrectnessScore: int = Field(..., description="Human correctness score (0-5)", ge=0, le=5)
     humanUnderstandingScore: int = Field(..., description="Human understanding score (0-5)", ge=0, le=5)
     scoredBy: Optional[str] = Field(None, description="Identifier of the human scorer")
 
 
 class RecordHumanScoreResponse(BaseModel):
-    """Response after recording a human reference score."""
     ok: bool = True
     assessmentId: str
     studentId: str
@@ -432,7 +402,7 @@ class ScoreAgreementItem(BaseModel):
 
 
 class ScoreAgreementResponse(BaseModel):
-    """AI-vs-human agreement summary across all dual-scored items."""
+    """AI-vs-human agreement across all dual-scored items."""
     ok: bool = True
     assessmentId: str
     dualScoredCount: int
@@ -511,17 +481,15 @@ class SendInvitesResponse(BaseModel):
 
 
 class SendReminderResponse(BaseModel):
-    """Response after sending a reminder email"""
     ok: bool = True
     studentId: str
     assessmentId: str
     message: str
 
 
-# ── Sprint 9: Question Preview and Editing (EPIC-3-3) ────────────────
+# Per-student question editing
 
 class StudentQuestionItem(BaseModel):
-    """A single student-specific generated question"""
     id: str
     text: str
     questionNumber: int
@@ -533,7 +501,6 @@ class StudentQuestionItem(BaseModel):
 
 
 class StudentQuestionListResponse(BaseModel):
-    """Response with all questions for one student"""
     ok: bool = True
     assessmentId: str
     studentId: str
@@ -542,13 +509,11 @@ class StudentQuestionListResponse(BaseModel):
 
 
 class UpdateStudentQuestionRequest(BaseModel):
-    """Instructor edits the text (and optionally time limit) of a generated question"""
     text: str = Field(..., description="Updated question text", min_length=10)
     timeLimit: Optional[int] = Field(None, description="Per-question time limit in minutes (1–30). Stored as seconds.", ge=1, le=30)
 
 
 class AddStudentQuestionRequest(BaseModel):
-    """Instructor manually adds a question for a specific student"""
     text: str = Field(..., description="Question text", min_length=10)
     questionType: str = Field("manual", description="Question type")
     difficulty: str = Field("medium", description="easy / medium / hard")
@@ -557,12 +522,10 @@ class AddStudentQuestionRequest(BaseModel):
 
 
 class StudentQuestionResponse(BaseModel):
-    """Response after creating or updating a student question"""
     ok: bool = True
     question: StudentQuestionItem
 
 
 class DeleteStudentQuestionResponse(BaseModel):
-    """Response after deleting a student question"""
     ok: bool = True
     deletedId: str

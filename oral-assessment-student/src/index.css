@@ -4,47 +4,29 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Design tokens (single source of truth) ─────────────────────────────────
-   The Tailwind semantic colors (paper/ink/slate/hairline/accent/record plus the
-   success/caution/danger status trio) read these variables, so flipping `.dark`
-   (or the OS preference) re-themes the whole app from here.
-
-   IMPORTANT — why these are space-separated RGB channels and not hex:
-   the Tailwind config wraps each one as `rgb(var(--token) / <alpha-value>)`.
-   That is what makes alpha modifiers (`bg-ink/5`, `bg-accent/10`,
-   `text-slate/60`, `border-accent/20`) compile. A bare `var(--token)` holding a
-   hex string CANNOT take an alpha modifier: Tailwind silently drops the whole
-   utility, so those classes emit no CSS at all and the tint just disappears.
-   Keep every colour token below as `R G B` channels only.
-
-   `--color-hairline` and `--scrim` are the two exceptions: they are
-   intrinsically translucent, are never used with an alpha modifier, and are
-   derived from the ink channels so there is still one source of truth. */
+/* Design tokens. Colours MUST stay as `R G B` channels, not hex: Tailwind wraps them as
+   rgb(var(--x) / <alpha-value>), and with a hex value every `/alpha` class (bg-ink/5 etc.)
+   silently emits no CSS. Consequently a bare var(--color-x) is not a valid colour; wrap it
+   in rgb(). Exceptions: --color-hairline and --scrim are already translucent colours. */
 :root {
-  --color-paper: 250 250 248;    /* #FAFAF8 — page / card surface */
-  --color-ink: 22 22 26;         /* #16161A — primary text */
-  --color-slate: 107 111 118;    /* #6B6F76 — metadata / secondary text */
-  --color-hairline: rgb(var(--color-ink) / 0.10); /* 1px borders & dividers */
+  --color-paper: 250 250 248;    /* #FAFAF8 */
+  --color-ink: 22 22 26;         /* #16161A */
+  --color-slate: 107 111 118;    /* #6B6F76 */
+  --color-hairline: rgb(var(--color-ink) / 0.10);
 
-  --color-accent: 14 124 102;    /* #0E7C66 — deep ink-teal, the one accent */
+  --color-accent: 14 124 102;    /* #0E7C66 */
   --color-accent-hover: 11 99 83; /* #0B6353 */
-  --color-record: 224 74 47;     /* #E04A2F — warm vermillion, recording only */
+  --color-record: 224 74 47;     /* #E04A2F, recording state only */
 
-  /* Status tokens. Light values unchanged from the original hex palette. */
   --color-success: 27 158 119;   /* #1B9E77 */
   --color-caution: 180 83 9;     /* #B45309 */
   --color-danger: 192 57 43;     /* #C0392B */
 
-  /* Solid (non-channel) alias of the accent, for the handful of SVG
-     presentation attributes that set `stroke`/`fill` to a var directly and so
-     cannot consume the channel form. */
+  /* For SVG stroke/fill attributes, which can't consume the channel form. */
   --color-accent-solid: rgb(var(--color-accent));
 
-  /* The single elevation token, reserved for overlays/modals. */
   --elevation-overlay: 0 12px 32px -8px rgb(var(--color-ink) / 0.22), 0 2px 8px -2px rgb(var(--color-ink) / 0.12);
-  /* Modal scrim: ink @ 45% + 2px backdrop blur (blur applied at use site). */
   --scrim: rgb(var(--color-ink) / 0.45);
-  /* One card radius (12px) for cards AND modals. */
   --radius-card: 0.75rem;
 }
 
@@ -54,22 +36,20 @@
   --color-slate: 156 160 168;    /* #9CA0A8 */
   --color-hairline: rgb(var(--color-ink) / 0.14);
 
-  --color-accent: 47 166 139;    /* #2FA68B — lighter teal on dark paper */
+  --color-accent: 47 166 139;    /* #2FA68B */
   --color-accent-hover: 67 187 160; /* #43BBA0 */
   --color-record: 240 100 74;    /* #F0644A */
 
-  /* Lightened status trio. The light values are far too dark to read as text on
-     #16161A paper (caution 3.59:1, danger 3.32:1); these are hue-preserving
-     lifts that clear WCAG AA 4.5:1 against dark paper. */
-  --color-success: 47 191 148;   /* #2FBF94 — 7.73:1 on #16161A */
-  --color-caution: 230 137 66;   /* #E68942 — 6.89:1 on #16161A */
-  --color-danger: 222 110 98;    /* #DE6E62 — 5.60:1 on #16161A */
+  /* Lifted so status text clears WCAG AA 4.5:1 on dark paper; the light values don't. */
+  --color-success: 47 191 148;   /* #2FBF94, 7.73:1 */
+  --color-caution: 230 137 66;   /* #E68942, 6.89:1 */
+  --color-danger: 222 110 98;    /* #DE6E62, 5.60:1 */
 
   --elevation-overlay: 0 12px 32px -8px rgb(0 0 0 / 0.55), 0 2px 8px -2px rgb(0 0 0 / 0.4);
   --scrim: rgb(0 0 0 / 0.55);
 }
 
-/* Honour the OS preference when the app hasn't explicitly set a class. */
+/* OS preference, unless `.light` is set. Keep in sync with `.dark` above. */
 @media (prefers-color-scheme: dark) {
   :root:not(.light) {
     --color-paper: 22 22 26;
@@ -104,7 +84,6 @@
     width: 100vw;
   }
 
-  /* Custom scrollbar */
   ::-webkit-scrollbar {
     width: 10px;
     height: 10px;
@@ -114,10 +93,6 @@
     background-color: var(--color-hairline);
   }
 
-  /* `--color-slate` holds RGB channels, not a colour, so it has to be wrapped
-     in `rgb()` here — a bare `var(--color-slate)` would be an invalid value and
-     the thumb would fall back to the UA default. Same reason as the Tailwind
-     config: the channel form is what makes `/alpha` modifiers work. */
   ::-webkit-scrollbar-thumb {
     background-color: rgb(var(--color-slate));
     @apply rounded-full;
@@ -127,9 +102,6 @@
     @apply bg-accent;
   }
 
-  /* Focus improvements. `--color-paper` is RGB channels (see the token block),
-     so it must be wrapped in `rgb()` — Tailwind's ring-offset custom property
-     expects a real colour and silently ignores an invalid one. */
   *:focus-visible {
     @apply outline-none ring-2 ring-accent;
     --tw-ring-offset-color: rgb(var(--color-paper));
@@ -150,9 +122,7 @@
   }
 }
 
-/* ── Reduced motion ─────────────────────────────────────────────────────────
-   Instant-complete every animation/transition (the breathing ring, the score
-   count-up, skeleton shimmer) for users who ask for it. */
+/* Reduced motion: instant-complete every CSS animation/transition. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

@@ -57,8 +57,6 @@ def _seed_enrollments(table):
         })
 
 
-# ── ProgressAggregator ─────────────────────────────────
-
 class TestProgressAggregator:
     def test_no_progress_returns_not_started(self, table):
         agg = InstructorAssessmentProgressAggregator(table=table, get_students=lambda _: STUDENTS)
@@ -90,8 +88,6 @@ class TestProgressAggregator:
         assert alice["percentage"] == 60.0
         assert bob["status"] == "not-started"
 
-
-# ── ResultsAggregator ──────────────────────────────────
 
 class TestResultsAggregator:
     def _seed_evaluations(self, table, student_id="s-1"):
@@ -136,11 +132,8 @@ class TestResultsAggregator:
         _seed_enrollments(table)
         pk = f"STUDENT#s-1#ASSESSMENT#{ASSESSMENT_ID}"
 
-        # Questions
         table.put_item(Item={"PK": pk, "SK": "QUESTION#q-1", "text": "Q1"})
-        # Answers
         table.put_item(Item={"PK": pk, "SK": "ANSWER#q-1", "audioUrl": "s3://a.webm", "duration": 30, "answerType": "audio"})
-        # Evaluations
         table.put_item(Item={
             "PK": pk, "SK": "EVALUATION#q-1",
             "totalScore": 8, "maxScore": 10,
@@ -218,8 +211,6 @@ class TestEffectiveScore:
         assert _effective_score({}) == 0
 
 
-# ── Task 3: AI-vs-human agreement ───────────────────────────────────────────
-
 class TestScoreAgreement:
     def test_agreement_metrics(self, table):
         pk = f"STUDENT#s-1#ASSESSMENT#{ASSESSMENT_ID}"
@@ -259,8 +250,6 @@ class TestScoreAgreement:
         assert result["meanAbsoluteDifference"] is None
 
 
-# ── Task 5: flagged evaluations ─────────────────────────────────────────────
-
 class TestFlaggedEvaluations:
     def test_flags_needs_review_and_divergence(self, table):
         pk = f"STUDENT#s-1#ASSESSMENT#{ASSESSMENT_ID}"
@@ -299,8 +288,6 @@ class TestFlaggedEvaluations:
         result = agg.get_flagged_evaluations(ASSESSMENT_ID)
         assert result["flaggedCount"] == 0
 
-
-# ── Task 6: configurable grade cutoffs / max score ──────────────────────────
 
 class TestScoringConfigOverride:
     def test_default_cutoffs_when_no_metadata(self, table):

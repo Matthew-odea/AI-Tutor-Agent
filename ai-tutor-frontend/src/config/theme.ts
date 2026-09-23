@@ -1,8 +1,5 @@
-/**
- * Design tokens for consistent styling across the application
- */
+/** Design tokens and shared app config. Colours live in tailwind.config.js. */
 
-// Breakpoints
 export const BREAKPOINTS = {
   sm: "640px",
   md: "768px",
@@ -11,19 +8,18 @@ export const BREAKPOINTS = {
   "2xl": "1536px",
 } as const;
 
-// Timeouts (in milliseconds)
+// Milliseconds
 export const TIMEOUTS = {
   API_REQUEST: 30000,
   TOAST_DEFAULT: 3000,
   TOAST_ERROR: 5000,
-  TOAST_PERSISTENT: 0, // Won't auto-dismiss
+  TOAST_PERSISTENT: 0, // 0 = never auto-dismiss
   DEBOUNCE_INPUT: 300,
   ANIMATION_SHORT: 150,
   ANIMATION_MEDIUM: 300,
   ANIMATION_LONG: 500,
 } as const;
 
-// Z-Index scale
 export const Z_INDEX = {
   dropdown: 10,
   sticky: 20,
@@ -33,7 +29,6 @@ export const Z_INDEX = {
   tooltip: 60,
 } as const;
 
-// Animation easings
 export const EASINGS = {
   easeInOut: "cubic-bezier(0.4, 0, 0.2, 1)",
   easeOut: "cubic-bezier(0.0, 0, 0.2, 1)",
@@ -41,7 +36,6 @@ export const EASINGS = {
   sharp: "cubic-bezier(0.4, 0, 0.6, 1)",
 } as const;
 
-// Border radius
 export const RADIUS = {
   none: "0",
   sm: "0.125rem",
@@ -69,7 +63,6 @@ export const SPACING = {
   24: "6rem",
 } as const;
 
-// Shadows
 export const SHADOWS = {
   sm: "0 1px 2px 0 rgb(0 0 0 / 0.05)",
   md: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
@@ -79,7 +72,6 @@ export const SHADOWS = {
   inner: "inset 0 2px 4px 0 rgb(0 0 0 / 0.05)",
 } as const;
 
-// Typography
 export const FONT_SIZE = {
   xs: ["0.75rem", { lineHeight: "1rem" }],
   sm: ["0.875rem", { lineHeight: "1.25rem" }],
@@ -98,23 +90,18 @@ export const FONT_WEIGHT = {
   bold: 700,
 } as const;
 
-// Colors are defined in `tailwind.config.js` as the single source of truth.
-
-// API configuration
 export const API_CONFIG = {
   MAX_RETRIES: 3,
-  RETRY_DELAY: 1000, // Base delay in ms
+  RETRY_DELAY: 1000, // ms, doubled per retry
   RETRY_STATUS_CODES: [408, 429, 500, 502, 503, 504],
 } as const;
 
-// Session configuration
 export const SESSION_CONFIG = {
   MAX_TITLE_LENGTH: 50,
   MAX_MESSAGE_PREVIEW: 100,
   DEFAULT_TITLE: "New Chat",
 } as const;
 
-// Code editor configuration
 export const CODE_EDITOR_CONFIG = {
   DEFAULT_LANGUAGE: "python",
   TAB_SIZE: 4,
@@ -125,7 +112,6 @@ export const CODE_EDITOR_CONFIG = {
   FONT_SIZE: 14,
 } as const;
 
-// Message constraints
 export const MESSAGE_CONFIG = {
   MAX_LENGTH: 2000,
   MIN_LENGTH: 1,

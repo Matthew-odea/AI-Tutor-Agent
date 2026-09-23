@@ -29,8 +29,8 @@ from src.main.dtos.AuthDTOs import (
 )
 
 _REFRESH_COOKIE = "refresh_token"
-_REFRESH_MAX_AGE = 7 * 24 * 3600  # 7 days in seconds
-# Use secure=True in production (HTTPS). Controlled by env so local dev works over HTTP.
+_REFRESH_MAX_AGE = 7 * 24 * 3600
+# Env-controlled so local dev works over plain HTTP; set true in prod.
 _COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
 
 
@@ -109,10 +109,7 @@ def exchange_student_invite(
     request: StudentInviteExchangeRequest = Body(...),
     auth_service: AuthService = Depends(get_auth_service),
 ):
-    """
-    Exchange a single-use student invite token for a 12-hour session JWT.
-    The invite token is invalidated after use (jti marked used in DynamoDB).
-    """
+    """Exchange a single-use student invite token (jti burned in DynamoDB) for a 12-hour session JWT."""
     result = auth_service.exchange_student_invite_token(request.invite_token)
     return StudentInviteExchangeResponse(**result)
 
@@ -149,7 +146,7 @@ def list_users(
     auth_service: AuthService = Depends(get_auth_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
-    """List all registered users with their roles. Instructor-only."""
+    """List all users with roles. Instructor-only."""
     if "instructor" not in _principal.roles and "admin" not in _principal.roles:
         raise ApiError(status_code=403, code="forbidden", message="Instructor access required")
     return {"ok": True, "users": auth_service.list_users()}

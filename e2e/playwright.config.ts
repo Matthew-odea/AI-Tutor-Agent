@@ -1,22 +1,13 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Full local integration test configuration.
- *
- * Starts the three local dev servers before running tests:
- *   - Backend API:         http://localhost:8000  (uvicorn app.py)
- *   - Instructor frontend: http://localhost:5175  (oral-assessment-instructor)
- *   - Student frontend:    http://localhost:5176  (oral-assessment-student)
- *
- * Tests use page.route() to intercept API calls so no real AWS credentials
- * are needed in CI.  The backend health endpoint at /health is used as the
- * readiness check so the API server must be running before page tests start.
- *
- * To run against a real backend (with .env configured), set:
- *   MOCK_API=false playwright test
+ * Starts the API (8000), instructor (5175) and student (5176) dev servers.
+ * Specs mock API calls with page.route(), so no AWS credentials are needed; the
+ * backend still has to come up because /health is the readiness check.
  */
 
-const MOCK_API = process.env.MOCK_API !== 'false';
+// Minimal ambient type so this file type-checks without @types/node.
+declare const process: { env: Record<string, string | undefined> };
 
 export default defineConfig({
   testDir: './tests',
@@ -42,8 +33,7 @@ export default defineConfig({
     },
   ],
 
-  // Spin up all three local servers in CI / local dev.
-  // Set SKIP_WEBSERVER=true if they are already running.
+  // Set SKIP_WEBSERVER=true if the servers are already running.
   webServer: process.env.SKIP_WEBSERVER
     ? undefined
     : [

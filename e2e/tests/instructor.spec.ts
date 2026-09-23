@@ -1,9 +1,4 @@
-/**
- * E2E tests for the Instructor frontend.
- *
- * Covers: login, assessment list, create, upload, generate, results, score override,
- * progress monitoring.
- */
+/** E2E tests for the instructor frontend. */
 
 import { test, expect } from '@playwright/test';
 import { setupInstructorMockApi, mockJwt } from './helpers/mockApi';
@@ -108,7 +103,6 @@ test.describe('Instructor create assessment', () => {
 
     await expect(page.getByText('Assessment Title')).toBeVisible({ timeout: 10_000 });
 
-    // Click submit without filling required fields
     await page.getByRole('button', { name: /create assessment/i }).click();
 
     // Should still be on the create page (native HTML validation or custom error)
@@ -133,7 +127,6 @@ test.describe('Instructor create assessment', () => {
 
     await page.getByRole('button', { name: /create assessment/i }).click();
 
-    // Should navigate to upload page
     await expect(page).toHaveURL(/\/upload/, { timeout: 10_000 });
   });
 
@@ -217,7 +210,7 @@ test.describe('Instructor results dashboard', () => {
     const bob = page.getByRole('row', { name: /Bob Smith/ });
     await expect(alice.getByText('Alice Johnson', { exact: true })).toBeVisible({ timeout: 10_000 });
     await expect(bob.getByText('Bob Smith', { exact: true })).toBeVisible();
-    // Scores shown as "16/20 (80%)" in combined format
+    // Scores render as "16/20 (80%)"
     await expect(alice.getByRole('cell', { name: '16/20 (80%)' })).toBeVisible();
     await expect(bob.getByRole('cell', { name: '14/20 (70%)' })).toBeVisible();
   });

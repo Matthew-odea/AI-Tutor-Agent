@@ -1,13 +1,4 @@
-# src/main/service/ChatService.py
-"""
-ChatService: Handles chat workflow for /chat endpoint.
-- Manages conversation history per session
-- Searches vector store for relevant context
-- Builds prompt with history and context
-- Applies pedagogy mode-specific prompts
-- Calls agent client
-- Returns answer and metadata
-"""
+"""RAG chat turn: history + vector context + pedagogy-mode prompt + editor state -> LLM -> answer."""
 from typing import Optional, List
 import uuid
 import logging
@@ -34,12 +25,12 @@ class ChatService:
         self,
         vector_service,
         agent_client,
-        memory,  # ConversationMemory instance
+        memory,  # ConversationMemory; bypassed when chat() gets history_override
         *,
         max_context_chars: int = 8000,
         max_history_messages: int = 10,
         system_preamble: Optional[str] = None,
-        prompt_service=None,  # PromptService for pedagogy modes
+        prompt_service=None,
     ):
         self.vector_service = vector_service
         self.agent_client = agent_client
@@ -68,20 +59,9 @@ class ChatService:
         intent_override: Optional[str] = None,
     ) -> dict:
         """
-        Process a chat query with conversation history and context retrieval.
-        
-        Args:
-            query: User's question
-            top_k: Number of context chunks to retrieve
-            session_id: Optional session ID (auto-generated if None)
-            include_history: Whether to include conversation history
-            pedagogy_mode: Teaching mode (explanatory, concise)
-        
-        Returns:
-            dict with keys: answer, session_id, is_new_session, history_length, 
-                           pedagogy_mode, context_ids, tokens_input, tokens_output, model_id
+        history_override: caller-owned history (thread/view path). When set, self.memory is never
+        read or written, so persisting mode and messages is the caller's job.
         """
-        # Step 1: Handle session ID (hybrid approach)
         using_external_history = history_override is not None
         if session_id is None:
             session_id = str(uuid.uuid4())
@@ -94,13 +74,10 @@ class ChatService:
             else:
                 logger.debug(f"Continuing session: {session_id[:8]}...")
         
-        # Step 1.5: Determine and set pedagogy mode
         if pedagogy_mode is None:
-            # Use session's existing mode or default
             pedagogy_mode = self.memory.get_pedagogy_mode(session_id) if not using_external_history else "explanatory"
             logger.debug(f"Using session pedagogy mode: {pedagogy_mode}")
         else:
-            # Validate and set new mode for session
             try:
                 mode_enum = self.prompt_service.validate_mode(pedagogy_mode)
                 pedagogy_mode = mode_enum.value
@@ -113,7 +90,6 @@ class ChatService:
                 if not using_external_history:
                     self.memory.set_pedagogy_mode(session_id, pedagogy_mode)
         
-        # Step 2: Retrieve conversation history
         history = []
         if include_history:
             if using_external_history:
@@ -124,8 +100,8 @@ class ChatService:
                 history = self.memory.get_history(session_id, max_messages=self.max_history_messages)
             logger.debug(f"Retrieved {len(history)} previous messages for session {session_id[:8]}...")
         
-        # Step 3: Perform vector search for relevant context
         try:
+            # Older vector services don't accept scope
             try:
                 results = self.vector_service.semantic_search(query=query, top_k=top_k, scope=context_scope)
             except TypeError:
@@ -141,7 +117,6 @@ class ChatService:
             context_str = context_str[:self.max_context_chars]
             logger.debug(f"Truncated context to {self.max_context_chars} chars")
         
-        # Step 4: Build messages with system prompt (including pedagogy mode), history, context, and query
         intent = intent_override or self._classify_edit_intent(query)
         messages = self._build_messages(
             query,
@@ -156,7 +131,6 @@ class ChatService:
             language=language,
         )
         
-        # Step 5: Call LLM
         logger.info(f"[ChatService] query='{query[:50]}...', top_k={top_k}, mode={pedagogy_mode}, context_len={len(context_str)}, history_len={len(history)}")
         
         try:
@@ -164,7 +138,7 @@ class ChatService:
         except Exception as e:
             raise ChatServiceError(f"Agent call failed: {e}")
         
-        # Step 6: Extract answer and metadata
+        # agent_client may return a plain string or a dict with token usage
         if isinstance(result, str):
             answer = result
             tokens_input = None
@@ -181,10 +155,9 @@ class ChatService:
             tokens_output = None
             model_id = None
         
-        # Step 6.5: Clean reasoning tags from model output
         answer = self._strip_reasoning_tags(answer)
         
-        # Step 7: Store this conversation exchange in memory (legacy path only)
+        # Legacy session path only; external-history callers persist messages themselves
         if persist_history and not using_external_history:
             self.memory.add_message(
                 session_id=session_id,
@@ -202,7 +175,6 @@ class ChatService:
 
             logger.info(f"Stored conversation exchange in session {session_id[:8]}...")
 
-            # Step 7.5: Generate session title if this is the first message
             if is_new_session:
                 try:
                     title = self._generate_session_title(query)
@@ -212,7 +184,6 @@ class ChatService:
                 except Exception as e:
                     logger.warning(f"Failed to generate session title: {e}")
         
-        # Step 8: Return enhanced response
         return {
             "answer": answer,
             "session_id": session_id,
@@ -239,26 +210,20 @@ class ChatService:
         last_error: Optional[str] = None,
         language: Optional[str] = None,
     ) -> List[dict]:
-        """Build role-separated LLM messages: system, history turns, current user turn."""
-        # 1. Build system prompt with pedagogy mode instructions
+        """Returns [system, *history, user]; context, edit-intent instructions and editor state go in the user turn."""
         try:
             mode_enum = PedagogyMode.from_string(pedagogy_mode)
             mode_prompt = self.prompt_service.get_mode_prompt(mode_enum)
-            
-            # Combine base system prompt with mode-specific instructions
             combined_system = f"{self.system_preamble}\n\n---\n\n{mode_prompt}"
             logger.debug(f"Applied {pedagogy_mode} mode prompt ({len(mode_prompt)} chars)")
         except Exception as e:
-            # Fallback to default system prompt if mode loading fails
             logger.error(f"Error loading pedagogy mode prompt: {e}, using default")
             combined_system = self.system_preamble
 
         messages: List[dict] = [{"role": "system", "content": combined_system}]
 
-        # 2. Add prior conversation as structured turns
         messages.extend(self._format_history_messages(history))
 
-        # 3. Build current user turn with retrieved context + editor state + question
         user_parts: List[str] = []
         if context_str:
             user_parts.append(
@@ -273,13 +238,12 @@ class ChatService:
                 "Use scope 'file' with strategy 'replace' if you are rewriting the whole file, or use 'target' for partial edits. "
                 "Keep non-edit text to one short sentence. Do NOT use a plain ```python code block — use ```edit with JSON payload."
             )
-        elif intent == "weak":
+        elif intent == "weak":  # only reachable via intent_override; the heuristic returns "strong" or "none"
             user_parts.append(
                 "If it is unclear whether the user wants code changes, ask one short clarifying question "
                 "and do not include an edit block."
             )
 
-        # 3.5 Add editor context (code, selection, output, error)
         editor_context = self._format_editor_context(
             editor_code=editor_code,
             editor_selection=editor_selection,
@@ -295,7 +259,7 @@ class ChatService:
         return messages
 
     def _format_retrieved_context(self, results: List[dict]) -> str:
-        """Render retrieved chunks as structured, delimited evidence blocks."""
+        """Each chunk is capped at 1200 chars; the caller truncates the total to max_context_chars."""
         if not results:
             return ""
 
@@ -343,7 +307,7 @@ class ChatService:
         return "\n\n---\n\n".join(blocks)
 
     def _format_history_messages(self, history: List[dict]) -> List[dict]:
-        """Convert stored history into role-structured messages with truncation."""
+        """Unknown roles become "user"; each message is capped at 500 chars."""
         if not history:
             return []
 
@@ -366,7 +330,7 @@ class ChatService:
         last_error: Optional[str] = None,
         language: Optional[str] = None,
     ) -> str:
-        """Format editor-related context for inclusion in the prompt."""
+        """Over 12000 chars keeps the first 7200 and last 4800 so both the code head and the latest error survive."""
         if not any([editor_code, editor_selection, last_stdout, last_error, language]):
             return ""
 
@@ -487,7 +451,7 @@ class ChatService:
         has_info_phrase = any(phrase in lowered for phrase in info_phrases)
         looks_like_problem_paste = has_assignment_signal or ("\n" in query and len(query) > 180 and has_code_target)
 
-        # Info phrases take priority over file hints
+        # Info phrases beat file hints ("explain this code"), but not an explicit edit verb or a pasted problem
         if has_info_phrase and not has_strong_verb and not looks_like_problem_paste:
             return "none"
 
@@ -501,35 +465,8 @@ class ChatService:
     def _is_edit_intent(self, query: str) -> bool:
         return self._classify_edit_intent(query) == "strong"
     
-    def _format_history(self, history: List[dict]) -> str:
-        """
-        Format conversation history for inclusion in prompt.
-        """
-        if not history:
-            return ""
-        
-        lines = ["Previous conversation in this session:"]
-        for msg in history:
-            role_label = "Student" if msg["role"] == "user" else "Tutor"
-            content = msg["content"]
-            # Truncate very long messages to save tokens
-            if len(content) > 500:
-                content = content[:500] + "..."
-            lines.append(f"{role_label}: {content}")
-        
-        lines.append("")  # Blank line separator
-        return "\n".join(lines)
-    
     def _generate_session_title(self, first_message: str) -> str:
-        """
-        Generate a short 2-3 word title for a session based on the first user message.
-        
-        Args:
-            first_message: The user's first message in the session
-            
-        Returns:
-            A concise title (2-3 words)
-        """
+        """Falls back to "New Chat" on any failure; result is capped at 30 chars."""
         prompt = f"""Generate a very short, concise title (2-3 words maximum) for a chat session based on this first message.
 
 First message: "{first_message}"
@@ -549,7 +486,6 @@ Provide only the title, nothing else. Keep it short and descriptive."""
         try:
             result = self.agent_client.chat(messages)
             
-            # Extract title from result
             if isinstance(result, str):
                 title = result.strip()
             elif isinstance(result, dict):
@@ -557,13 +493,10 @@ Provide only the title, nothing else. Keep it short and descriptive."""
             else:
                 title = "New Chat"
             
-            # Strip reasoning tags if present
             title = self._strip_reasoning_tags(title)
             
-            # Clean up the title (remove quotes, limit length)
             title = title.strip('"\'\'').strip()
             
-            # Ensure it's not too long (max 30 chars)
             if len(title) > 30:
                 title = title[:27] + "..."
             
@@ -574,16 +507,10 @@ Provide only the title, nothing else. Keep it short and descriptive."""
             return "New Chat"
     
     def _strip_reasoning_tags(self, text: str) -> str:
-        """
-        Remove <reasoning>...</reasoning> tags and their content from model output.
-        The model may use these tags for internal chain-of-thought reasoning,
-        but we don't want to show this to end users.
-        """
+        """Removes <reasoning> chain-of-thought blocks so they never reach the student."""
         import re
-        # Remove reasoning tags and their content (case-insensitive)
         cleaned = re.sub(r'<reasoning>.*?</reasoning>', '', text, flags=re.IGNORECASE | re.DOTALL)
-        # Remove any leftover standalone tags
+        # Unpaired tags from truncated output
         cleaned = re.sub(r'</?reasoning>', '', cleaned, flags=re.IGNORECASE)
-        # Clean up excessive whitespace
         cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
         return cleaned.strip()

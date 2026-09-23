@@ -1,4 +1,4 @@
-"""Unit tests for ScoringConfig (Task 6: de-hardcoded scoring config)."""
+"""Unit tests for ScoringConfig."""
 from __future__ import annotations
 
 from decimal import Decimal

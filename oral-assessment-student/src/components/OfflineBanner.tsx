@@ -1,10 +1,4 @@
-/**
- * OfflineBanner - always-mounted, only visible when the browser is offline.
- *
- * Driven by the store's `isOnline` flag (navigator.onLine + online/offline
- * events). Sits near the global ToastContainer so it appears on every route.
- * Warning palette, consistent with ErrorMessage's visual language.
- */
+// Mounted app-wide; also owns the store's online/offline listener registration.
 
 import { useEffect } from 'react';
 import { useAssessmentStore } from '../store/assessmentStore';
@@ -13,7 +7,6 @@ export default function OfflineBanner() {
   const isOnline = useAssessmentStore((s) => s.isOnline);
   const initNetworkListeners = useAssessmentStore((s) => s.initNetworkListeners);
 
-  // Register online/offline listeners once for the lifetime of the app.
   useEffect(() => {
     const cleanup = initNetworkListeners();
     return cleanup;

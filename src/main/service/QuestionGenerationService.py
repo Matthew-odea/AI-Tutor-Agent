@@ -1,8 +1,6 @@
-"""
-QuestionGenerationService: Generates oral exam questions from assignment briefs and student code.
-- Loads question generation prompt template
-- Calls LLM to generate questions in JSON format
-- Saves output as both JSON and CSV files
+"""Generates per-student oral exam questions from an assignment brief and the student's code.
+
+Writes JSON/CSV copies to output_dir and, when student/assessment ids are given, the QUESTION# items to DynamoDB.
 """
 import json
 import csv
@@ -24,7 +22,6 @@ logger = logging.getLogger(__name__)
 
 
 class QuestionGenerationError(Exception):
-    """Raised when question generation fails."""
     pass
 
 
@@ -34,38 +31,21 @@ class QuestionGenerationService:
         agent_client: Optional[AgentCoreProvider] = None,
         output_dir: str = "test_outputs/questions"
     ):
-        """
-        Initialize the question generation service.
-        
-        Args:
-            agent_client: LLM provider (defaults to AgentCoreProvider)
-            output_dir: Directory to save output files
-        """
         self.agent_client = agent_client or AgentCoreProvider()
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         
-        # DynamoDB setup
         self.table_name = os.getenv('DYNAMODB_ASSESSMENT_TABLE', 'oral_assessments')
         self.region = os.getenv('AWS_REGION', 'us-east-1')
         self.dynamodb = boto3.resource('dynamodb', region_name=self.region)
         self.table = self.dynamodb.Table(self.table_name)
         
-        # Load the question generation prompt template
         prompt_file = Path(__file__).resolve().parents[3] / "prompts" / "question_generation_prompt.md"
         self.prompt_template = read_prompt(prompt_file)
 
     @staticmethod
     def _derive_course_level(course_code: str) -> str:
-        """
-        Derive a human-readable course level from a course code.
-
-        Heuristic: the first digit in the code indicates the level.
-          1xxx -> "introductory"
-          2xxx -> "intermediate"
-          3xxx or higher -> "advanced"
-        Falls back to "introductory" when no digit is found.
-        """
+        """First digit of the code: <=1 introductory, 2 intermediate, 3+ advanced; no digit -> introductory."""
         match = re.search(r"\d", course_code or "")
         if not match:
             return "introductory"
@@ -87,26 +67,11 @@ class QuestionGenerationService:
         course_name: Optional[str] = None,
         assessment_title: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """
-        Generate questions from assignment brief and student code.
-        
-        Args:
-            assignment_brief: The assignment description/requirements
-            student_code: The student's Python code submission
-            student_name: Student identifier for filename generation
-            student_id: Optional student ID for DynamoDB storage
-            assessment_id: Optional assessment ID for DynamoDB storage
-            course_name: Optional course code (e.g. "COMP9021") for level-appropriate questions
-            assessment_title: Optional assessment title for additional context
+        """Questions are stored in DynamoDB only when both student_id and assessment_id are given.
 
-        Returns:
-            Dictionary with:
-                - questions: List of question dicts
-                - json_file_path: Path to saved JSON file
-                - csv_file_path: Path to saved CSV file
-                - questions_count: Total number of questions
-                - tokens_used: Token usage (if available)
-                - dynamodb_stored: Boolean indicating if stored in DynamoDB
+        student_name is used for output filenames; course_name is a course code (e.g. "COMP9021")
+        used to pitch difficulty; assessment_time_limit is in minutes. A DynamoDB write failure is
+        logged and reported via dynamodb_stored, not raised.
         """
         # Idempotent per student: questions are stored under fresh uuids, so a
         # redelivered message or a repeated batch would otherwise append a second
@@ -128,14 +93,12 @@ class QuestionGenerationService:
 
         print(f"[QuestionGenerationService] Generating questions for student: {student_name}")
         
-        # Build the complete prompt
         system_prompt = self._build_system_prompt()
         user_prompt = self._build_user_prompt(
             assignment_brief, student_code,
             course_name=course_name, assessment_title=assessment_title,
         )
         
-        # Prepare messages for the LLM
         messages = [
             {
                 "role": "user",
@@ -146,13 +109,11 @@ class QuestionGenerationService:
             }
         ]
         
-        # Call the LLM
         try:
             result = self.agent_client.chat(messages)
         except Exception as e:
             raise QuestionGenerationError(f"LLM call failed: {e}")
         
-        # Extract the response text
         if isinstance(result, dict):
             response_text = result.get("text") or result.get("content") or result.get("answer") or ""
             tokens_used = result.get("tokens_input")
@@ -160,10 +121,9 @@ class QuestionGenerationService:
             response_text = str(result)
             tokens_used = None
         
-        # Parse JSON from response
         questions = self._parse_json_response(response_text)
 
-        # Validate LLM output; retry once if critically invalid
+        # Retry the LLM once if nothing valid survives validation.
         questions = self._validate_questions(questions)
         if not questions:
             logger.warning("Validation failed on first attempt, retrying LLM call once.")
@@ -181,11 +141,9 @@ class QuestionGenerationService:
             if not questions:
                 raise QuestionGenerationError("LLM produced no valid questions after retry.")
 
-        # Save to files
         json_path = self._save_json(questions, student_name)
         csv_path = self._save_csv(questions, student_name)
         
-        # Save to DynamoDB if student_id and assessment_id provided
         dynamodb_stored = False
         if student_id and assessment_id:
             # Raised, not swallowed: the SQS consumer counts a return as success,
@@ -212,7 +170,6 @@ class QuestionGenerationService:
         }
 
     def _build_system_prompt(self) -> str:
-        """Build the system prompt with JSON schema requirements."""
         json_schema = """
 You must respond with ONLY a valid JSON array. Each question object must have these exact fields:
 {
@@ -264,7 +221,6 @@ Remember:
         course_name: Optional[str] = None,
         assessment_title: Optional[str] = None,
     ) -> str:
-        """Build the user prompt with assignment and code."""
         brief = assignment_brief.strip() if assignment_brief else ""
         brief_section = brief
 
@@ -275,8 +231,7 @@ Remember:
                 "focusing on implementation details, logic, and programming concepts visible in the submission."
             )
 
-        # Prepend course context when available so the LLM calibrates
-        # question difficulty to the appropriate academic level.
+        # Course context lets the LLM calibrate difficulty to the academic level.
         context_header = ""
         if course_name:
             course_level = self._derive_course_level(course_name)
@@ -305,16 +260,7 @@ Generate the questions in JSON format as specified.
 """
 
     def _parse_json_response(self, response_text: str) -> List[Dict[str, Any]]:
-        """
-        Parse JSON from LLM response, handling markdown code blocks if present.
-        
-        Args:
-            response_text: Raw response from LLM
-            
-        Returns:
-            List of question dictionaries
-        """
-        # Try to find JSON in markdown code blocks
+        """Parse the JSON array from the LLM response, unwrapping a markdown code fence if present."""
         if "```json" in response_text:
             start = response_text.find("```json") + 7
             end = response_text.find("```", start)
@@ -326,20 +272,17 @@ Generate the questions in JSON format as specified.
         else:
             json_str = response_text.strip()
         
-        # Parse JSON
         try:
             questions = json.loads(json_str)
         except json.JSONDecodeError as e:
             raise QuestionGenerationError(f"Failed to parse JSON response: {e}\nResponse: {response_text[:500]}")
         
-        # Validate it's a list
         if not isinstance(questions, list):
             raise QuestionGenerationError(f"Expected JSON array, got: {type(questions)}")
         
         return questions
 
     def _save_json(self, questions: List[Dict[str, Any]], student_name: str) -> Path:
-        """Save questions to JSON file."""
         filename = f"{student_name}_questions.json"
         filepath = self.output_dir / filename
         
@@ -349,11 +292,9 @@ Generate the questions in JSON format as specified.
         return filepath
 
     def _save_csv(self, questions: List[Dict[str, Any]], student_name: str) -> Path:
-        """Save questions to CSV file."""
         filename = f"{student_name}_questions.csv"
         filepath = self.output_dir / filename
         
-        # Define CSV columns
         fieldnames = ['question_number', 'question_type', 'question', 'rationale', 'code_reference']
         
         with open(filepath, 'w', newline='', encoding='utf-8') as f:
@@ -361,7 +302,6 @@ Generate the questions in JSON format as specified.
             writer.writeheader()
             
             for q in questions:
-                # Ensure all fields exist (fill with empty string if missing)
                 row = {field: q.get(field, '') for field in fieldnames}
                 writer.writerow(row)
         
@@ -385,16 +325,7 @@ Generate the questions in JSON format as specified.
         student_code: str,
         assessment_time_limit: Optional[int] = None,
     ):
-        """
-        Store generated questions in DynamoDB.
-        
-        Args:
-            questions: List of question dictionaries
-            student_id: Student identifier
-            assessment_id: Assessment identifier
-            student_code: Student's code (stored with questions)
-        """
-        created_at = datetime.now(timezone.utc).isoformat() + "Z"
+        created_at = datetime.now(timezone.utc).isoformat()
         
         with self.table.batch_writer() as batch:
             for q in questions:
@@ -415,10 +346,7 @@ Generate the questions in JSON format as specified.
                     'topic': q.get('topic', 'general')[:30] if q.get('topic') else 'general',
                     'createdAt': created_at,
                 }
-                # Store assessment-level time limit as the default per-question limit.
-                # assessment_time_limit arrives in minutes; store as seconds so the
-                # student frontend (which expects seconds) receives the correct value.
-                # Individual questions can be overridden later via the instructor API.
+                # Minutes in, seconds stored (the student app expects seconds). Instructors can override per question.
                 if assessment_time_limit is not None:
                     item['timeLimit'] = assessment_time_limit * 60
                 
@@ -426,28 +354,19 @@ Generate the questions in JSON format as specified.
         
         print(f"[QuestionGenerationService] Stored {len(questions)} questions in DynamoDB")
 
-    # Expected per-student question mix (advisory; the instructor edit-before-open
-    # path is the real quality gate).
+    # Advisory only; must match the "5 specific + 3 general" in _build_system_prompt. The instructor
+    # edit-before-open step is the real quality gate.
     EXPECTED_SPECIFIC_COUNT = 5
     EXPECTED_GENERAL_COUNT = 3
 
     @staticmethod
     def _normalize_question_text(text: str) -> str:
-        """Normalise question text for duplicate detection (case/whitespace-insensitive)."""
         return re.sub(r"\s+", " ", (text or "").strip().lower())
 
     def _validate_questions(self, questions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """
-        Validate LLM-generated questions:
-          - drops items missing the 'question' field,
-          - de-duplicates questions with identical text within the set,
-          - corrects unexpected question_type values to 'general',
-          - logs a clear warning when counts differ from 5 specific + 3 general
-            (advisory only — never fails the batch).
+        """Drop empty and duplicate questions, coerce unknown question_type to 'general'.
 
-        Returns:
-            Validated, de-duplicated list of questions, or empty list if no valid
-            question remains.
+        Count mismatches only warn. Returns [] if nothing valid remains.
         """
         REQUIRED_FIELDS = {"question", "question_type", "question_number"}
 
@@ -472,7 +391,6 @@ Generate the questions in JSON format as specified.
             missing = REQUIRED_FIELDS - set(q.keys())
             if missing:
                 logger.warning("Question %s missing fields %s, keeping anyway.", q.get("question_number", "?"), missing)
-            # Validate question_type value
             if q.get("question_type") not in ("specific", "general"):
                 logger.warning(
                     "Question %s has unexpected question_type '%s', defaulting to 'general'.",
@@ -487,7 +405,6 @@ Generate the questions in JSON format as specified.
         if not valid:
             return []
 
-        # Check counts (advisory, not fatal)
         specific_count = sum(1 for q in valid if q.get("question_type") == "specific")
         general_count = sum(1 for q in valid if q.get("question_type") == "general")
         if specific_count != self.EXPECTED_SPECIFIC_COUNT:
