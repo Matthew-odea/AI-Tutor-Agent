@@ -161,15 +161,28 @@ apiClient.interceptors.response.use(
   }
 );
 
+// The server refuses these once the assessment's stored times say so (409).
+const TIME_UP_MESSAGES: Record<string, string> = {
+  assessment_not_open: "This assessment hasn't opened yet. Check the start time with your instructor.",
+  assessment_closed: 'This assessment has closed, so answers can no longer be submitted.',
+  assessment_deadline_passed: 'The due date for this assessment has passed, so it can no longer be submitted.',
+};
+
 // Error handler
-const handleApiError = (error: AxiosError): never => {
+export const handleApiError = (error: AxiosError): never => {
   if (error.response) {
     // Server responded with an error status
-    const responseData = error.response.data as { detail?: string };
-    let message = responseData?.detail || error.message;
+    // The backend answers every failure in the envelope {ok: false, error: {code, message}};
+    // `detail` is FastAPI's default shape and only kept as a fallback.
+    const responseData = error.response.data as { detail?: string; error?: { code?: string; message?: string } };
+    const serverMessage = responseData?.error?.message || responseData?.detail;
+    let message = serverMessage || error.message;
+    const windowMessage = TIME_UP_MESSAGES[responseData?.error?.code ?? ''];
 
     // Provide clearer messages for common status codes, but preserve domain-specific detail messages
-    if (error.response.status === 404 && !responseData?.detail) {
+    if (windowMessage) {
+      message = windowMessage;
+    } else if (error.response.status === 404 && (!serverMessage || serverMessage === 'Not Found')) {
       message = 'Assessment not found — please check your link or contact your instructor.';
     } else if (error.response.status === 403) {
       message = 'Access denied — this assessment link may have expired. Retrying...';

@@ -46,14 +46,8 @@ export interface Assessment {
   allowReview?: boolean;
 }
 
-/**
- * POST /api/s3/upload-url. The backend route has no response_model, so the
- * OpenAPI schema types this as `unknown`; this is hand-kept until it gets one.
- */
-export interface UploadUrlResponse {
-  uploadUrl: string;
-  fileUrl: string;
-}
+/** POST /api/s3/upload-url */
+export type UploadUrlResponse = Schemas['UploadUrlResponse'];
 
 /** Normalised client error thrown by services/api.ts. Not an API shape. */
 export interface ApiError {
