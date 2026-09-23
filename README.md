@@ -37,18 +37,19 @@ Dev ports: `ai-tutor-frontend` 5173, `oral-assessment-instructor` 5175, `oral-as
 
 ## Documentation
 
-All detailed docs live in [`docs/`](docs/README.md):
+All detailed docs live in [`docs/`](docs/):
 
 | Document | Purpose |
 |----------|---------|
-| [QUICKSTART.md](docs/QUICKSTART.md) | Local setup, running, and testing |
+| [ONBOARDING.md](docs/ONBOARDING.md) | Local setup, running, testing, and a codebase tour |
 | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | System architecture, data flows, service map |
-| [ONBOARDING.md](docs/ONBOARDING.md) | New developer guide and codebase tour |
 | [DYNAMODB_SCHEMA.md](docs/DYNAMODB_SCHEMA.md) | DynamoDB key patterns and access patterns |
-| [AUTH_CURRENT_STATE_AND_PLAN.md](docs/AUTH_CURRENT_STATE_AND_PLAN.md) | Auth model, rollout phases, hardening checklist |
+| [AUTH_CURRENT_STATE_AND_PLAN.md](docs/AUTH_CURRENT_STATE_AND_PLAN.md) | Auth model and hardening checklist |
 | [ORAL_ASSESSMENT_DEPLOYMENT.md](docs/ORAL_ASSESSMENT_DEPLOYMENT.md) | Production deployment runbook (canonical) |
-| [PLATFORM_PLAN.md](docs/PLATFORM_PLAN.md) | Product roadmap, user stories, cost estimates |
+| [CHANGELOG.md](docs/CHANGELOG.md) | What's shipped, historical only |
 | [ANALYTICS_LOGGING.md](docs/ANALYTICS_LOGGING.md) | Event telemetry and privacy constraints |
+
+See also the repo-root `CLAUDE.md` for task-oriented operating instructions (how to verify a change, where things go, the endpoint contract).
 
 ## Testing
 

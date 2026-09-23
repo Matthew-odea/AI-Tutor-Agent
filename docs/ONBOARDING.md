@@ -11,17 +11,59 @@ This is an AI-powered educational platform for university programming courses (c
 
 ## Local Setup
 
-See [QUICKSTART.md](QUICKSTART.md) for step-by-step instructions. The short version:
+Prerequisites: Python 3.13+, Node.js 20+, and a configured `.env` at repo root (copy from `.env.example`). Backend integrations vary by feature (Neo4j, AWS Bedrock, Deepgram, DynamoDB) -- you only need credentials for the ones you're touching.
+
+### 1. Backend
 
 ```bash
-# Backend
-pip install -r requirements.txt && cp .env.example .env && python app.py
-
-# Any frontend
-cd <frontend-dir> && npm install && npm run dev
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env   # fill in your credentials
+python app.py
 ```
 
-You need: Python 3.13+, Node.js 20+, and credentials for AWS Bedrock, Neo4j, Deepgram, and DynamoDB.
+- API: http://localhost:8000
+- OpenAPI docs: http://localhost:8000/docs
+
+Local Neo4j (optional, needed for RAG chat):
+
+```bash
+docker-compose up -d   # starts Neo4j on ports 7474 (browser) and 7687 (bolt)
+```
+
+### 2. Frontends
+
+Each frontend is a standalone Vite + React app:
+
+```bash
+cd ai-tutor-frontend && npm install && npm run dev              # port 5173
+cd oral-assessment-instructor && npm install && npm run dev     # port 5175
+cd oral-assessment-student && npm install && npm run dev        # port 5176
+```
+
+All three connect to the backend at `http://localhost:8000` in dev mode.
+
+### 3. Tests
+
+```bash
+# Backend (from repo root, with venv active)
+PYTHONPATH=. pytest tests/ -v
+
+# Frontend (from any frontend dir)
+npm run test:run        # single run
+npm test                # watch mode
+npm run validate        # type-check + lint + format + tests (ai-tutor-frontend only)
+```
+
+### Common Issues
+
+| Problem | Fix |
+|---------|-----|
+| Import errors in tests | Set `PYTHONPATH=.` before running `pytest` |
+| Auth-protected routes fail | Confirm the frontend sends `Authorization: Bearer <token>` |
+| Vector features fail | Check `NEO4J_*` env vars and that Neo4j is reachable |
+| Frontend can't reach backend | Ensure the backend is running on port 8000 |
 
 ## Codebase Tour
 
@@ -145,7 +187,8 @@ Key facts:
 |------------------|---------|
 | Architecture overview | [ARCHITECTURE.md](ARCHITECTURE.md) |
 | DynamoDB key patterns | [DYNAMODB_SCHEMA.md](DYNAMODB_SCHEMA.md) |
-| Auth model and phases | [AUTH_CURRENT_STATE_AND_PLAN.md](AUTH_CURRENT_STATE_AND_PLAN.md) |
+| Auth model | [AUTH_CURRENT_STATE_AND_PLAN.md](AUTH_CURRENT_STATE_AND_PLAN.md) |
 | Production deployment | [ORAL_ASSESSMENT_DEPLOYMENT.md](ORAL_ASSESSMENT_DEPLOYMENT.md) |
-| Product roadmap | [PLATFORM_PLAN.md](PLATFORM_PLAN.md) |
+| What's shipped, in order | [CHANGELOG.md](CHANGELOG.md) |
+| Analytics/telemetry | [ANALYTICS_LOGGING.md](ANALYTICS_LOGGING.md) |
 | OpenAPI reference | http://localhost:8000/docs (run backend first) |
