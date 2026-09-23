@@ -24,7 +24,9 @@ class CreateAssessmentRequest(BaseModel):
     proctored: Optional[bool] = Field(None, description="Webcam proctoring on/off. When unset, defaults to (answerMode == 'oral') for backward compatibility.")
     allowReview: bool = Field(False, description="Allow students to navigate back and revise earlier answers before final submit (written mode in v1).")
     feedbackRelease: str = Field("manual", description="'immediate' (results shown as soon as graded) or 'manual' (instructor must release).")
-    maxScorePerQuestion: Optional[int] = Field(None, description="Override max marks per question (default 10)", ge=1, le=100)
+    # AI marking produces a fixed 0-10 total, so any other max would cap AI-marked work below 100%.
+    # Lift this once AI scores are scaled to the per-question max.
+    maxScorePerQuestion: Optional[int] = Field(None, description="Max marks per question. Only 10 is supported (AI marking is on a 0-10 scale).", ge=10, le=10)
     gradeCutoffs: Optional[Dict[str, float]] = Field(None, description="Override grade cutoffs as percentages, e.g. {'excellent': 90, 'competent': 75, 'developing': 60}")
 
 
