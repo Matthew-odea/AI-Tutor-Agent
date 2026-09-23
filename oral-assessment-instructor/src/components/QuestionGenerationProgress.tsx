@@ -152,7 +152,7 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
       setLoading(true);
       setError(null);
 
-      const job = await apiService.generateQuestions({ assessmentId });
+      const job = await apiService.generateQuestions(assessmentId);
       setGenerationJob(job);
 
       // Start polling for status updates
@@ -353,7 +353,7 @@ export default function QuestionGenerationProgress({ assessmentId }: QuestionGen
           )}
 
           {/* Error Display */}
-          {generationJob.status === 'failed' && generationJob.error && (
+          {generationJob.status === 'failed' && 'error' in generationJob && generationJob.error && (
             <div className="mb-6" role="alert">
               <ErrorMessage error={generationJob.error} />
             </div>

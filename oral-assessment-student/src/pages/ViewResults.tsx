@@ -443,9 +443,9 @@ export default function ViewResults() {
                 <div className="text-sm text-slate">Questions</div>
               </div>
               <div>
-                {(results.completedAt || results.submittedAt) && (
+                {results.submittedAt && (
                   <>
-                    <div className="text-sm font-medium text-ink tabular-nums tracking-tight">{formatTimestamp(results.completedAt || results.submittedAt || '')}</div>
+                    <div className="text-sm font-medium text-ink tabular-nums tracking-tight">{formatTimestamp(results.submittedAt)}</div>
                     <div className="text-sm text-slate">Submitted</div>
                   </>
                 )}

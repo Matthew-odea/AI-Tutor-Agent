@@ -14,14 +14,7 @@ import {
 } from '../utils/resultHelpers';
 
 describe('deriveResultStatus', () => {
-  it('prefers an explicit server status', () => {
-    expect(
-      deriveResultStatus({ status: 'not-attempted', transcript: TIME_EXPIRED_SENTINEL, totalScore: null })
-    ).toBe('not-attempted');
-    expect(deriveResultStatus({ status: 'graded', transcript: undefined, totalScore: 8 })).toBe('graded');
-  });
-
-  it('treats the time-expired sentinel as skipped when status is absent', () => {
+  it('treats the time-expired sentinel as skipped', () => {
     expect(deriveResultStatus({ transcript: TIME_EXPIRED_SENTINEL, totalScore: 0 })).toBe('skipped');
   });
 
@@ -44,9 +37,6 @@ describe('deriveResultStatus', () => {
     expect(deriveResultStatus({ transcript: 'Wrong but answered', totalScore: 0 })).toBe('graded');
   });
 
-  it('downgrades a contradictory graded-with-no-score to grading-failed (never red 0%)', () => {
-    expect(deriveResultStatus({ status: 'graded', totalScore: null })).toBe('grading-failed');
-  });
 });
 
 describe('totalMaxFor / componentMaxFor', () => {

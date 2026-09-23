@@ -7,6 +7,7 @@ import { useToastStore } from '../store/toastStore';
 import LoadingSpinner from './LoadingSpinner';
 import ErrorMessage from './ErrorMessage';
 import { gradeToken } from '../utils/statusTokens';
+import type { Schemas } from '../../../shared/types/assessment';
 
 interface ResultsDashboardProps {
   assessmentId: string;
@@ -28,14 +29,17 @@ export default function ResultsDashboard({ assessmentId, evalJobId }: ResultsDas
   const [isReleasing, setIsReleasing] = useState(false);
   const [showReleaseConfirm, setShowReleaseConfirm] = useState(false);
   const [resultsReleased, setResultsReleased] = useState<boolean | null>(null);
+  // Flagged items are untyped dicts on the wire (FlaggedEvaluationsResponse.items),
+  // so their shape is hand-kept here.
   const [flagged, setFlagged] = useState<{ flaggedCount: number; items: Array<{ studentId: string; questionId: string; reasons: string[]; aiScore?: number; evaluationMethod?: string }> } | null>(null);
-  const [agreement, setAgreement] = useState<{ dualScoredCount: number; exactMatchRate: number | null; within1Rate: number | null; meanAbsoluteDifference: number | null } | null>(null);
+  const [agreement, setAgreement] = useState<Schemas['ScoreAgreementResponse'] | null>(null);
   const [showFlagged, setShowFlagged] = useState(false);
   const sseRef = useRef<EventSource | null>(null);
 
   const loadFlagged = async () => {
     try {
-      setFlagged(await apiService.getFlaggedEvaluations(assessmentId));
+      const { flaggedCount, items } = await apiService.getFlaggedEvaluations(assessmentId);
+      setFlagged({ flaggedCount, items: items as unknown as NonNullable<typeof flagged>['items'] });
     } catch { /* non-critical */ }
   };
 

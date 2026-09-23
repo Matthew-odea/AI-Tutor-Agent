@@ -19,7 +19,7 @@ interface StudentProgressTableProps {
 }
 
 type StudentProgressWithInfo = StudentProgress & {
-  student: Student;
+  student: Pick<Student, 'studentId' | 'name' | 'email'>;
 };
 
 /**
@@ -142,7 +142,6 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
       return {
         ...p,
         student: student || {
-          id: p.studentId,
           studentId: p.studentId,
           name: p.name || p.studentId,
           email: p.email || '',

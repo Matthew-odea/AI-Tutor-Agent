@@ -252,7 +252,7 @@ export default function ResultsCard({ result }: ResultsCardProps) {
             <div className="mb-4">
               <h4 className="text-sm font-semibold text-ink mb-2">Feedback</h4>
               <Markdown className="prose prose-sm max-w-none text-ink">
-                {result.feedback}
+                {result.feedback ?? ''}
               </Markdown>
             </div>
           )}
@@ -358,7 +358,7 @@ export default function ResultsCard({ result }: ResultsCardProps) {
             <div className="mt-4">
               <h4 className="text-sm font-semibold text-ink mb-2">Your Recording</h4>
               {/* key on url so a refreshed presigned link remounts with clean state */}
-              <AudioPlayer key={result.audioUrl} url={result.audioUrl} />
+              <AudioPlayer key={result.audioUrl} url={result.audioUrl ?? ''} />
             </div>
           )}
         </div>

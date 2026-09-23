@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import LoadingSpinner from '../components/LoadingSpinner';
 import HelpButton from '../components/HelpButton';
+import type { Schemas } from '../types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
@@ -51,9 +52,10 @@ export default function InviteLanding() {
     setLoading(true);
     setError(null);
     try {
-      const resp = await axios.post(`${API_BASE_URL}/api/auth/student/exchange`, {
-        invite_token: token,
-      });
+      const resp = await axios.post<Schemas['StudentInviteExchangeResponse']>(
+        `${API_BASE_URL}/api/auth/student/exchange`,
+        { invite_token: token } satisfies Schemas['StudentInviteExchangeRequest']
+      );
       const { access_token, student_id, assessment_id } = resp.data;
 
       // localStorage, not sessionStorage: a refresh or a new tab must not end the

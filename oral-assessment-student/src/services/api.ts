@@ -4,9 +4,10 @@
 
 import axios, { AxiosError } from 'axios';
 import type {
-  Question,
+  AnswerMode,
   Progress,
   Results,
+  Schemas,
   UploadUrlResponse,
   ApiError,
 } from '../types';
@@ -116,10 +117,11 @@ function refreshToken(): Promise<string> {
   }
   refreshPromise = (async () => {
     try {
-      const resp = await apiClient.post('/api/auth/student/exchange', {
-        invite_token: inviteToken,
-      });
-      const token: string = resp.data.access_token;
+      const resp = await apiClient.post<Schemas['StudentInviteExchangeResponse']>(
+        '/api/auth/student/exchange',
+        { invite_token: inviteToken } satisfies Schemas['StudentInviteExchangeRequest']
+      );
+      const token = resp.data.access_token;
       localStorage.setItem('studentToken', token);
       localStorage.setItem('authToken', token);
       return token;
@@ -194,59 +196,25 @@ const handleApiError = (error: AxiosError): never => {
 };
 
 /**
+ * The questions response with `answerMode` narrowed: the wire types it as a
+ * plain string, the UI only knows 'oral' | 'written'.
+ */
+export type QuestionsResponse = Omit<Schemas['StudentQuestionsResponse'], 'answerMode'> & {
+  answerMode: AnswerMode;
+};
+
+/**
  * Get all questions for a student's assessment
  */
-export interface QuestionsResponse {
-  questions: Question[];
-  currentQuestionIndex: number;
-  answerMode: 'oral' | 'written';
-  preparationTime?: number;
-  proctored?: boolean;
-  allowReview?: boolean;
-  assessmentTitle?: string;
-  assessmentCourse?: string;
-  assessmentDescription?: string;
-  /**
-   * Optional instructor/support contact for the Help affordance. ASSUMED BACKEND
-   * CONTRACT introduced by the client — the questions endpoint MAY additionally
-   * return these; all are optional and must never be assumed present (the mapper
-   * reads them defensively and HelpButton degrades to generic copy when absent).
-   * No real PII is hardcoded; these only carry server-provided values.
-   */
-  instructorName?: string;
-  supportEmail?: string;
-  supportUrl?: string;
-}
-
 export async function getQuestions(
   studentId: string,
   assessmentId: string
 ): Promise<QuestionsResponse> {
   try {
-    const response = await apiClient.get(
+    const { data } = await apiClient.get<Schemas['StudentQuestionsResponse']>(
       `/api/student/${studentId}/assessment/${assessmentId}/questions`
     );
-    return {
-      // Questions pass straight through, so any field the backend includes on a
-      // question survives — including the optional `questionStartedAt` (ISO,
-      // ASSUMED backend contract; see types/index.ts). The client must NOT assume
-      // it is present and falls back to a locally persisted timer anchor when it
-      // is absent.
-      questions: response.data.questions || [],
-      currentQuestionIndex: response.data.currentQuestionIndex ?? 0,
-      answerMode: response.data.answerMode || 'oral',
-      preparationTime: response.data.preparationTime,
-      proctored: response.data.proctored,
-      allowReview: response.data.allowReview ?? false,
-      assessmentTitle: response.data.assessmentTitle,
-      assessmentCourse: response.data.assessmentCourse,
-      assessmentDescription: response.data.assessmentDescription,
-      // Optional contact fields — read defensively; left undefined when the
-      // backend omits them (the assumed contract above), so nothing throws.
-      instructorName: response.data.instructorName,
-      supportEmail: response.data.supportEmail,
-      supportUrl: response.data.supportUrl,
-    };
+    return { ...data, answerMode: data.answerMode === 'written' ? 'written' : 'oral' };
   } catch (error) {
     return handleApiError(error as AxiosError);
   }
@@ -270,7 +238,7 @@ export async function submitAnswer(
         answer_type: 'audio',
         audio_url: audioUrl,
         duration,
-      })
+      } satisfies Schemas['SubmitAnswerRequest'])
     );
   } catch (error) {
     return handleApiError(error as AxiosError);
@@ -293,7 +261,7 @@ export async function submitTextAnswer(
         assessment_id: assessmentId,
         answer_type: 'text',
         text_content: textContent,
-      })
+      } satisfies Schemas['SubmitAnswerRequest'])
     );
   } catch (error) {
     return handleApiError(error as AxiosError);
@@ -301,22 +269,8 @@ export async function submitTextAnswer(
 }
 
 /**
- * Submit an explicit "skipped / no answer" marker for a question.
- *
- * NEW CONTRACT — not yet implemented by the FastAPI backend on :8000.
- *   POST /api/student/{studentId}/answer
- *   { question_id, assessment_id, answer_type: 'skipped', mode: 'oral' | 'written' }
- *
- * The backend currently only accepts answer_type 'audio' | 'text'. This call
- * lets the server record a genuine non-answer (zero credit) WITHOUT a fake
- * transcript — critical for oral questions, where a placeholder text answer
- * like '(time expired)' would otherwise be scored as a substantive response.
- *
- * Until the backend recognises 'skipped' it will likely reject this payload
- * with 400/422; callers MUST guard the call and degrade gracefully (see
- * skipCurrentQuestion in the store). Documented here so the backend team can
- * wire the real contract: a 'skipped' answer must be stored as a non-answer
- * and NEVER evaluated as text/audio content.
+ * Submit an explicit "skipped / no answer" marker for a question. The server
+ * records it as a non-answer (zero credit) and never evaluates it as content.
  */
 export async function submitSkip(
   studentId: string,
@@ -330,7 +284,7 @@ export async function submitSkip(
       assessment_id: assessmentId,
       answer_type: 'skipped',
       mode,
-    });
+    } satisfies Schemas['SubmitAnswerRequest']);
   } catch (error) {
     return handleApiError(error as AxiosError);
   }
@@ -346,24 +300,9 @@ export const CONSENT_VERSION = '2026-06-10';
 /**
  * Record the student's webcam-proctoring consent decision server-side.
  *
- * NEW CONTRACT — not yet implemented by the FastAPI backend on :8000.
- *   POST /api/student/{studentId}/consent
- *   body: {
- *     assessment_id: string,
- *     granted: boolean,          // true = consented to proctoring, false = declined
- *     consent_version: string,   // CONSENT_VERSION the student was shown
- *     timestamp: string          // ISO 8601, when the decision was made client-side
- *   }
- *   response: 2xx with no required body fields (none are read by the client).
- *
- * A `granted: false` record is the instructor app's authoritative signal that the
- * student DECLINED recording (an audit-trail escape, not just a missing record);
- * the instructor app reads this server record to know proctoring was opted out.
- *
- * Because the endpoint does not exist yet, this call MUST degrade gracefully and
- * NEVER block the student: failures are routed through handleApiError by the
- * caller's best-effort wrapper (recordConsentDecision in the store), which
- * swallows + logs and surfaces a non-blocking toast. Backend is out of scope.
+ * A `granted: false` record is the instructor app's signal that the student
+ * DECLINED recording. The caller (recordConsentDecision in the store) treats
+ * this as best-effort: a failure is logged and toasted, never blocking.
  */
 export async function recordConsent(
   studentId: string,
@@ -376,7 +315,7 @@ export async function recordConsent(
       granted: payload.granted,
       consent_version: payload.consentVersion,
       timestamp: payload.timestamp,
-    });
+    } satisfies Schemas['SubmitConsentRequest']);
   } catch (error) {
     return handleApiError(error as AxiosError);
   }
@@ -397,7 +336,7 @@ export async function submitProctorChunk(
       chunk_url: chunkUrl,
       chunk_index: chunkIndex,
       timestamp: new Date().toISOString(),
-    });
+    } satisfies Schemas['SubmitProctorChunkRequest']);
   } catch (error) {
     return handleApiError(error as AxiosError);
   }
@@ -414,7 +353,7 @@ export async function submitAssessment(
     await withRetry(() =>
       apiClient.put(`/api/student/${studentId}/submit`, {
         assessment_id: assessmentId,
-      })
+      } satisfies Schemas['SubmitAssessmentRequest'])
     );
   } catch (error) {
     return handleApiError(error as AxiosError);
@@ -429,17 +368,10 @@ export async function getProgress(
   assessmentId: string
 ): Promise<Progress> {
   try {
-    const response = await apiClient.get(
+    const response = await apiClient.get<Progress>(
       `/api/student/${studentId}/assessment/${assessmentId}/progress`
     );
-    const data = response.data;
-    // Surface the server's authoritative answered-id list when present (accept
-    // either snake or camel casing). Left `undefined` when the backend doesn't
-    // send it, so the store degrades to the legacy index heuristic — see the
-    // `answeredQuestionIds` doc on the Progress type.
-    const answeredQuestionIds: string[] | undefined =
-      data?.answeredQuestionIds ?? data?.answered_question_ids ?? undefined;
-    return { ...data, answeredQuestionIds };
+    return response.data;
   } catch (error) {
     return handleApiError(error as AxiosError);
   }
@@ -453,7 +385,7 @@ export async function getResults(
   assessmentId: string
 ): Promise<Results> {
   try {
-    const response = await apiClient.get(
+    const response = await apiClient.get<Results>(
       `/api/student/${studentId}/assessment/${assessmentId}/results`
     );
     return response.data;
@@ -509,7 +441,7 @@ export async function getUploadUrl(
 
   try {
     const response = await withRetry(() =>
-      apiClient.post(`/api/s3/upload-url?${params.toString()}`)
+      apiClient.post<UploadUrlResponse>(`/api/s3/upload-url?${params.toString()}`)
     );
     return response.data;
   } catch (error) {

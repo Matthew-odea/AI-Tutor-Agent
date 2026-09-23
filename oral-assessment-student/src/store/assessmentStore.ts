@@ -365,13 +365,6 @@ export const useAssessmentStore = create<AssessmentStore>((set, get) => ({
           preparationTime: result.preparationTime,
           proctored: result.proctored ?? (result.answerMode === 'oral'),
           allowReview: result.allowReview ?? false,
-          // Optional instructor/support contact (assumed backend contract). Only
-          // carried through when the server actually sent them — undefined is a
-          // valid value and HelpButton degrades to generic copy. Spread so absent
-          // fields stay absent rather than becoming explicit `undefined` noise.
-          ...(result.instructorName ? { instructorName: result.instructorName } : {}),
-          ...(result.supportEmail ? { supportEmail: result.supportEmail } : {}),
-          ...(result.supportUrl ? { supportUrl: result.supportUrl } : {}),
         },
         isLoading: false,
       });
