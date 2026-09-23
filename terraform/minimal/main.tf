@@ -197,56 +197,11 @@ resource "aws_s3_bucket_policy" "frontend" {
   depends_on = [aws_s3_bucket_public_access_block.frontend]
 }
 
-# ─────────────────────────────────────────────────────────────
-# SQS — durable job queue for question generation and evaluation
-# ─────────────────────────────────────────────────────────────
-
-resource "aws_sqs_queue" "jobs_dlq" {
-  name                      = "ai-tutor-jobs-dlq"
-  message_retention_seconds = 1209600 # 14 days
-  tags                      = var.tags
-}
-
-resource "aws_sqs_queue" "jobs" {
-  name                       = "ai-tutor-jobs"
-  visibility_timeout_seconds = 900 # 15 min — covers longest evaluation jobs
-  message_retention_seconds  = 345600 # 4 days
-
-  redrive_policy = jsonencode({
-    deadLetterTargetArn = aws_sqs_queue.jobs_dlq.arn
-    maxReceiveCount     = 3
-  })
-
-  tags = var.tags
-}
-
-# Grant the EC2 instance role access to send/receive/delete job messages
-resource "aws_iam_role_policy" "ec2_sqs" {
-  name = "ai-tutor-ec2-sqs"
-  role = aws_iam_role.ec2_ssm_role.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "sqs:SendMessage",
-          "sqs:ReceiveMessage",
-          "sqs:DeleteMessage",
-          # Heartbeat and retry backoff in SQSJobDispatcher. Without it both are
-          # AccessDenied, logged only, and retries wait the full visibility timeout.
-          "sqs:ChangeMessageVisibility",
-          "sqs:GetQueueAttributes",
-        ]
-        Resource = [
-          aws_sqs_queue.jobs.arn,
-          aws_sqs_queue.jobs_dlq.arn,
-        ]
-      }
-    ]
-  })
-}
+# NOTE: the ai-tutor-jobs SQS queue lives in us-east-1 and is declared in
+# terraform/assessment (alongside Bedrock and SES, which are also us-east-1).
+# It was previously declared here too, in this module's region (ap-southeast-2),
+# but was never applied — the duplicate declaration was removed so an apply of
+# this module can't create a stray second queue in Sydney.
 
 # ─────────────────────────────────────────────────────────────
 # CloudWatch — API log group + error rate alarm

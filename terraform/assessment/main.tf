@@ -13,6 +13,15 @@ provider "aws" {
   region = var.aws_region
 }
 
+# DO NOT APPLY without reconciling state first (verified 2026-09-23):
+# - The DynamoDB tables below, in this module's us-east-1 state, were the
+#   pre-migration copies and were DELETED on 2026-09-23. The live tables are in
+#   ap-southeast-2 and in no terraform state. An apply here recreates empty
+#   us-east-1 tables; it does not manage production data.
+# - The live SQS grant on ai-tutor-ec2-ssm-role is a separate inline policy,
+#   `ai-tutor-sqs-jobs` (ChangeMessageVisibility applied by CLI 2026-09-23),
+#   not the SQSJobQueues statement below. Applying would add a second grant.
+
 # ─────────────────────────────────────────────────────────────
 # DynamoDB — oral_assessments (single-table for all assessment data)
 #
@@ -376,6 +385,14 @@ resource "aws_iam_role_policy" "ec2_assessment" {
 # fail maxReceiveCount times move to the DLQ for alerting.
 # ─────────────────────────────────────────────────────────────
 
+# IMPORT NEEDED: the live ai-tutor-jobs queue and DLQ exist in us-east-1 (the
+# app consumes them via SSM /ai-tutor/prod/SQS_JOBS_QUEUE_URL) but were created
+# outside terraform — neither is in this module's state, only the DLQ alarm
+# below is. With credentials that have sqs:GetQueueAttributes, run:
+#   terraform import aws_sqs_queue.jobs_dlq https://sqs.us-east-1.amazonaws.com/339712753655/ai-tutor-jobs-dlq
+#   terraform import aws_sqs_queue.jobs     https://sqs.us-east-1.amazonaws.com/339712753655/ai-tutor-jobs
+# then `terraform plan` — the settings declared here (300s visibility, 1-day
+# retention) may differ from the hand-created queue; reconcile before applying.
 resource "aws_sqs_queue" "jobs_dlq" {
   name                      = "ai-tutor-jobs-dlq"
   message_retention_seconds = 1209600 # 14 days

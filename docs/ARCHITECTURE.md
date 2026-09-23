@@ -253,6 +253,22 @@ All API errors return:
 - **Environment**: `.env` file locally, SSM Parameter Store in production (see `ORAL_ASSESSMENT_DEPLOYMENT.md`)
 - **LLM models**: `src/main/agentcore_setup/config.py`
 
+## AWS Region Layout (deliberate — do not "fix")
+
+Production is split across two regions (verified against SSM `/ai-tutor/prod/` and live resources, Sep 2026):
+
+| Region | What lives there |
+|---|---|
+| **ap-southeast-2** (Sydney) | EC2 `ai-tutor-app`, all live DynamoDB tables (`oral_assessments`, `chat_sessions`, `auth_users`; `footprints_core` belongs to another project) |
+| **us-east-1** (Virginia) | SQS `ai-tutor-jobs` + DLQ, Bedrock (Nova Lite / Titan availability drove this), SES (password reset), S3 `chat9021-assessment-files` |
+
+Consequences:
+
+- The Sydney EC2 instance polls the Virginia SQS queue by design. Job dispatch crosses regions; that is expected, not a misconfiguration.
+- `settings.py` defaults of `us-east-1` are stale fallbacks — SSM overrides them to `ap-southeast-2` in prod. Local `.env` should match SSM.
+- The pre-April-2026 us-east-1 DynamoDB tables were verified fully migrated and **deleted on 2026-09-23**. `terraform/assessment` state still references them — an apply there would recreate empty tables. The live Sydney tables are in no terraform state.
+- The live SQS queue was created outside terraform, and the EC2 role's SQS grant is a hand-made inline policy (`ai-tutor-sqs-jobs`). See the notes in `terraform/assessment/main.tf`.
+
 ## Source of Truth
 
 When architecture docs and code diverge, **code wins**.

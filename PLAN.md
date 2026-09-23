@@ -35,7 +35,7 @@ has been built ahead of your answer.
 6. **Extensions for individual students** — needed? Nothing in the data supports them today.
 7. **Retention window.** Does UNSW state one? 12 months proctoring / 24 months audio is a
    judgement call until confirmed, and blocks the S3 lifecycle rules in Phase 4.
-8. **Stale us-east-1 DynamoDB tables** — delete once the Sydney migration is confirmed complete?
+8. ~~**Stale us-east-1 DynamoDB tables**~~ — **answered: deleted 2026-09-23** after verification.
 9. **Your system Python.** An agent installed `requirements.txt` into
    `/Library/Frameworks/Python.framework/Versions/3.13` instead of a virtualenv. Leave it, or
    uninstall those packages?
@@ -51,21 +51,28 @@ has been built ahead of your answer.
     owner. Options: admin-only, or record an uploader and restrict to them. *Recommend admin-only*
     — it is one role check and the corpus is shared course material.
 
-**Things only you can do** (need the project's AWS credentials or a real device)
+**Pre-merge checks — resolved 2026-09-23**
 
-- Put the project `.env` at the repo root and run `./scripts/prod_checks.sh` — see "Three that a
-  script answers" below. Check 1 matters most: if `AUTH_USERS_JSON` or `AUTH_LOGIN_PASSWORD`
-  holds a plaintext password, that login has been broken since PR #8 deployed.
-- Apply `sqs:ChangeMessageVisibility` to the EC2 role's SQS policy (now in both
-  `terraform/*/main.tf`, not applied). Until it is, the job-queue heartbeat and retry backoff
-  fail with AccessDenied — logged only — and a failed job waits the full 900 s before retrying.
-  The live Sydney resources are in no terraform state, so this may need the console.
-- Check whether the assessment bucket has versioning or CloudTrail S3 data events. Until
-  2026-09-23 any logged-in user — and signup is open — could get an upload URL for any key, so
-  a recording could have been *replaced*, not just pointed at. Check 4 cannot see that; only
-  object versions or data events can. Neither is in terraform. This bears on question 1.
-- Confirm the 8 Apr Sydney migration captured everything from us-east-1.
-- Record on Safari (it produces `video/mp4`) and play a chunk back from the instructor app.
+- [x] `./scripts/prod_checks.sh` run against prod. Check 1 **CLEAR** (neither bootstrap set — safe
+      to deploy). Check 2: **1** instructor override exists (one student, one assessment) — that
+      student was shown the un-overridden score; follow up. Check 3: **2** `BANK_QUESTION#` items
+      exist in one assessment — keep `get_bank_questions`. Check 4: 11 media URLs checked, **0**
+      foreign. The first run under-reported checks 2–3 (paginated counts) and missed 9 legacy
+      `AudioUrl` rows; both fixed in the script.
+- [x] `sqs:ChangeMessageVisibility` applied by CLI to inline policy `ai-tutor-sqs-jobs` on
+      `ai-tutor-ec2-ssm-role` — the policy that actually grants SQS; neither terraform module
+      declares it. Verified with `simulate-principal-policy`.
+- [x] Assessment bucket (`chat9021-assessment-files`, **us-east-1**): no versioning ever, no
+      CloudTrail trail in any region, no access logging, no object lock. Replacement is
+      undetectable directly. No object has been written since 2026-04-09 05:28 UTC (18 `audio/`,
+      45 `proctoring/`), so nothing was replaced after that; 2026-03-29 → 04-09 has no audit trail.
+      The only lifecycle rule targets `recordings/`, which is empty — nothing actually expires.
+- [x] 8 Apr migration verified by key-hash comparison: nothing written to us-east-1 after cutover;
+      `chat_sessions` and `auth_users` fully captured; `oral_assessments` missing only 41 items —
+      two complete draft test assessments, almost certainly deleted in Sydney post-migration.
+      **The three us-east-1 tables were deleted 2026-09-23** (answers question 8).
+- [x] PITR enabled on live Sydney `oral_assessments` — it had no PITR and no backups at all.
+- [ ] Record on Safari (it produces `video/mp4`) and play a chunk back from the instructor app.
 
 ---
 
@@ -248,7 +255,10 @@ assessments now send UTC instants. The open decisions are questions 2–6 at the
 
 - [ ] **Import live Sydney tables into terraform state** — highest infra risk
 - [ ] Untangle `terraform/assessment`: live queue, dead tables
-- [ ] Verify the 8 Apr migration captured everything, then decide on the stale us-east-1 tables
+- [x] Verify the 8 Apr migration captured everything, then decide on the stale us-east-1 tables
+      — verified and deleted 2026-09-23. `terraform/assessment` state still references them.
+- [ ] PITR on Sydney `chat_sessions` and `auth_users` (only `oral_assessments` has it)
+- [ ] Bucket versioning + a CloudTrail S3 data-event trail on `chat9021-assessment-files`
 - [ ] S3 lifecycle: `proctoring/` 365 days, `audio/` 730 days. DynamoDB TTL to match.
       Analytics events currently have no retention at all.
 - [x] Replace the per-submit daemon threads with `BackgroundTasks` (`student_router.py`) —
@@ -282,7 +292,6 @@ AccessDenied there looks exactly like "no data".
 
 - The institutional retention window, if UNSW states one. 12/24 months is a judgement call
   until confirmed.
-- Whether the Sydney migration captured everything from us-east-1.
 - Whether proctoring footage reassembles into watchable video (blocks the last Phase 0 item).
 - ~~`should_generate_on_submit` read-modify-write contention~~ — **this audit item was wrong.**
   It is a COUNT plus `claim_milestone()`, a conditional `update_item` that catches

@@ -104,6 +104,13 @@ Copy `.env.example` to `.env`. Required vars:
 - `DYNAMODB_TABLE_NAME`, `DYNAMODB_AUTH_USERS_TABLE`
 - `BEDROCK_MODEL_CHAT`, `BEDROCK_MODEL_EMBED`
 
+### AWS CLI (maintainer's machine)
+The AWS CLI is authenticated for account 339712753655 — use it directly instead of asking for credentials. Two identities, **both with IAM write, so every call is production-capable**:
+- **`default` profile** → IAM user `claude_user`. Use `env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY aws ... --profile default` if `.env` vars are exported.
+- **`.env` credentials** → IAM user `bedrock-user` (DynamoDB, SSM, Bedrock, S3, IAM).
+
+Region split (deliberate, see `docs/ARCHITECTURE.md`): EC2 + live DynamoDB in `ap-southeast-2`; SQS/Bedrock/SES and the assessment S3 bucket in `us-east-1`.
+
 ## Never do this
 
 Drawn from real incidents in this repo, not hypotheticals:
