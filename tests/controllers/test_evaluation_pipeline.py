@@ -404,6 +404,59 @@ class TestAutoEvalTrigger:
             milestone=1,
         )
 
+    def test_submit_registers_the_work_on_the_requests_background_tasks(self):
+        """Calls the handler directly so the mechanism is asserted, not the timing.
+
+        The work must be *registered* on the request's BackgroundTasks and still be
+        unrun when the handler returns. The previous implementation started two
+        daemon threads per submission instead: at a deadline that is ~790 threads,
+        and a redeploy killed them mid-flight, so a student's answer was accepted
+        and their evaluation never ran. A revert to threads leaves `background.tasks`
+        empty and fails here regardless of how the race happens to land.
+        """
+        import asyncio
+
+        from fastapi import BackgroundTasks
+
+        from src.main.controllers.student_router import submit_assessment
+        from src.main.dtos.StudentAssessmentDTOs import SubmitAssessmentRequest
+
+        oral_svc = MagicMock()
+        oral_svc.submit_assessment.return_value = self._submission_result()
+        instructor_svc = _mock_instructor_svc(
+            assessment={"id": "a-1", "title": "T", "createdBy": "i-1", "autoEvaluate": True, "rubric": None},
+        )
+        report_svc = MagicMock()
+        report_svc.should_generate_on_submit.return_value = None
+        dispatcher = MagicMock()
+        dispatcher.enqueue_evaluation_batch.return_value = 1
+        background = BackgroundTasks()
+
+        with patch("src.main.controllers.student_router.get_batch_job_manager") as mock_jm:
+            mock_jm.return_value.create_job.return_value = "job-bg-direct"
+            asyncio.run(submit_assessment(
+                "s-1",
+                background,
+                request=SubmitAssessmentRequest(assessment_id="a-1"),
+                svc=oral_svc,
+                instructor_svc=instructor_svc,
+                dispatcher=dispatcher,
+                report_svc=report_svc,
+                _principal=_STUDENT,
+            ))
+
+            # Registered, deferred, and nothing has escaped the request yet.
+            assert len(background.tasks) == 2
+            dispatcher.enqueue_evaluation_batch.assert_not_called()
+
+            asyncio.run(background())
+
+        dispatcher.enqueue_evaluation_batch.assert_called_once_with(
+            job_id="job-bg-direct",
+            assessment_id="a-1",
+            students=[{"studentId": "s-1"}],
+        )
+
 
 # ─────────────────────────────────────────────────────────────
 # EPIC-5-4: rubric field in create_assessment
