@@ -133,13 +133,23 @@ def test_create_assessment_with_scoring_overrides(client):
     test_client, _svc, _table = client
     resp = test_client.post("/api/assessment/create", json={
         "title": "Cfg", "course": "COMP1010", "dueDate": "2026-12-01", "totalQuestions": 5,
-        "maxScorePerQuestion": 20,
+        "maxScorePerQuestion": 10,
         "gradeCutoffs": {"excellent": 50, "competent": 30, "developing": 10},
     })
     assert resp.status_code == 201, resp.text
     body = resp.json()
-    assert body["maxScorePerQuestion"] == 20
+    assert body["maxScorePerQuestion"] == 10
     assert body["gradeCutoffs"]["excellent"] == 50
+
+
+def test_create_assessment_rejects_max_score_other_than_ten(client):
+    # AI marking is 0-10; a larger max would silently cap AI-marked work below 100%.
+    test_client, _svc, _table = client
+    resp = test_client.post("/api/assessment/create", json={
+        "title": "Cfg", "course": "COMP1010", "dueDate": "2026-12-01", "totalQuestions": 5,
+        "maxScorePerQuestion": 20,
+    })
+    assert resp.status_code == 422, resp.text
 
 
 def test_create_assessment_rejects_invalid_cutoffs(client):

@@ -21,6 +21,9 @@ provider "aws" {
 # - The live SQS grant on ai-tutor-ec2-ssm-role is a separate inline policy,
 #   `ai-tutor-sqs-jobs` (ChangeMessageVisibility applied by CLI 2026-09-23),
 #   not the SQSJobQueues statement below. Applying would add a second grant.
+# - `ai-tutor-bedrock-inference-profiles` (below) was created by CLI on
+#   2026-09-23. Import it before any apply:
+#     terraform import aws_iam_role_policy.ec2_bedrock_inference_profiles ai-tutor-ec2-ssm-role:ai-tutor-bedrock-inference-profiles
 
 # ─────────────────────────────────────────────────────────────
 # DynamoDB — oral_assessments (single-table for all assessment data)
@@ -378,6 +381,36 @@ resource "aws_iam_role_policy" "ec2_assessment" {
   })
 }
 
+data "aws_caller_identity" "current" {}
+
+# Chat runs on the us. cross-region inference profile for Nova 2 Lite, which
+# needs the profile ARN plus the model in every region the profile routes to.
+# Marking stays on the on-demand Nova Lite model covered by BedrockInference.
+resource "aws_iam_role_policy" "ec2_bedrock_inference_profiles" {
+  name = "ai-tutor-bedrock-inference-profiles"
+  role = var.ec2_role_name
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "NovaTwoLiteCrossRegion"
+        Effect = "Allow"
+        Action = [
+          "bedrock:InvokeModel",
+          "bedrock:InvokeModelWithResponseStream",
+        ]
+        Resource = [
+          "arn:aws:bedrock:us-east-1:${data.aws_caller_identity.current.account_id}:inference-profile/us.amazon.nova-2-lite-v1:0",
+          "arn:aws:bedrock:us-east-1::foundation-model/amazon.nova-2-lite-v1:0",
+          "arn:aws:bedrock:us-east-2::foundation-model/amazon.nova-2-lite-v1:0",
+          "arn:aws:bedrock:us-west-2::foundation-model/amazon.nova-2-lite-v1:0",
+        ]
+      },
+    ]
+  })
+}
+
 # ─────────────────────────────────────────────────────────────
 # SQS — job queues for async evaluation and question generation
 #
@@ -402,7 +435,7 @@ resource "aws_sqs_queue" "jobs_dlq" {
 
 resource "aws_sqs_queue" "jobs" {
   name                       = "ai-tutor-jobs"
-  visibility_timeout_seconds = 300 # 5 min — matches max evaluation runtime
+  visibility_timeout_seconds = 300   # 5 min — matches max evaluation runtime
   message_retention_seconds  = 86400 # 1 day
 
   redrive_policy = jsonencode({

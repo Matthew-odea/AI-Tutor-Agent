@@ -1887,7 +1887,7 @@ export interface components {
             feedbackRelease: string;
             /**
              * Maxscoreperquestion
-             * @description Override max marks per question (default 10)
+             * @description Max marks per question. Only 10 is supported (AI marking is on a 0-10 scale).
              */
             maxScorePerQuestion?: number | null;
             /**
