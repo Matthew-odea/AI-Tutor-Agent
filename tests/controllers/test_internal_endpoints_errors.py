@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app import create_app
@@ -63,7 +64,7 @@ def test_s3_upload_url_maps_service_error():
     s3.generate_upload_url.side_effect = S3UploadServiceError("denied")
     client = _build_client(s3_service=s3)
 
-    response = client.post("/api/s3/upload-url?filename=a.webm&content_type=audio/webm")
+    response = client.post("/api/s3/upload-url?kind=audio&question_id=q1&content_type=audio/webm")
 
     assert response.status_code == 500
     assert response.json()["error"]["code"] == "s3_upload_url_failed"
@@ -78,6 +79,90 @@ def test_s3_upload_url_allowed_for_students():
         principal=AuthPrincipal(user_id="s-1", roles=["student"], source="jwt"),
     )
 
-    response = client.post("/api/s3/upload-url?filename=a.webm")
+    response = client.post("/api/s3/upload-url?kind=audio&question_id=q1")
 
     assert response.status_code == 200
+    assert s3.generate_upload_url.call_args.kwargs["key"].startswith("audio/s-1/q1_")
+
+
+def test_s3_upload_url_key_is_confined_to_the_callers_own_prefix():
+    """A caller cannot name the key, so it cannot reach another student's recording."""
+    s3 = MagicMock()
+    s3.generate_upload_url.return_value = {"uploadUrl": "u", "fileUrl": "f"}
+    client = _build_client(
+        s3_service=s3,
+        principal=AuthPrincipal(user_id="s-1", roles=["student"], source="jwt"),
+    )
+
+    # The old `filename` parameter is gone; a key supplied by the caller is ignored.
+    response = client.post(
+        "/api/s3/upload-url?kind=audio&question_id=q1&filename=audio/s-2/steal.webm"
+    )
+
+    assert response.status_code == 200
+    assert s3.generate_upload_url.call_args.kwargs["key"].startswith("audio/s-1/")
+
+    # And an id crafted to climb out of the prefix is rejected outright.
+    traversal = client.post("/api/s3/upload-url?kind=audio&question_id=../../s-2/steal")
+
+    assert traversal.status_code == 400
+    assert traversal.json()["error"]["code"] == "invalid_upload_request"
+
+
+def test_s3_upload_url_proctoring_rejects_other_assessment_for_scoped_token():
+    s3 = MagicMock()
+    s3.generate_upload_url.return_value = {"uploadUrl": "u", "fileUrl": "f"}
+    client = _build_client(
+        s3_service=s3,
+        principal=AuthPrincipal(
+            user_id="s-1", roles=["student"], source="jwt", assessment_id="a1"
+        ),
+    )
+
+    response = client.post(
+        "/api/s3/upload-url?kind=proctoring&assessment_id=a2&chunk_index=0&content_type=video/webm"
+    )
+
+    assert response.status_code == 403
+    s3.generate_upload_url.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "method,path,kwargs",
+    [
+        ("post", "/internal/context/upload", {"json": {"DocumentName": "d", "Description": "desc", "Text": "t", "Scope": "default"}}),
+        ("delete", "/internal/context/delete", {"json": {"document_id": "d1"}}),
+        ("post", "/internal/context/list", {"json": {"Offset": 0, "Limit": 10, "Scope": "default"}}),
+        ("post", "/internal/context/uploadFile", {"data": {"DocumentName": "D"}, "files": {"File": ("t.pdf", b"x", "application/pdf")}}),
+    ],
+)
+def test_context_routes_reject_unauthenticated_callers(method, path, kwargs):
+    """The course corpus is not world-writable — every /internal/context route needs auth."""
+    app = create_app()
+    app.dependency_overrides[get_context_service] = lambda: MagicMock()
+    client = TestClient(app)
+
+    response = client.request(method.upper(), path, **kwargs)
+
+    assert response.status_code == 401
+
+
+@pytest.mark.parametrize(
+    "method,path,kwargs",
+    [
+        ("post", "/internal/context/upload", {"json": {"DocumentName": "d", "Description": "desc", "Text": "t", "Scope": "default"}}),
+        ("delete", "/internal/context/delete", {"json": {"document_id": "d1"}}),
+        ("post", "/internal/context/list", {"json": {"Offset": 0, "Limit": 10, "Scope": "default"}}),
+        ("post", "/internal/context/uploadFile", {"data": {"DocumentName": "D"}, "files": {"File": ("t.pdf", b"x", "application/pdf")}}),
+    ],
+)
+def test_context_routes_reject_students(method, path, kwargs):
+    svc = MagicMock()
+    client = _build_client(
+        context_service=svc,
+        principal=AuthPrincipal(user_id="s-1", roles=["student"], source="jwt"),
+    )
+
+    response = client.request(method.upper(), path, **kwargs)
+
+    assert response.status_code == 403

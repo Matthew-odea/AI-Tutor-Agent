@@ -9,6 +9,10 @@ on:
   push:
     branches: [main]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # ─────────────────────────────────────────────────────────
   # Job 1: Backend — pytest with moto (no real AWS needed)
@@ -50,7 +54,7 @@ jobs:
           PYTHONPATH=. pytest tests/ -q \
             --cov=src \
             --cov-report=term-missing \
-            --cov-fail-under=50
+            --cov-fail-under=68
 
       - name: Upload coverage report
         if: always()
@@ -79,13 +83,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: oral-assessment-instructor
-        # Delete the lockfile so npm freshly resolves platform-specific optional deps
-        # on Linux (the @rollup/rollup-linux-x64-gnu native binary — npm/cli#4828).
-        # Lint determinism comes from the EXACT eslint-plugin-react-hooks pin in
-        # package.json, so a fresh install still lands on 7.1.1 (no version float).
-        run: |
-          rm -f package-lock.json
-          npm install
+        run: npm ci
 
       - name: Type check
         working-directory: oral-assessment-instructor
@@ -118,13 +116,7 @@ jobs:
 
       - name: Install dependencies
         working-directory: oral-assessment-student
-        # Delete the lockfile so npm freshly resolves platform-specific optional deps
-        # on Linux (the @rollup/rollup-linux-x64-gnu native binary — npm/cli#4828).
-        # Lint determinism comes from the EXACT eslint-plugin-react-hooks pin in
-        # package.json, so a fresh install still lands on 7.1.1 (no version float).
-        run: |
-          rm -f package-lock.json
-          npm install
+        run: npm ci
 
       - name: Type check
         working-directory: oral-assessment-student
@@ -139,7 +131,43 @@ jobs:
         run: npm run test:run
 
   # ─────────────────────────────────────────────────────────
-  # Job 4: Playwright E2E — full local integration test
+  # Job 4: AI Tutor frontend — type-check + lint + Vitest
+  # (has a `validate` script too, but it also runs format:check,
+  # which fails on ~86 files that predate this CI job and are out
+  # of scope here — not run until that's addressed separately)
+  # ─────────────────────────────────────────────────────────
+  ai-tutor-frontend-test:
+    name: AI Tutor Frontend Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: ai-tutor-frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: ai-tutor-frontend
+        run: npm ci
+
+      - name: Type check
+        working-directory: ai-tutor-frontend
+        run: npm run type-check
+
+      - name: Lint
+        working-directory: ai-tutor-frontend
+        run: npm run lint
+
+      - name: Run Vitest
+        working-directory: ai-tutor-frontend
+        run: npm run test:run
+
+  # ─────────────────────────────────────────────────────────
+  # Job 5: Playwright E2E — full local integration test
   # Runs against mocked API (no real AWS) using page.route()
   # ─────────────────────────────────────────────────────────
   e2e-test:
@@ -177,8 +205,8 @@ jobs:
 
       - name: Install frontend dependencies
         run: |
-          cd oral-assessment-student && rm -f package-lock.json && npm install
-          cd ../oral-assessment-instructor && rm -f package-lock.json && npm install
+          cd oral-assessment-student && npm ci
+          cd ../oral-assessment-instructor && npm ci
 
       - name: Run Playwright tests (MOCK_API=true, servers auto-started)
         working-directory: e2e

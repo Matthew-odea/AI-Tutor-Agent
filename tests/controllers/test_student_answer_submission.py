@@ -1,5 +1,7 @@
 """
-Tests for Sprint 5 student router changes:
+Student answer submission: text answers, audio answers, validation.
+
+Covers:
 - Text answer submission (answer_type='text')
 - Audio answer still works with new optional fields
 - timeLimit exposed in questions response

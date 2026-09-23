@@ -5,7 +5,6 @@ Unit tests for pedagogy mode functionality.
 import pytest
 from src.main.dtos.PedagogyMode import PedagogyMode
 from src.main.service.PromptService import PromptService
-from src.main.agentcore_setup.memory import ConversationMemory
 
 
 class TestPedagogyModeEnum:
@@ -141,12 +140,11 @@ class TestPromptService:
 
 
 class TestConversationMemoryPedagogyMode:
-    """Test pedagogy mode tracking in ConversationMemory."""
-    
+    """Test pedagogy mode tracking in the conversation store."""
+
     @pytest.fixture
-    def memory(self):
-        """Create a ConversationMemory instance."""
-        return ConversationMemory()
+    def memory(self, conversation_memory):
+        return conversation_memory
     
     def test_default_pedagogy_mode(self, memory):
         """Test that new sessions default to explanatory mode."""
@@ -236,9 +234,9 @@ class TestModeIntegration:
     """Integration tests for mode functionality across components."""
     
     @pytest.fixture
-    def memory(self):
-        return ConversationMemory()
-    
+    def memory(self, conversation_memory):
+        return conversation_memory
+
     @pytest.fixture
     def prompt_service(self):
         return PromptService()

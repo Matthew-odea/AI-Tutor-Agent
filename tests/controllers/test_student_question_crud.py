@@ -1,5 +1,7 @@
 """
-Sprint 9 tests covering:
+Per-student question CRUD, plus request logging and invite-sender coverage.
+
+Covers:
 
 - EPIC-3-3: GET  /api/assessment/{id}/students/{student_id}/questions
 - EPIC-3-3: PUT  /api/assessment/{id}/students/{student_id}/questions/{question_id}

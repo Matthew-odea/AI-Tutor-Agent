@@ -24,6 +24,43 @@ services:
       retries: 10
       start_period: 40s
 
+  # DynamoDB Local: the chat history, assessment and auth tables, running on your
+  # machine so the app works with no AWS account. Port 8001 on the host because the
+  # API already has 8000; inside the compose network it is still on 8000.
+  dynamodb-local:
+    image: amazon/dynamodb-local:2.5.2
+    container_name: ai-tutor-dynamodb
+    restart: unless-stopped
+    user: root
+    working_dir: /home/dynamodblocal
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/home/dynamodblocal/data"]
+    volumes:
+      - dynamodb_data:/home/dynamodblocal/data
+    ports:
+      - "8001:8000"
+
+  # Creates the three tables, which DynamoDB Local does not have on a fresh start.
+  # Safe to re-run: tables that already exist are left alone.
+  dynamodb-init:
+    image: python:3.12-slim
+    container_name: ai-tutor-dynamodb-init
+    restart: "no"
+    environment:
+      AWS_ENDPOINT_URL_DYNAMODB: http://dynamodb-local:8000
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-us-east-1}
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+      DYNAMODB_TABLE_NAME: ${DYNAMODB_TABLE_NAME:-chat_sessions}
+      DYNAMODB_ASSESSMENT_TABLE: ${DYNAMODB_ASSESSMENT_TABLE:-oral_assessments}
+      DYNAMODB_AUTH_USERS_TABLE: ${DYNAMODB_AUTH_USERS_TABLE:-auth_users}
+    volumes:
+      - ./scripts:/scripts:ro
+    command: >-
+      sh -c "pip install --quiet --disable-pip-version-check boto3
+      && python /scripts/dynamodb_local_bootstrap.py"
+    depends_on:
+      - dynamodb-local
+
   api:
     build:
       context: .
@@ -39,13 +76,17 @@ services:
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USERNAME: ${NEO4J_USERNAME:-neo4j}
       NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      AWS_ENDPOINT_URL_DYNAMODB: http://dynamodb-local:8000
     ports:
       - "8000:8000"
     depends_on:
       neo4j:
         condition: service_healthy
+      dynamodb-init:
+        condition: service_completed_successfully
 
 volumes:
+  dynamodb_data:
   neo4j_data:
   neo4j_logs:
   neo4j_import:

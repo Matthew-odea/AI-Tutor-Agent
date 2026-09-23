@@ -1,5 +1,7 @@
 """
-Sprint 7 tests covering:
+Evaluation pipeline: batch dispatch, transcription, auto-eval trigger, rubric handling.
+
+Covers:
 - EPIC-7-1: evaluate_batch dispatches via SQS (not inline thread)
 - EPIC-5-1: TranscriptionService._parse_s3_url + transcribe_pending_answers
 - EPIC-5-3: autoEvaluate field persisted; auto-eval triggered on final submission
@@ -14,6 +16,7 @@ from app import create_app
 from src.main.auth.dependencies import require_auth_principal
 from src.main.auth.models import AuthPrincipal
 from src.main.controllers.controller_dependencies import (
+    get_assessment_report_service,
     get_instructor_assessment_service,
     get_oral_assessment_service,
     get_sqs_job_dispatcher,
@@ -42,11 +45,16 @@ def _assessment_client(instructor_svc=None, dispatcher=None, principal=_INSTRUCT
     return TestClient(app)
 
 
-def _student_client(oral_svc=None, instructor_svc=None, dispatcher=None, principal=_STUDENT):
+def _student_client(oral_svc=None, instructor_svc=None, dispatcher=None, principal=_STUDENT, report_svc=None):
     app = create_app()
     app.dependency_overrides[require_auth_principal] = lambda: principal
     app.dependency_overrides[get_oral_assessment_service] = lambda: oral_svc or MagicMock()
     app.dependency_overrides[get_instructor_assessment_service] = lambda: instructor_svc or MagicMock()
+    if report_svc is None:
+        # Default: no submission milestone reached, so no report job is queued.
+        report_svc = MagicMock()
+        report_svc.should_generate_on_submit.return_value = None
+    app.dependency_overrides[get_assessment_report_service] = lambda: report_svc
     if dispatcher is not None:
         app.dependency_overrides[get_sqs_job_dispatcher] = lambda: dispatcher
     return TestClient(app)
@@ -359,6 +367,42 @@ class TestAutoEvalTrigger:
         resp = client.put("/api/student/s-1/submit", json={"assessment_id": "a-1"})
         # Submission must still succeed
         assert resp.status_code == 200
+
+    def test_on_submit_jobs_are_done_before_the_request_completes(self):
+        """Auto-evaluation and the threshold report run as BackgroundTasks, so both
+        have been enqueued by the time the response is delivered. As daemon threads
+        this was a race, and a redeploy killed them mid-flight, silently losing the
+        evaluation."""
+        oral_svc = MagicMock()
+        oral_svc.submit_assessment.return_value = self._submission_result()
+        instructor_svc = _mock_instructor_svc(
+            assessment={"id": "a-1", "title": "T", "createdBy": "i-1", "autoEvaluate": True, "rubric": None},
+        )
+        report_svc = MagicMock()
+        report_svc.should_generate_on_submit.return_value = {
+            "milestone": 1, "threshold": 0.5, "submittedCount": 2,
+        }
+        dispatcher = MagicMock()
+        dispatcher.enqueue_evaluation_batch.return_value = 1
+
+        with patch("src.main.controllers.student_router.get_batch_job_manager") as mock_jm:
+            mock_jm.return_value.create_job.return_value = "job-bg"
+            client = _student_client(
+                oral_svc=oral_svc,
+                instructor_svc=instructor_svc,
+                dispatcher=dispatcher,
+                report_svc=report_svc,
+            )
+            resp = client.put("/api/student/s-1/submit", json={"assessment_id": "a-1"})
+
+        assert resp.status_code == 200
+        dispatcher.enqueue_evaluation_batch.assert_called_once()
+        dispatcher.enqueue_report_generation.assert_called_once_with(
+            job_id="job-bg",
+            assessment_id="a-1",
+            triggered_by="auto_threshold",
+            milestone=1,
+        )
 
 
 # ─────────────────────────────────────────────────────────────

@@ -20,7 +20,9 @@ def _build_client(principal: AuthPrincipal, instructor_service=None) -> TestClie
     app.dependency_overrides[get_instructor_assessment_service] = lambda: instructor_service or MagicMock()
     app.dependency_overrides[get_question_service] = lambda: MagicMock()
     app.dependency_overrides[get_evaluation_service] = lambda: MagicMock()
-    return TestClient(app)
+    # raise_server_exceptions=False so an unhandled error is served by the global
+    # handler in api_errors.py instead of being re-raised into the test.
+    return TestClient(app, raise_server_exceptions=False)
 
 
 def _create_payload():
@@ -38,7 +40,7 @@ def _create_payload():
     "side_effect,expected_status,expected_code",
     [
         (InstructorAssessmentServiceError("bad assessment"), 400, "assessment_create_failed"),
-        (RuntimeError("boom"), 500, "unexpected_error"),
+        (RuntimeError("boom"), 500, "internal_error"),
     ],
 )
 def test_create_assessment_error_mappings(side_effect, expected_status, expected_code):

@@ -1,5 +1,7 @@
 """
-Sprint 8 tests covering:
+Results and grading: effective score, release gate, score override, reminders.
+
+Covers:
 - EPIC-6-1: GET /api/assessment/{id}/results returns results with grade distribution (existing endpoint, verified)
 - EPIC-6-1: GET /api/assessment/{id}/evaluation-status-stream/{jobId} SSE stream
 - EPIC-6-2: GET /api/assessment/{id}/student/{studentId}/results — instructor per-student detail

@@ -1,6 +1,5 @@
 """Prompt-construction hardening tests for ChatService."""
 
-from src.main.agentcore_setup.memory import ConversationMemory
 from src.main.service.ChatService import ChatService
 
 
@@ -41,18 +40,18 @@ class MetaVectorService:
         ]
 
 
-def _build_service(max_context_chars=8000):
+def _build_service(memory, max_context_chars=8000):
     return ChatService(
         vector_service=MetaVectorService(),
         agent_client=SpyAgentClient(),
-        memory=ConversationMemory(max_sessions=10),
+        memory=memory,
         max_context_chars=max_context_chars,
         max_history_messages=10,
     )
 
 
-def test_messages_are_role_structured_and_ordered():
-    svc = _build_service()
+def test_messages_are_role_structured_and_ordered(conversation_memory):
+    svc = _build_service(conversation_memory)
     session_id = "prompt-order-session"
 
     svc.chat("first question", session_id=session_id)
@@ -66,8 +65,8 @@ def test_messages_are_role_structured_and_ordered():
     assert "Current question:\nfollow up" in messages[-1]["content"]
 
 
-def test_context_block_contains_metadata_and_guardrail_text():
-    svc = _build_service()
+def test_context_block_contains_metadata_and_guardrail_text(conversation_memory):
+    svc = _build_service(conversation_memory)
     svc.chat("who is my lecturer?", context_scope="course-overview", persist_history=False)
 
     user_content = svc.agent_client.last_messages[-1]["content"]
@@ -80,8 +79,8 @@ def test_context_block_contains_metadata_and_guardrail_text():
     assert "score=0.9342" in user_content
 
 
-def test_retrieved_context_item_text_is_individually_truncated():
-    svc = _build_service()
+def test_retrieved_context_item_text_is_individually_truncated(conversation_memory):
+    svc = _build_service(conversation_memory)
     long_text = "x" * 1400
     formatted = svc._format_retrieved_context([
         {
@@ -98,8 +97,8 @@ def test_retrieved_context_item_text_is_individually_truncated():
     assert formatted.endswith("...")
 
 
-def test_chat_level_context_budget_is_respected():
-    svc = _build_service(max_context_chars=220)
+def test_chat_level_context_budget_is_respected(conversation_memory):
+    svc = _build_service(conversation_memory, max_context_chars=220)
     svc.chat("check truncation", persist_history=False)
 
     user_content = svc.agent_client.last_messages[-1]["content"]
