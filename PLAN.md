@@ -1,20 +1,52 @@
 # Remediation plan — 2026-09-21
 
-**Status: active. Phases 0, 1, 2 and most of 3 landed 2026-09-22/23, uncommitted.**
-Working plan from a full-repo audit. Decisions below were made deliberately; do not
-re-litigate them without a reason.
-
-Verification at time of writing: `make check` green — backend 679 passed, ai-tutor-frontend
-12, instructor 2, student 209. Coverage 75% against a CI gate of 68.
-`tests/controllers/test_route_auth.py` green: 10 open routes, all on the allowlist with a
-stated reason. Routes 96 → 84.
-
-Net across everything so far: **3,528 source and test lines removed** (source −3,528,
-tests −675, docs −927), 95 files touched. The backend test count fell from 759 to 679
-because tests for deleted code went with it; coverage rose because what went was untested.
+**Status: active.** Phases 0–2 merged to `main` in PR #8 (2026-09-23) and deployed. Follow-up
+work is on `chore/e2e-and-followups`, PR #10, unmerged — merging to `main` deploys to production.
+Decisions below were made deliberately; do not re-litigate them without a reason.
 
 **Delete this file when Phase 4 completes.** A stale plan is worse than no plan —
 this repo already learned that the hard way (see "Why this file has an expiry").
+
+---
+
+## Questions waiting on you
+
+Numbered so you can answer by number. Where I have a recommendation it is marked; nothing here
+has been built ahead of your answer.
+
+**Decisions**
+
+1. **Existing proctoring footage.** Until PR #10, only the first 30 s of each session was
+   playable, and a refresh overwrote a session's earliest footage. Sessions whose chunk 0
+   survived can be salvaged by concatenating their chunks in order. Salvage, leave, or delete?
+   And does anyone who has relied on this footage (misconduct reviews) need to be told?
+2. **Assessments created before the timezone fix** have scheduled windows stored 10–11 hours
+   late. Migrate them, or leave them? *Recommend:* migrate only those whose window has not yet
+   closed — past windows are history either way.
+3. **Is the due date binding?** Today: the session token allows answers until due + 1 h, final
+   submit refuses at due, and the instructor form says it enforces nothing. A student can answer
+   everything and be refused at submit, and only submitted students are evaluated. Options:
+   (a) not binding, (b) binding on answers too, (c) a grace period matching the token's 1 h.
+   *Recommend (c).*
+4. **Submit after the scheduled window closes** is allowed today. Allow, grace period, or
+   auto-submit at close? *Recommend:* allow — every answer was already accepted inside the window.
+5. **Per-question time limits** are browser-only. Enforce server-side? It needs a record of when
+   each question was shown, plus an allowance for upload delay and offline resend.
+6. **Extensions for individual students** — needed? Nothing in the data supports them today.
+7. **Retention window.** Does UNSW state one? 12 months proctoring / 24 months audio is a
+   judgement call until confirmed, and blocks the S3 lifecycle rules in Phase 4.
+8. **Stale us-east-1 DynamoDB tables** — delete once the Sydney migration is confirmed complete?
+9. **Your system Python.** An agent installed `requirements.txt` into
+   `/Library/Frameworks/Python.framework/Versions/3.13` instead of a virtualenv. Leave it, or
+   uninstall those packages?
+
+**Things only you can do** (need the project's AWS credentials or a real device)
+
+- Put the project `.env` at the repo root and run `./scripts/prod_checks.sh` — see "Three that a
+  script answers" below. Check 1 matters most: if `AUTH_USERS_JSON` or `AUTH_LOGIN_PASSWORD`
+  holds a plaintext password, that login has been broken since PR #8 deployed.
+- Confirm the 8 Apr Sydney migration captured everything from us-east-1.
+- Record on Safari (it produces `video/mp4`) and play a chunk back from the instructor app.
 
 ---
 
@@ -184,24 +216,14 @@ load-bearing, not cosmetic.
       broke `npm ci` in each frontend, which is exactly what both deploy workflows run. A tidy
       monorepo is not worth a broken deploy. Revisit only alongside the deploy workflows.
 
-## Assessment timing — decisions needed
+## Assessment timing — enforcement
 
 The server already enforces the scheduled window on question fetch, answer and skip, and the due
 date on final submit; those now return specific 409 codes the student app explains. Found along
 the way and fixed: the instructor form sent `datetime-local` values with no timezone and the server
 read them as UTC, so a Sydney instructor's window opened and closed 10-11 hours late. New
-assessments now send UTC instants. Still yours to decide:
+assessments now send UTC instants. The open decisions are questions 2–6 at the top of this file.
 
-- [ ] **Existing assessments** created before this fix have windows stored 10-11 hours late.
-      Migrate them (reinterpret bare times as Sydney time) or leave them.
-- [ ] **Is the due date binding?** Today it is applied three different ways: the session token
-      allows answers until due + 1 h, final submit refuses at due, and the instructor form says
-      it enforces nothing. A student can answer every question and then be refused at submit —
-      and only submitted students are evaluated, so that work is stranded.
-- [ ] **Submit after the window closes** is currently allowed. Allow, grace period, or auto-submit.
-- [ ] **Per-question time limits** are browser-only. Enforcing them needs a server-side record of
-      when each question was shown, plus an allowance for upload delay and offline resend.
-- [ ] **Extensions for individual students** — nothing in the data supports them.
 
 ## Phase 4 — operational
 
