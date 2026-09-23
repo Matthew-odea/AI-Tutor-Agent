@@ -77,11 +77,11 @@ class ApiService {
   }
 
   // Ed import
-  async importFromEd(assessmentId: string, edToken: string, challengeId: number): Promise<{ ok: boolean; studentsImported: number; students: { studentId: string; name: string; hasCode: boolean }[] }> {
-    const response = await this.client.post(`/api/assessment/${assessmentId}/import-ed`, {
+  async importFromEd(assessmentId: string, edToken: string, challengeId: number): Promise<Schemas['ImportFromEdResponse']> {
+    const response = await this.client.post<Schemas['ImportFromEdResponse']>(`/api/assessment/${assessmentId}/import-ed`, {
       edToken,
       challengeId,
-    });
+    } satisfies Schemas['ImportFromEdRequest']);
     return response.data;
   }
 
@@ -129,11 +129,10 @@ class ApiService {
 
   /** Latest cohort report, or null if none has been generated yet. */
   async getAssessmentReport(assessmentId: string): Promise<AssessmentReport | null> {
-    // `report` is an untyped dict on the wire; see AssessmentReport.
     const response = await this.client.get<Schemas['AssessmentReportResponse']>(
       `/api/assessment/${assessmentId}/report`
     );
-    return response.data.generated ? (response.data.report as unknown as AssessmentReport) : null;
+    return response.data.generated ? (response.data.report ?? null) : null;
   }
 
   /** Regenerate the cohort report now, without waiting for the next submission milestone. */
@@ -141,7 +140,7 @@ class ApiService {
     const response = await this.client.post<Schemas['GenerateReportResponse']>(
       `/api/assessment/${assessmentId}/report/generate`
     );
-    return response.data.report as unknown as AssessmentReport;
+    return response.data.report;
   }
 
   /**
@@ -236,8 +235,8 @@ class ApiService {
     return response.data;
   }
 
-  async sendInvites(assessmentId: string, options?: { subject?: string; message?: string }): Promise<{ ok: boolean; sent: number; skipped: number; total: number }> {
-    const response = await this.client.post(
+  async sendInvites(assessmentId: string, options?: Schemas['SendInvitesRequest']): Promise<Schemas['SendInvitesResponse']> {
+    const response = await this.client.post<Schemas['SendInvitesResponse']>(
       `/api/assessment/${assessmentId}/send-invites`,
       options || {}
     );
@@ -249,9 +248,9 @@ class ApiService {
   async resendInvite(
     assessmentId: string,
     studentId: string,
-    options?: { subject?: string; message?: string }
-  ): Promise<{ ok: boolean; studentId: string; inviteLink: string; emailSent: boolean }> {
-    const response = await this.client.post(
+    options?: Schemas['StudentInviteRequest']
+  ): Promise<Schemas['StudentInviteResponse']> {
+    const response = await this.client.post<Schemas['StudentInviteResponse']>(
       `/api/assessment/${assessmentId}/students/${studentId}/invite`,
       options || {}
     );
@@ -331,13 +330,15 @@ class ApiService {
     } satisfies Schemas['UpdateBriefRequest']);
   }
 
-  async listUsers(): Promise<{ email: string; roles: string[]; createdAt: string }[]> {
-    const response = await this.client.get('/api/auth/users');
+  async listUsers(): Promise<Schemas['UserRecord'][]> {
+    const response = await this.client.get<Schemas['UserListResponse']>('/api/auth/users');
     return response.data.users || [];
   }
 
   async setUserRoles(email: string, roles: string[]): Promise<void> {
-    await this.client.put(`/api/auth/users/${encodeURIComponent(email)}/roles`, { roles });
+    await this.client.put(`/api/auth/users/${encodeURIComponent(email)}/roles`, {
+      roles,
+    } satisfies Schemas['SetUserRolesRequest']);
   }
 }
 

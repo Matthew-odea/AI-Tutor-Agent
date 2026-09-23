@@ -3,7 +3,7 @@ DTOs for Instructor Assessment endpoints
 """
 
 from pydantic import BaseModel, Field
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional, Union
 from datetime import datetime
 
 
@@ -134,12 +134,20 @@ class StudentProgressItem(BaseModel):
     submittedAt: Optional[str] = None
 
 
+class ProgressSummary(BaseModel):
+    """Student counts by status."""
+    total: int
+    notStarted: int
+    inProgress: int
+    completed: int
+
+
 class ProgressSummaryResponse(BaseModel):
     """Response with progress for all students"""
     ok: bool = True
     assessmentId: str
     students: List[StudentProgressItem]
-    summary: dict  # Stats: total, not-started, in-progress, completed
+    summary: ProgressSummary
 
 
 class StudentResultItem(BaseModel):
@@ -154,12 +162,68 @@ class StudentResultItem(BaseModel):
     completedAt: Optional[str] = None
 
 
+class ResultsSummary(BaseModel):
+    averageScore: float
+    gradeDistribution: Dict[str, int]
+
+
 class ResultsSummaryResponse(BaseModel):
     """Response with results for all students"""
     ok: bool = True
     assessmentId: str
     results: List[StudentResultItem]
-    summary: dict  # Stats: avg score, grade distribution
+    summary: ResultsSummary
+
+
+class ReportCounts(BaseModel):
+    enrolled: int
+    submitted: int
+    evaluated: int
+    notEvaluated: int
+
+
+class ReportScores(BaseModel):
+    """Percentage statistics over evaluated students; all None when none are evaluated."""
+    average: Optional[float]
+    median: Optional[float]
+    min: Optional[float]
+    max: Optional[float]
+    stdDev: Optional[float]
+
+
+class GradeCutoffs(BaseModel):
+    excellent: float
+    competent: float
+    developing: float
+
+
+class ReportHistogramBucket(BaseModel):
+    bucket: str
+    count: int
+
+
+class ReportDimensions(BaseModel):
+    answersEvaluated: int
+    averageCorrectness: Optional[float]
+    averageUnderstanding: Optional[float]
+    needsReviewCount: int
+
+
+class AssessmentReport(BaseModel):
+    """Cohort summary report, as built by AssessmentReportService.generate_report."""
+    assessmentId: str
+    assessmentTitle: str
+    course: str
+    generatedAt: str
+    triggeredBy: str = Field(..., description="'manual' or 'auto_threshold'")
+    milestone: Optional[int]
+    counts: ReportCounts
+    scores: ReportScores
+    # Grade band -> count, plus a "_cutoffs" key holding the cutoffs used.
+    gradeDistribution: Dict[str, Union[int, GradeCutoffs]]
+    histogram: List[ReportHistogramBucket]
+    dimensions: ReportDimensions
+    narrative: Optional[str] = Field(..., description="LLM prose summary; None when unavailable")
 
 
 class AssessmentReportResponse(BaseModel):
@@ -167,14 +231,14 @@ class AssessmentReportResponse(BaseModel):
     ok: bool = True
     assessmentId: str
     generated: bool = Field(..., description="False when no report has been generated yet")
-    report: Optional[dict] = None
+    report: Optional[AssessmentReport] = None
 
 
 class GenerateReportResponse(BaseModel):
     """Response after a manual report generation request."""
     ok: bool = True
     assessmentId: str
-    report: dict
+    report: AssessmentReport
 
 
 class QuestionGenerationJobResponse(BaseModel):
@@ -279,10 +343,10 @@ class InstructorQuestionDetail(BaseModel):
     effectiveScore: Optional[int] = None
     maxScore: int = 10
     feedback: Optional[str] = None
-    strengths: Optional[str | list] = None
-    weaknesses: Optional[str | list] = None
-    improvements: Optional[str | list] = None
-    suggestedImprovements: Optional[str | list] = None
+    strengths: Optional[str | List[str]] = None
+    weaknesses: Optional[str | List[str]] = None
+    improvements: Optional[str | List[str]] = None
+    suggestedImprovements: Optional[str | List[str]] = None
     instructorComment: Optional[str] = None
     evaluatedAt: Optional[str] = None
     # Review flags (Tasks 4 & 5)
@@ -354,6 +418,19 @@ class RecordHumanScoreResponse(BaseModel):
     humanScoredAt: Optional[str] = None
 
 
+class ScoreAgreementItem(BaseModel):
+    """One dual-scored answer: AI score vs the human reference score."""
+    studentId: str
+    questionId: str
+    aiTotal: int
+    humanTotal: int
+    difference: int
+    aiCorrectness: Optional[int]
+    humanCorrectness: Optional[int]
+    aiUnderstanding: Optional[int]
+    humanUnderstanding: Optional[int]
+
+
 class ScoreAgreementResponse(BaseModel):
     """AI-vs-human agreement summary across all dual-scored items."""
     ok: bool = True
@@ -362,7 +439,15 @@ class ScoreAgreementResponse(BaseModel):
     exactMatchRate: Optional[float] = None
     within1Rate: Optional[float] = None
     meanAbsoluteDifference: Optional[float] = None
-    items: List[Dict[str, Any]] = []
+    items: List[ScoreAgreementItem] = []
+
+
+class FlaggedEvaluationItem(BaseModel):
+    studentId: str
+    questionId: str
+    reasons: List[str]
+    aiScore: Optional[int]
+    evaluationMethod: Optional[str]
 
 
 class FlaggedEvaluationsResponse(BaseModel):
@@ -370,7 +455,59 @@ class FlaggedEvaluationsResponse(BaseModel):
     ok: bool = True
     assessmentId: str
     flaggedCount: int
-    items: List[Dict[str, Any]] = []
+    items: List[FlaggedEvaluationItem] = []
+
+
+class UploadStudentsResponse(BaseModel):
+    ok: bool = True
+    assessmentId: str
+    studentsUploaded: int
+
+
+class ImportFromEdRequest(BaseModel):
+    """Both fields are required; a missing or empty one answers 400 missing_fields."""
+    edToken: Optional[str] = None
+    challengeId: Optional[int] = None
+
+
+class ImportedStudentSummary(BaseModel):
+    studentId: str
+    name: Optional[str]
+    hasCode: bool
+
+
+class ImportFromEdResponse(BaseModel):
+    ok: bool = True
+    studentsImported: int
+    students: List[ImportedStudentSummary]
+
+
+class StudentInviteRequest(BaseModel):
+    """Optional email customisation; {{name}}, {{title}}, {{link}} are substituted."""
+    subject: Optional[str] = None
+    message: Optional[str] = None
+
+
+class StudentInviteResponse(BaseModel):
+    ok: bool = True
+    studentId: str
+    assessmentId: str
+    inviteToken: str
+    inviteLink: str
+    emailSent: bool = Field(..., description="False when the student has no email on file")
+
+
+class SendInvitesRequest(StudentInviteRequest):
+    studentIds: Optional[List[str]] = Field(None, description="Restrict the send to these students; omit for everyone enrolled")
+    next: Optional[str] = Field(None, description="'results' points the link at the student's feedback")
+
+
+class SendInvitesResponse(BaseModel):
+    ok: bool = True
+    assessmentId: str
+    sent: int
+    skipped: int = Field(..., description="Students with no email, or whose send failed")
+    total: int
 
 
 class SendReminderResponse(BaseModel):

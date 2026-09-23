@@ -1492,6 +1492,41 @@ export interface components {
             total: number;
         };
         /**
+         * AssessmentReport
+         * @description Cohort summary report, as built by AssessmentReportService.generate_report.
+         */
+        AssessmentReport: {
+            /** Assessmentid */
+            assessmentId: string;
+            /** Assessmenttitle */
+            assessmentTitle: string;
+            /** Course */
+            course: string;
+            /** Generatedat */
+            generatedAt: string;
+            /**
+             * Triggeredby
+             * @description 'manual' or 'auto_threshold'
+             */
+            triggeredBy: string;
+            /** Milestone */
+            milestone: number | null;
+            counts: components["schemas"]["ReportCounts"];
+            scores: components["schemas"]["ReportScores"];
+            /** Gradedistribution */
+            gradeDistribution: {
+                [key: string]: number | components["schemas"]["GradeCutoffs"];
+            };
+            /** Histogram */
+            histogram: components["schemas"]["ReportHistogramBucket"][];
+            dimensions: components["schemas"]["ReportDimensions"];
+            /**
+             * Narrative
+             * @description LLM prose summary; None when unavailable
+             */
+            narrative: string | null;
+        };
+        /**
          * AssessmentReportResponse
          * @description Cohort summary report. Aggregate only — carries no per-student identifiers.
          */
@@ -1508,8 +1543,7 @@ export interface components {
              * @description False when no report has been generated yet
              */
             generated: boolean;
-            /** Report */
-            report?: Record<string, never> | null;
+            report?: components["schemas"]["AssessmentReport"] | null;
         };
         /**
          * AssessmentResponse
@@ -1918,6 +1952,16 @@ export interface components {
                 [key: string]: number;
             } | null;
         };
+        /** DeleteProgramResponse */
+        DeleteProgramResponse: {
+            /**
+             * Ok
+             * @default true
+             */
+            ok: boolean;
+            /** Program Id */
+            program_id: string;
+        };
         /** DeleteRequest */
         DeleteRequest: {
             /** Document Id */
@@ -1935,6 +1979,26 @@ export interface components {
             ok: boolean;
             /** Deletedid */
             deletedId: string;
+        };
+        /** DeleteThreadResponse */
+        DeleteThreadResponse: {
+            /**
+             * Ok
+             * @default true
+             */
+            ok: boolean;
+            /** Thread Id */
+            thread_id: string;
+        };
+        /** DeleteViewSessionResponse */
+        DeleteViewSessionResponse: {
+            /**
+             * Ok
+             * @default true
+             */
+            ok: boolean;
+            /** View Session Id */
+            view_session_id: string;
         };
         /** EditProposalRequest */
         EditProposalRequest: {
@@ -2027,6 +2091,19 @@ export interface components {
             /** Error */
             error?: string | null;
         };
+        /** FlaggedEvaluationItem */
+        FlaggedEvaluationItem: {
+            /** Studentid */
+            studentId: string;
+            /** Questionid */
+            questionId: string;
+            /** Reasons */
+            reasons: string[];
+            /** Aiscore */
+            aiScore: number | null;
+            /** Evaluationmethod */
+            evaluationMethod: string | null;
+        };
         /**
          * FlaggedEvaluationsResponse
          * @description Evaluations flagged for human review before release.
@@ -2045,7 +2122,7 @@ export interface components {
              * Items
              * @default []
              */
-            items: Record<string, never>[];
+            items: components["schemas"]["FlaggedEvaluationItem"][];
         };
         /** ForgotPasswordRequest */
         ForgotPasswordRequest: {
@@ -2080,18 +2157,57 @@ export interface components {
             ok: boolean;
             /** Assessmentid */
             assessmentId: string;
-            /** Report */
-            report: Record<string, never>;
+            report: components["schemas"]["AssessmentReport"];
         };
         /** GoogleLoginRequest */
         GoogleLoginRequest: {
             /** Id Token */
             id_token: string;
         };
+        /** GradeCutoffs */
+        GradeCutoffs: {
+            /** Excellent */
+            excellent: number;
+            /** Competent */
+            competent: number;
+            /** Developing */
+            developing: number;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * ImportFromEdRequest
+         * @description Both fields are required; a missing or empty one answers 400 missing_fields.
+         */
+        ImportFromEdRequest: {
+            /** Edtoken */
+            edToken?: string | null;
+            /** Challengeid */
+            challengeId?: number | null;
+        };
+        /** ImportFromEdResponse */
+        ImportFromEdResponse: {
+            /**
+             * Ok
+             * @default true
+             */
+            ok: boolean;
+            /** Studentsimported */
+            studentsImported: number;
+            /** Students */
+            students: components["schemas"]["ImportedStudentSummary"][];
+        };
+        /** ImportedStudentSummary */
+        ImportedStudentSummary: {
+            /** Studentid */
+            studentId: string;
+            /** Name */
+            name: string | null;
+            /** Hascode */
+            hasCode: boolean;
         };
         /**
          * InstructorQuestionDetail
@@ -2136,13 +2252,13 @@ export interface components {
             /** Feedback */
             feedback?: string | null;
             /** Strengths */
-            strengths?: string | unknown[] | null;
+            strengths?: string | string[] | null;
             /** Weaknesses */
-            weaknesses?: string | unknown[] | null;
+            weaknesses?: string | string[] | null;
             /** Improvements */
-            improvements?: string | unknown[] | null;
+            improvements?: string | string[] | null;
             /** Suggestedimprovements */
-            suggestedImprovements?: string | unknown[] | null;
+            suggestedImprovements?: string | string[] | null;
             /** Instructorcomment */
             instructorComment?: string | null;
             /** Evaluatedat */
@@ -2245,6 +2361,14 @@ export interface components {
             /** Roles */
             roles?: string[];
         };
+        /** LogoutResponse */
+        LogoutResponse: {
+            /**
+             * Ok
+             * @default true
+             */
+            ok: boolean;
+        };
         /**
          * ProctorChunkHealthResponse
          * @description Proctoring chunk manifest for a student
@@ -2339,6 +2463,20 @@ export interface components {
             last_error?: string | null;
         };
         /**
+         * ProgressSummary
+         * @description Student counts by status.
+         */
+        ProgressSummary: {
+            /** Total */
+            total: number;
+            /** Notstarted */
+            notStarted: number;
+            /** Inprogress */
+            inProgress: number;
+            /** Completed */
+            completed: number;
+        };
+        /**
          * ProgressSummaryResponse
          * @description Response with progress for all students
          */
@@ -2352,8 +2490,7 @@ export interface components {
             assessmentId: string;
             /** Students */
             students: components["schemas"]["StudentProgressItem"][];
-            /** Summary */
-            summary: Record<string, never>;
+            summary: components["schemas"]["ProgressSummary"];
         };
         /**
          * QuestionGenerationJobResponse
@@ -2564,6 +2701,51 @@ export interface components {
             /** Flaggedcount */
             flaggedCount?: number | null;
         };
+        /** ReportCounts */
+        ReportCounts: {
+            /** Enrolled */
+            enrolled: number;
+            /** Submitted */
+            submitted: number;
+            /** Evaluated */
+            evaluated: number;
+            /** Notevaluated */
+            notEvaluated: number;
+        };
+        /** ReportDimensions */
+        ReportDimensions: {
+            /** Answersevaluated */
+            answersEvaluated: number;
+            /** Averagecorrectness */
+            averageCorrectness: number | null;
+            /** Averageunderstanding */
+            averageUnderstanding: number | null;
+            /** Needsreviewcount */
+            needsReviewCount: number;
+        };
+        /** ReportHistogramBucket */
+        ReportHistogramBucket: {
+            /** Bucket */
+            bucket: string;
+            /** Count */
+            count: number;
+        };
+        /**
+         * ReportScores
+         * @description Percentage statistics over evaluated students; all None when none are evaluated.
+         */
+        ReportScores: {
+            /** Average */
+            average: number | null;
+            /** Median */
+            median: number | null;
+            /** Min */
+            min: number | null;
+            /** Max */
+            max: number | null;
+            /** Stddev */
+            stdDev: number | null;
+        };
         /** ResetPasswordRequest */
         ResetPasswordRequest: {
             /** Token */
@@ -2581,6 +2763,15 @@ export interface components {
             /** Valid */
             valid: boolean;
         };
+        /** ResultsSummary */
+        ResultsSummary: {
+            /** Averagescore */
+            averageScore: number;
+            /** Gradedistribution */
+            gradeDistribution: {
+                [key: string]: number;
+            };
+        };
         /**
          * ResultsSummaryResponse
          * @description Response with results for all students
@@ -2595,8 +2786,31 @@ export interface components {
             assessmentId: string;
             /** Results */
             results: components["schemas"]["StudentResultItem"][];
-            /** Summary */
-            summary: Record<string, never>;
+            summary: components["schemas"]["ResultsSummary"];
+        };
+        /**
+         * ScoreAgreementItem
+         * @description One dual-scored answer: AI score vs the human reference score.
+         */
+        ScoreAgreementItem: {
+            /** Studentid */
+            studentId: string;
+            /** Questionid */
+            questionId: string;
+            /** Aitotal */
+            aiTotal: number;
+            /** Humantotal */
+            humanTotal: number;
+            /** Difference */
+            difference: number;
+            /** Aicorrectness */
+            aiCorrectness: number | null;
+            /** Humancorrectness */
+            humanCorrectness: number | null;
+            /** Aiunderstanding */
+            aiUnderstanding: number | null;
+            /** Humanunderstanding */
+            humanUnderstanding: number | null;
         };
         /**
          * ScoreAgreementResponse
@@ -2622,7 +2836,7 @@ export interface components {
              * Items
              * @default []
              */
-            items: Record<string, never>[];
+            items: components["schemas"]["ScoreAgreementItem"][];
         };
         /**
          * ScoreOverrideRequest
@@ -2661,6 +2875,42 @@ export interface components {
             /** Comment */
             comment?: string | null;
         };
+        /** SendInvitesRequest */
+        SendInvitesRequest: {
+            /** Subject */
+            subject?: string | null;
+            /** Message */
+            message?: string | null;
+            /**
+             * Studentids
+             * @description Restrict the send to these students; omit for everyone enrolled
+             */
+            studentIds?: string[] | null;
+            /**
+             * Next
+             * @description 'results' points the link at the student's feedback
+             */
+            next?: string | null;
+        };
+        /** SendInvitesResponse */
+        SendInvitesResponse: {
+            /**
+             * Ok
+             * @default true
+             */
+            ok: boolean;
+            /** Assessmentid */
+            assessmentId: string;
+            /** Sent */
+            sent: number;
+            /**
+             * Skipped
+             * @description Students with no email, or whose send failed
+             */
+            skipped: number;
+            /** Total */
+            total: number;
+        };
         /**
          * SendReminderResponse
          * @description Response after sending a reminder email
@@ -2677,6 +2927,23 @@ export interface components {
             assessmentId: string;
             /** Message */
             message: string;
+        };
+        /** SetUserRolesRequest */
+        SetUserRolesRequest: {
+            /** Roles */
+            roles?: string[];
+        };
+        /** SetUserRolesResponse */
+        SetUserRolesResponse: {
+            /**
+             * Ok
+             * @default true
+             */
+            ok: boolean;
+            /** Email */
+            email: string;
+            /** Roles */
+            roles: string[];
         };
         /** SignupRequest */
         SignupRequest: {
@@ -2705,6 +2972,37 @@ export interface components {
             student_id: string;
             /** Assessment Id */
             assessment_id: string;
+        };
+        /**
+         * StudentInviteRequest
+         * @description Optional email customisation; {{name}}, {{title}}, {{link}} are substituted.
+         */
+        StudentInviteRequest: {
+            /** Subject */
+            subject?: string | null;
+            /** Message */
+            message?: string | null;
+        };
+        /** StudentInviteResponse */
+        StudentInviteResponse: {
+            /**
+             * Ok
+             * @default true
+             */
+            ok: boolean;
+            /** Studentid */
+            studentId: string;
+            /** Assessmentid */
+            assessmentId: string;
+            /** Invitetoken */
+            inviteToken: string;
+            /** Invitelink */
+            inviteLink: string;
+            /**
+             * Emailsent
+             * @description False when the student has no email on file
+             */
+            emailSent: boolean;
         };
         /**
          * StudentListResponse
@@ -3265,6 +3563,31 @@ export interface components {
              */
             students: components["schemas"]["UploadedStudent"][];
         };
+        /** UploadStudentsResponse */
+        UploadStudentsResponse: {
+            /**
+             * Ok
+             * @default true
+             */
+            ok: boolean;
+            /** Assessmentid */
+            assessmentId: string;
+            /** Studentsuploaded */
+            studentsUploaded: number;
+        };
+        /** UploadUrlResponse */
+        UploadUrlResponse: {
+            /**
+             * Uploadurl
+             * @description Presigned S3 PUT URL, valid for 1 hour
+             */
+            uploadUrl: string;
+            /**
+             * Fileurl
+             * @description Where the file can be read after upload
+             */
+            fileUrl: string;
+        };
         /**
          * UploadedStudent
          * @description Student data for bulk upload
@@ -3280,6 +3603,28 @@ export interface components {
             code: string;
             /** Assignmentfile */
             assignmentFile?: string | null;
+        };
+        /** UserListResponse */
+        UserListResponse: {
+            /**
+             * Ok
+             * @default true
+             */
+            ok: boolean;
+            /** Users */
+            users: components["schemas"]["UserRecord"][];
+        };
+        /** UserRecord */
+        UserRecord: {
+            /** Email */
+            email: string;
+            /** Roles */
+            roles: string[];
+            /**
+             * Createdat
+             * @description Empty string when the record has none
+             */
+            createdAt: string;
         };
         /** ValidationError */
         ValidationError: {
@@ -3790,7 +4135,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DeleteViewSessionResponse"];
                 };
             };
             /** @description Validation Error */
@@ -4074,7 +4419,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DeleteProgramResponse"];
                 };
             };
             /** @description Validation Error */
@@ -4252,7 +4597,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DeleteThreadResponse"];
                 };
             };
             /** @description Validation Error */
@@ -4790,7 +5135,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["UploadStudentsResponse"];
                 };
             };
             /** @description Validation Error */
@@ -4818,7 +5163,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": Record<string, never>;
+                "application/json": components["schemas"]["ImportFromEdRequest"];
             };
         };
         responses: {
@@ -4828,7 +5173,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ImportFromEdResponse"];
                 };
             };
             /** @description Validation Error */
@@ -4891,7 +5236,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": Record<string, never>;
+                "application/json": components["schemas"]["StudentInviteRequest"] | null;
             };
         };
         responses: {
@@ -4901,7 +5246,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StudentInviteResponse"];
                 };
             };
             /** @description Validation Error */
@@ -4929,7 +5274,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": Record<string, never>;
+                "application/json": components["schemas"]["SendInvitesRequest"] | null;
             };
         };
         responses: {
@@ -4939,7 +5284,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["SendInvitesResponse"];
                 };
             };
             /** @description Validation Error */
@@ -5837,7 +6182,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["UploadUrlResponse"];
                 };
             };
             /** @description Validation Error */
@@ -5996,7 +6341,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["LogoutResponse"];
                 };
             };
         };
@@ -6151,7 +6496,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["UserListResponse"];
                 };
             };
             /** @description Validation Error */
@@ -6179,7 +6524,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": Record<string, never>;
+                "application/json": components["schemas"]["SetUserRolesRequest"];
             };
         };
         responses: {
@@ -6189,7 +6534,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["SetUserRolesResponse"];
                 };
             };
             /** @description Validation Error */

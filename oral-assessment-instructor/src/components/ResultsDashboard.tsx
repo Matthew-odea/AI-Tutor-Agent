@@ -29,9 +29,7 @@ export default function ResultsDashboard({ assessmentId, evalJobId }: ResultsDas
   const [isReleasing, setIsReleasing] = useState(false);
   const [showReleaseConfirm, setShowReleaseConfirm] = useState(false);
   const [resultsReleased, setResultsReleased] = useState<boolean | null>(null);
-  // Flagged items are untyped dicts on the wire (FlaggedEvaluationsResponse.items),
-  // so their shape is hand-kept here.
-  const [flagged, setFlagged] = useState<{ flaggedCount: number; items: Array<{ studentId: string; questionId: string; reasons: string[]; aiScore?: number; evaluationMethod?: string }> } | null>(null);
+  const [flagged, setFlagged] = useState<Pick<Schemas['FlaggedEvaluationsResponse'], 'flaggedCount' | 'items'> | null>(null);
   const [agreement, setAgreement] = useState<Schemas['ScoreAgreementResponse'] | null>(null);
   const [showFlagged, setShowFlagged] = useState(false);
   const sseRef = useRef<EventSource | null>(null);
@@ -39,7 +37,7 @@ export default function ResultsDashboard({ assessmentId, evalJobId }: ResultsDas
   const loadFlagged = async () => {
     try {
       const { flaggedCount, items } = await apiService.getFlaggedEvaluations(assessmentId);
-      setFlagged({ flaggedCount, items: items as unknown as NonNullable<typeof flagged>['items'] });
+      setFlagged({ flaggedCount, items });
     } catch { /* non-critical */ }
   };
 

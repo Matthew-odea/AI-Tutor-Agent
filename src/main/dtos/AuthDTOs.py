@@ -70,3 +70,30 @@ class RefreshTokenResponse(BaseModel):
     user_id: str
     email: str | None = None
     roles: list[str] = Field(default_factory=list)
+
+
+class LogoutResponse(BaseModel):
+    ok: bool = True
+
+
+class UserRecord(BaseModel):
+    email: str
+    roles: list[str]
+    createdAt: str = Field(..., description="Empty string when the record has none")
+
+
+class UserListResponse(BaseModel):
+    ok: bool = True
+    users: list[UserRecord]
+
+
+class SetUserRolesRequest(BaseModel):
+    # A missing key clears every role, as it always has.
+    roles: list[str] = Field(default_factory=list)
+
+
+class SetUserRolesResponse(BaseModel):
+    ok: bool = True
+    email: str
+    # Echoes the request. Unknown roles are dropped before saving but still echoed here.
+    roles: list[str]

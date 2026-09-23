@@ -5,6 +5,7 @@ import os
 import re
 
 import asyncio
+from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Body, Depends, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
@@ -37,6 +38,8 @@ from src.main.dtos.InstructorAssessmentDTOs import (
     FlaggedEvaluationsResponse,
     GenerateQuestionsBatchRequest,
     GenerateReportResponse,
+    ImportFromEdRequest,
+    ImportFromEdResponse,
     InstructorStudentDetailResponse,
     ProgressSummaryResponse,
     ProctorChunkHealthResponse,
@@ -50,7 +53,11 @@ from src.main.dtos.InstructorAssessmentDTOs import (
     ScoreAgreementResponse,
     ScoreOverrideRequest,
     ScoreOverrideResponse,
+    SendInvitesRequest,
+    SendInvitesResponse,
     SendReminderResponse,
+    StudentInviteRequest,
+    StudentInviteResponse,
     StudentQuestionItem,
     StudentQuestionListResponse,
     StudentQuestionResponse,
@@ -61,6 +68,7 @@ from src.main.dtos.InstructorAssessmentDTOs import (
     UpdateBriefRequest,
     UpdateStudentQuestionRequest,
     UploadStudentsRequest,
+    UploadStudentsResponse,
 )
 from src.main.service.AssessmentReportRenderer import render_report_html, render_report_pdf
 from src.main.service.AssessmentReportService import AssessmentReportService, AssessmentReportServiceError
@@ -153,7 +161,7 @@ async def get_assessment(
         raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
 
 
-@assessment_router.post("/{id}/upload-students", status_code=201)
+@assessment_router.post("/{id}/upload-students", response_model=UploadStudentsResponse, status_code=201)
 async def upload_students(
     id: str,
     request: UploadStudentsRequest = Body(...),
@@ -179,18 +187,18 @@ async def upload_students(
         raise ApiError(status_code=400, code="upload_students_failed", message=str(error))
 
 
-@assessment_router.post("/{id}/import-ed", status_code=200)
+@assessment_router.post("/{id}/import-ed", response_model=ImportFromEdResponse)
 async def import_from_ed(
     id: str,
-    request: dict = Body(...),
+    request: ImportFromEdRequest = Body(...),
     svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
     """Import students and code from an Ed challenge using the Ed API."""
     from src.main.service.EdStemService import EdStemService, EdStemServiceError
 
-    ed_token = request.get("edToken")
-    challenge_id = request.get("challengeId")
+    ed_token = request.edToken
+    challenge_id = request.challengeId
 
     if not ed_token or not challenge_id:
         raise ApiError(status_code=400, code="missing_fields", message="edToken and challengeId are required")
@@ -261,11 +269,11 @@ async def delete_assessment(
         raise ApiError(status_code=400, code="delete_assessment_failed", message=str(error))
 
 
-@assessment_router.post("/{id}/students/{student_id}/invite")
+@assessment_router.post("/{id}/students/{student_id}/invite", response_model=StudentInviteResponse)
 async def generate_student_invite(
     id: str,
     student_id: str,
-    request: dict = Body(default={}),
+    request: Optional[StudentInviteRequest] = Body(None),
     svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
     auth_service: AuthService = Depends(get_auth_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
@@ -297,8 +305,9 @@ async def generate_student_invite(
 
         # Send invite email (non-blocking — logs warning on failure)
         student = next((s for s in students if s["studentId"] == student_id), {})
-        custom_subject = (request.get("subject") or "").strip()
-        custom_message = (request.get("message") or "").strip()
+        request = request or StudentInviteRequest()
+        custom_subject = (request.subject or "").strip()
+        custom_message = (request.message or "").strip()
         await loop.run_in_executor(None, lambda: auth_service.send_student_invite_email(
             student_email=student.get("email", ""),
             student_name=student.get("name", student_id),
@@ -321,10 +330,10 @@ async def generate_student_invite(
         raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
 
 
-@assessment_router.post("/{id}/send-invites", status_code=200)
+@assessment_router.post("/{id}/send-invites", response_model=SendInvitesResponse)
 async def send_bulk_invites(
     id: str,
-    request: dict = Body(default={}),
+    request: Optional[SendInvitesRequest] = Body(None),
     svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
     auth_service: AuthService = Depends(get_auth_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
@@ -349,7 +358,8 @@ async def send_bulk_invites(
 
         enrolled_students = await loop.run_in_executor(None, lambda: svc.get_assessment_students(id))
 
-        requested_ids = request.get("studentIds") or []
+        request = request or SendInvitesRequest()
+        requested_ids = request.studentIds or []
         if requested_ids:
             wanted = set(requested_ids)
             enrolled_students = [s for s in enrolled_students if s["studentId"] in wanted]
@@ -362,9 +372,9 @@ async def send_bulk_invites(
 
         base_url = os.getenv("STUDENT_ASSESSMENT_BASE_URL", "http://localhost:5176")
         title = assessment.get("title", id)
-        custom_subject = (request.get("subject") or "").strip()
-        custom_message = (request.get("message") or "").strip()
-        link_suffix = "&next=results" if (request.get("next") or "") == "results" else ""
+        custom_subject = (request.subject or "").strip()
+        custom_message = (request.message or "").strip()
+        link_suffix = "&next=results" if request.next == "results" else ""
 
         def _send_all_invites():
             sent = 0

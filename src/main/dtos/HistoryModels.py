@@ -151,3 +151,18 @@ class AssistantHistoryResponse(BaseModel):
     created_at: str
     last_accessed: str
     code_memory_id: str
+
+
+class DeleteViewSessionResponse(BaseModel):
+    ok: bool = True
+    view_session_id: str
+
+
+class DeleteProgramResponse(BaseModel):
+    ok: bool = True
+    program_id: str
+
+
+class DeleteThreadResponse(BaseModel):
+    ok: bool = True
+    thread_id: str

@@ -15,13 +15,17 @@ from src.main.dtos.AuthDTOs import (
     GoogleLoginRequest,
     LoginRequest,
     LoginResponse,
+    LogoutResponse,
     RefreshTokenResponse,
     ResetPasswordRequest,
     ResetPasswordValidateRequest,
     ResetPasswordValidateResponse,
+    SetUserRolesRequest,
+    SetUserRolesResponse,
     SignupRequest,
     StudentInviteExchangeRequest,
     StudentInviteExchangeResponse,
+    UserListResponse,
 )
 
 _REFRESH_COOKIE = "refresh_token"
@@ -93,7 +97,7 @@ def refresh_access_token(
     return RefreshTokenResponse(**token_payload)
 
 
-@auth_router.post("/logout")
+@auth_router.post("/logout", response_model=LogoutResponse)
 def logout(response: Response):
     """Clear the refresh token cookie."""
     response.delete_cookie(key=_REFRESH_COOKIE, path="/api/auth")
@@ -140,7 +144,7 @@ def reset_password(
     return ForgotPasswordResponse(message=message)
 
 
-@auth_router.get("/users")
+@auth_router.get("/users", response_model=UserListResponse)
 def list_users(
     auth_service: AuthService = Depends(get_auth_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
@@ -151,18 +155,16 @@ def list_users(
     return {"ok": True, "users": auth_service.list_users()}
 
 
-@auth_router.put("/users/{email}/roles")
+@auth_router.put("/users/{email}/roles", response_model=SetUserRolesResponse)
 def set_user_roles(
     email: str,
-    request: dict = Body(...),
+    request: SetUserRolesRequest = Body(...),
     auth_service: AuthService = Depends(get_auth_service),
     _principal: AuthPrincipal = Depends(require_auth_principal),
 ):
     """Set roles for a user. Admin-only — an instructor cannot grant themselves admin."""
     if "admin" not in _principal.roles:
         raise ApiError(status_code=403, code="forbidden", message="Admin access required")
-    roles = request.get("roles", [])
-    if not isinstance(roles, list):
-        raise ApiError(status_code=400, code="invalid_roles", message="roles must be an array")
+    roles = request.roles
     auth_service.set_user_roles(email, roles)
     return {"ok": True, "email": email, "roles": roles}

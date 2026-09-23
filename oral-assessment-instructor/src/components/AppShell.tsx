@@ -74,6 +74,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { apiService } from '../services/api';
+import type { Schemas } from '../../../shared/types/assessment';
 import { useToastStore } from '../store/toastStore';
 
 export interface Breadcrumb {
@@ -125,11 +126,7 @@ function currentUserLabel(): string | null {
    background scroll locked. Focus is returned to the trigger by the caller.
    ──────────────────────────────────────────────────────────────────────────── */
 
-interface UserRecord {
-  email: string;
-  roles: string[];
-  createdAt: string;
-}
+type UserRecord = Schemas['UserRecord'];
 
 function SettingsModal({ onClose }: { onClose: () => void }) {
   const [users, setUsers] = useState<UserRecord[]>([]);

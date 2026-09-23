@@ -7,6 +7,7 @@ from fastapi import APIRouter, Body, Depends, UploadFile, File, Form, HTTPExcept
 from ..dtos.UploadRequest import UploadRequest
 from ..dtos.DeleteRequest import DeleteRequest
 from ..dtos.ListDocumentsRequest import ListDocumentsRequest
+from ..dtos.UploadUrlResponse import UploadUrlResponse
 from src.main.auth.dependencies import require_auth_principal
 from src.main.auth.models import AuthPrincipal
 from src.main.controllers.api_errors import ApiError
@@ -126,7 +127,7 @@ def upload_file_context(
 # S3 Upload Endpoints
 # =============================================================================
 
-@s3_router.post("/upload-url")
+@s3_router.post("/upload-url", response_model=UploadUrlResponse)
 async def get_upload_url(
     kind: Literal["audio", "proctoring"] = "audio",
     content_type: str = "audio/webm",
