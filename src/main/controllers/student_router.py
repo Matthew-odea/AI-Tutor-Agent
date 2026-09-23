@@ -36,7 +36,7 @@ from src.main.dtos.StudentAssessmentDTOs import (
     SubmitProctorChunkRequest,
     SubmitProctorChunkResponse,
 )
-from src.main.service.OralAssessmentService import OralAssessmentService, OralAssessmentServiceError
+from src.main.service.OralAssessmentService import AssessmentWindowError, OralAssessmentService, OralAssessmentServiceError
 
 
 logger = logging.getLogger(__name__)
@@ -91,6 +91,9 @@ async def get_student_questions(
             assessmentDescription=result.get("assessmentDescription") if isinstance(result, dict) else None,
         )
 
+    except AssessmentWindowError as error:
+        # 409, not 403: the student app treats 401/403 as an expired token and re-auths.
+        raise ApiError(status_code=409, code=error.code, message=str(error))
     except OralAssessmentServiceError as error:
         raise ApiError(status_code=404, code="student_questions_not_found", message=str(error))
 
@@ -118,6 +121,8 @@ async def submit_answer(
 
         return SubmitAnswerResponse(**result)
 
+    except AssessmentWindowError as error:
+        raise ApiError(status_code=409, code=error.code, message=str(error))
     except OralAssessmentServiceError as error:
         raise ApiError(status_code=400, code="submit_answer_failed", message=str(error))
 
@@ -235,6 +240,8 @@ async def submit_assessment(
 
         return SubmitAssessmentResponse(**result)
 
+    except AssessmentWindowError as error:
+        raise ApiError(status_code=409, code=error.code, message=str(error))
     except OralAssessmentServiceError as error:
         raise ApiError(status_code=400, code="submit_assessment_failed", message=str(error))
 

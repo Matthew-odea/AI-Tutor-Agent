@@ -33,6 +33,18 @@ class OralAssessmentServiceError(Exception):
     pass
 
 
+class AssessmentWindowError(OralAssessmentServiceError):
+    """The assessment's stored time limits refuse this request now.
+
+    ``code`` is the error-envelope code the router returns, so the student app
+    can tell "time is up" apart from every other 400/404.
+    """
+
+    def __init__(self, code: str, message: str):
+        super().__init__(message)
+        self.code = code
+
+
 class DecimalEncoder(json.JSONEncoder):
     """Helper to convert Decimal to int/float for JSON serialization"""
     def default(self, obj):
@@ -137,12 +149,14 @@ class OralAssessmentService:
             end = _parse(window_end)
 
             if now < start:
-                raise OralAssessmentServiceError(
-                    f"Assessment has not started yet. Opens at {window_start}"
+                raise AssessmentWindowError(
+                    "assessment_not_open",
+                    f"Assessment has not started yet. Opens at {window_start}",
                 )
             if now > end:
-                raise OralAssessmentServiceError(
-                    f"Assessment window has closed at {window_end}"
+                raise AssessmentWindowError(
+                    "assessment_closed",
+                    f"Assessment window has closed at {window_end}",
                 )
         except OralAssessmentServiceError:
             raise
@@ -499,8 +513,9 @@ class OralAssessmentService:
                     if not due.tzinfo:
                         due = due.replace(tzinfo=timezone.utc)
                     if datetime.now(timezone.utc) > due:
-                        raise OralAssessmentServiceError(
-                            f"Assessment submission deadline has passed ({due_date_str})"
+                        raise AssessmentWindowError(
+                            "assessment_deadline_passed",
+                            f"Assessment submission deadline has passed ({due_date_str})",
                         )
             except OralAssessmentServiceError:
                 raise
