@@ -235,3 +235,60 @@ jobs:
           name: playwright-report
           path: e2e/playwright-report/
           retention-days: 7
+
+  # ─────────────────────────────────────────────────────────
+  # Job 6: API types drift — shared/types/api.ts is generated
+  # from the backend's OpenAPI schema and committed. Regenerate
+  # it here and fail if it differs, so a backend DTO change that
+  # silently breaks a frontend surfaces at PR time.
+  # ─────────────────────────────────────────────────────────
+  api-types-drift:
+    name: API Types Drift (shared/types/api.ts)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install backend dependencies
+        run: pip install -r requirements.txt
+
+      - name: Regenerate API types
+        run: ./shared/generate-api-types.sh
+
+      - name: Fail if the committed types are stale
+        run: |
+          if git diff --quiet -- shared/types/api.ts; then
+            echo "shared/types/api.ts matches the backend's OpenAPI schema."
+            exit 0
+          fi
+          echo "::error file=shared/types/api.ts::shared/types/api.ts is out of date with the backend's OpenAPI schema."
+          cat <<'MSG'
+
+          A backend DTO or route changed but the generated frontend types were not
+          regenerated, so the TypeScript the frontends compile against no longer
+          matches what the API sends.
+
+          Fix it locally, from the repo root:
+
+              pip install -r requirements.txt
+              ./shared/generate-api-types.sh
+              git add shared/types/api.ts
+
+          Then commit and push. If you changed no DTOs, a backend dependency bump
+          changed the schema — regenerate and commit it anyway.
+
+          --- what changed ---
+          MSG
+          git --no-pager diff -- shared/types/api.ts
+          exit 1

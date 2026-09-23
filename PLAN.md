@@ -157,8 +157,16 @@ load-bearing, not cosmetic.
       importing `shared/types`)
 - [ ] `.claude/`: permissions allowlist, one `add-assessment-endpoint` skill, a PostToolUse
       hook on `shared/types/assessment.ts`
-- [ ] Generate TS types from `/openapi.json`; CI fails on drift. Fix `shared/types/assessment.ts`
-      first — six fields typed `Date` that the API sends as strings.
+- [x] Generate TS types from `/openapi.json`; CI fails on drift. `shared/generate-api-types.sh`
+      imports the app and calls `app.openapi()` — no server needed — and the `api-types-drift`
+      CI job regenerates and fails on a diff.
+      **Correction to this audit:** it was twelve `Date` fields across eight interfaces, not six,
+      and they were already fixed. Three shared-type field *names* are still wrong against the
+      DTOs (`Question.generatedAt` is `createdAt` on the wire; `QuestionGenerationJob.createdAt`
+      and `EvaluationJob.createdAt` are both `startedAt`). No component reads them, so nothing is
+      broken — but the generator cannot see a mismatch in a hand-written type.
+- [ ] Import `shared/types/api.ts` from the frontends. Until something reads it, the drift job
+      shows a diff rather than breaking a build, so it warns but does not gate.
 - [x] Rename the six sprint-numbered test files by domain
 - [~] npm workspaces — **attempted and reverted deliberately.** Hoisting to a root lockfile
       broke `npm ci` in each frontend, which is exactly what both deploy workflows run. A tidy
@@ -171,10 +179,12 @@ load-bearing, not cosmetic.
 - [ ] Verify the 8 Apr migration captured everything, then decide on the stale us-east-1 tables
 - [ ] S3 lifecycle: `proctoring/` 365 days, `audio/` 730 days. DynamoDB TTL to match.
       Analytics events currently have no retention at all.
-- [ ] Replace the per-submit daemon threads with `BackgroundTasks`
-      (`student_router.py:283`) — ~790 threads at a deadline, killed on redeploy
-- [ ] Exclude `needs_review` evaluations from the score denominator. The flag is currently
-      cosmetic: a flagged answer and a wrong answer produce the same percentage.
+- [x] Replace the per-submit daemon threads with `BackgroundTasks` (`student_router.py`) —
+      **already done before this round; the audit was stale.** Now held by a test that asserts
+      the work is registered on `BackgroundTasks` and still unrun when the handler returns.
+- [ ] `assessment_router.py:946` still spawns a daemon thread for `_notify_students` — the last
+      live instance of the pattern, same redeploy exposure.
+- [x] Exclude `needs_review` evaluations from the score denominator — done, see Phase 0.
 - [ ] Dry run on last term's data: bulk release-results + `get_score_agreement`.
       One exercise validates both the release gate and the Nova Lite choice.
 
@@ -201,9 +211,11 @@ AccessDenied there looks exactly like "no data".
   until confirmed.
 - Whether the Sydney migration captured everything from us-east-1.
 - Whether proctoring footage reassembles into watchable video (blocks the last Phase 0 item).
-- `should_generate_on_submit` does a read-modify-write on a shared counter on every submission.
-  At ~400 students hitting one deadline that is a contention question, not a queueing one. Not
-  urgent, but it is the next thing to break under load.
+- ~~`should_generate_on_submit` read-modify-write contention~~ — **this audit item was wrong.**
+  It is a COUNT plus `claim_milestone()`, a conditional `update_item` that catches
+  `ConditionalCheckFailedException`. There is no lost update. A test now forces the interleaving
+  that would expose one, because the pre-existing ten-thread test passed against a deliberately
+  broken implementation and so was never a race detector.
 
 ## Why this file has an expiry
 
