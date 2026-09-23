@@ -10,7 +10,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "preview": "vite preview",
-    "type-check": "tsc --noEmit",
+    "type-check": "tsc -b",
     "clean": "rm -rf dist .vite",
     "test": "vitest",
     "test:run": "vitest run",

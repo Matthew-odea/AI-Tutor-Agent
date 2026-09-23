@@ -26,9 +26,11 @@ production.
 ```bash
 # Any frontend (from that frontend's directory)
 npm run validate     # type-check + lint + test:run — exists in all three frontends
-npm run type-check   # tsc --noEmit only
+npm run type-check   # tsc -b — builds every referenced tsconfig
 npm run build        # tsc -b (or tsc + vite build) — the actual production build
 ```
+
+`type-check` was `tsc --noEmit` until 2026-09-23, which against these solution-style tsconfigs (`"files": []` plus references) checks zero files — it passed on anything. Don't change it back.
 
 `npm run validate` exists in **all three** frontends, not just `ai-tutor-frontend` — `ai-tutor-frontend`'s version additionally runs `format:check`, which the other two don't have.
 
