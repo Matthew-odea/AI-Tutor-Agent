@@ -1,4 +1,4 @@
-import { loadPyodide, type PyodideInterface } from 'pyodide';
+import { loadPyodide, type PyodideInterface } from "pyodide";
 
 let pyodideInstance: PyodideInterface | null = null;
 let loadingPromise: Promise<PyodideInterface> | null = null;
@@ -20,7 +20,7 @@ export async function getPyodide(): Promise<PyodideInterface> {
 
   // Start loading
   loadingPromise = loadPyodide({
-    indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.29.3/full/',
+    indexURL: "https://cdn.jsdelivr.net/pyodide/v0.29.3/full/",
   });
 
   try {

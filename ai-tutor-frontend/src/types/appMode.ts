@@ -1,1 +1,1 @@
-export type AppMode = 'chat' | 'ide' | 'questions'
+export type AppMode = "chat" | "ide" | "questions";

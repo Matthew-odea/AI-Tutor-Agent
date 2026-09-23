@@ -1,10 +1,10 @@
 /**
  * Structured Data Helper
- * 
+ *
  * Generates JSON-LD structured data for rich search results.
  * JSON-LD (JavaScript Object Notation for Linked Data) helps search engines
  * understand your content better and can enable rich snippets in search results.
- * 
+ *
  * @see https://developers.google.com/search/docs/appearance/structured-data/intro-structured-data
  * @see https://schema.org/
  */
@@ -14,80 +14,81 @@
  * Identifies the organization behind the application
  */
 export const organizationSchema = {
-  '@context': 'https://schema.org',
-  '@type': 'Organization',
-  name: 'AI Tutor',
-  description: 'An intelligent AI tutoring system for programming education',
-  url: 'https://ai-tutor.example.com',
-  logo: 'https://ai-tutor.example.com/logo.png',
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  name: "AI Tutor",
+  description: "An intelligent AI tutoring system for programming education",
+  url: "https://ai-tutor.example.com",
+  logo: "https://ai-tutor.example.com/logo.png",
   contactPoint: {
-    '@type': 'ContactPoint',
-    contactType: 'Customer Support',
-    email: 'support@ai-tutor.example.com',
+    "@type": "ContactPoint",
+    contactType: "Customer Support",
+    email: "support@ai-tutor.example.com",
   },
-}
+};
 
 /**
  * WebApplication structured data
  * Describes the AI Tutor application itself
  */
 export const webApplicationSchema = {
-  '@context': 'https://schema.org',
-  '@type': 'WebApplication',
-  name: 'AI Tutor',
-  description: 'An intelligent AI tutoring system that helps you learn programming through interactive conversations and code examples.',
-  url: 'https://ai-tutor.example.com',
-  applicationCategory: 'EducationalApplication',
-  operatingSystem: 'Web Browser',
+  "@context": "https://schema.org",
+  "@type": "WebApplication",
+  name: "AI Tutor",
+  description:
+    "An intelligent AI tutoring system that helps you learn programming through interactive conversations and code examples.",
+  url: "https://ai-tutor.example.com",
+  applicationCategory: "EducationalApplication",
+  operatingSystem: "Web Browser",
   offers: {
-    '@type': 'Offer',
-    price: '0',
-    priceCurrency: 'USD',
+    "@type": "Offer",
+    price: "0",
+    priceCurrency: "USD",
   },
   featureList: [
-    'Interactive AI chat for programming help',
-    'Integrated code editor with syntax highlighting',
-    'Multiple pedagogy modes (Explanatory, Debugging, Practice)',
-    'Python code execution',
-    'Conversation history',
+    "Interactive AI chat for programming help",
+    "Integrated code editor with syntax highlighting",
+    "Multiple pedagogy modes (Explanatory, Debugging, Practice)",
+    "Python code execution",
+    "Conversation history",
   ],
-  browserRequirements: 'Requires JavaScript. Requires modern web browser.',
-}
+  browserRequirements: "Requires JavaScript. Requires modern web browser.",
+};
 
 /**
  * FAQPage structured data
  * Can be added to a FAQ section if needed
  */
 export const faqSchema = {
-  '@context': 'https://schema.org',
-  '@type': 'FAQPage',
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
   mainEntity: [
     {
-      '@type': 'Question',
-      name: 'What is AI Tutor?',
+      "@type": "Question",
+      name: "What is AI Tutor?",
       acceptedAnswer: {
-        '@type': 'Answer',
-        text: 'AI Tutor is an intelligent tutoring system that helps students learn programming through interactive conversations, code examples, and personalized feedback.',
+        "@type": "Answer",
+        text: "AI Tutor is an intelligent tutoring system that helps students learn programming through interactive conversations, code examples, and personalized feedback.",
       },
     },
     {
-      '@type': 'Question',
-      name: 'What programming languages does AI Tutor support?',
+      "@type": "Question",
+      name: "What programming languages does AI Tutor support?",
       acceptedAnswer: {
-        '@type': 'Answer',
-        text: 'AI Tutor primarily supports Python programming with an integrated code editor and execution environment.',
+        "@type": "Answer",
+        text: "AI Tutor primarily supports Python programming with an integrated code editor and execution environment.",
       },
     },
     {
-      '@type': 'Question',
-      name: 'How is my data used?',
+      "@type": "Question",
+      name: "How is my data used?",
       acceptedAnswer: {
-        '@type': 'Answer',
-        text: 'AI Tutor is part of a research study. Your interactions may be collected and analyzed to improve the system. Participation is voluntary and data is handled according to research ethics guidelines.',
+        "@type": "Answer",
+        text: "AI Tutor is part of a research study. Your interactions may be collected and analyzed to improve the system. Participation is voluntary and data is handled according to research ethics guidelines.",
       },
     },
   ],
-}
+};
 
 /**
  * BreadcrumbList structured data
@@ -95,32 +96,38 @@ export const faqSchema = {
  */
 export const breadcrumbSchema = (path: string) => {
   const items: Array<{ name: string; url: string }> = [
-    { name: 'Home', url: 'https://ai-tutor.example.com' },
-  ]
+    { name: "Home", url: "https://ai-tutor.example.com" },
+  ];
 
-  if (path === '/privacypolicy') {
-    items.push({ name: 'Privacy Policy', url: 'https://app.chat9021.org/privacypolicy' })
+  if (path === "/privacypolicy") {
+    items.push({
+      name: "Privacy Policy",
+      url: "https://app.chat9021.org/privacypolicy",
+    });
   }
 
-  if (path === '/termsofservice') {
-    items.push({ name: 'Terms of Service', url: 'https://app.chat9021.org/termsofservice' })
+  if (path === "/termsofservice") {
+    items.push({
+      name: "Terms of Service",
+      url: "https://app.chat9021.org/termsofservice",
+    });
   }
 
   return {
-    '@context': 'https://schema.org',
-    '@type': 'BreadcrumbList',
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
     itemListElement: items.map((item, index) => ({
-      '@type': 'ListItem',
+      "@type": "ListItem",
       position: index + 1,
       name: item.name,
       item: item.url,
     })),
-  }
-}
+  };
+};
 
 /**
  * Helper function to inject JSON-LD script into document head
- * 
+ *
  * @param schema - The structured data object to inject
  * @example
  * ```tsx
@@ -130,12 +137,12 @@ export const breadcrumbSchema = (path: string) => {
  * ```
  */
 export const injectStructuredData = (schema: object) => {
-  const script = document.createElement('script')
-  script.type = 'application/ld+json'
-  script.text = JSON.stringify(schema)
-  document.head.appendChild(script)
+  const script = document.createElement("script");
+  script.type = "application/ld+json";
+  script.text = JSON.stringify(schema);
+  document.head.appendChild(script);
 
   return () => {
-    document.head.removeChild(script)
-  }
-}
+    document.head.removeChild(script);
+  };
+};

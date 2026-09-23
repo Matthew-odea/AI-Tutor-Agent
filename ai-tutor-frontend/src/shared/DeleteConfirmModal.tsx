@@ -1,14 +1,14 @@
 /**
  * Delete confirmation modal for session deletion
  */
-import { useEffect } from 'react'
+import { useEffect } from "react";
 
 interface DeleteConfirmModalProps {
-  isOpen: boolean
-  onConfirm: () => void
-  onCancel: () => void
-  sessionTitle?: string
-  entityLabel?: string
+  isOpen: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+  sessionTitle?: string;
+  entityLabel?: string;
 }
 
 export const DeleteConfirmModal = ({
@@ -16,21 +16,21 @@ export const DeleteConfirmModal = ({
   onConfirm,
   onCancel,
   sessionTitle,
-  entityLabel = 'Session',
+  entityLabel = "Session",
 }: DeleteConfirmModalProps) => {
   // Handle escape key
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onCancel()
+      if (e.key === "Escape" && isOpen) {
+        onCancel();
       }
-    }
+    };
 
-    document.addEventListener('keydown', handleEscape)
-    return () => document.removeEventListener('keydown', handleEscape)
-  }, [isOpen, onCancel])
+    document.addEventListener("keydown", handleEscape);
+    return () => document.removeEventListener("keydown", handleEscape);
+  }, [isOpen, onCancel]);
 
-  if (!isOpen) return null
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
@@ -61,12 +61,14 @@ export const DeleteConfirmModal = ({
         <p className="text-sm text-gray-400 text-center mb-6">
           {sessionTitle ? (
             <>
-              <span className="text-gray-300 font-medium">"{sessionTitle}"</span> will be
-              permanently deleted.
+              <span className="text-gray-300 font-medium">
+                "{sessionTitle}"
+              </span>{" "}
+              will be permanently deleted.
             </>
           ) : (
             `This ${entityLabel.toLowerCase()} will be permanently deleted.`
-          )}{' '}
+          )}{" "}
           This action cannot be undone.
         </p>
 
@@ -87,5 +89,5 @@ export const DeleteConfirmModal = ({
         </div>
       </div>
     </div>
-  )
-}
+  );
+};

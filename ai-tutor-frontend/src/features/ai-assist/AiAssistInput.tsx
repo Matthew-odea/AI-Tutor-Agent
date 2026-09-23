@@ -1,30 +1,35 @@
-import { useEffect, useRef, type KeyboardEvent } from 'react'
+import { useEffect, useRef, type KeyboardEvent } from "react";
 
 interface AiAssistInputProps {
-  value: string
-  onChange: (value: string) => void
-  onSend: () => void
-  disabled: boolean
+  value: string;
+  onChange: (value: string) => void;
+  onSend: () => void;
+  disabled: boolean;
 }
 
-export const AiAssistInput = ({ value, onChange, onSend, disabled }: AiAssistInputProps) => {
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+export const AiAssistInput = ({
+  value,
+  onChange,
+  onSend,
+  disabled,
+}: AiAssistInputProps) => {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (!textareaRef.current) return
-    textareaRef.current.style.height = '0px'
-    const nextHeight = Math.min(textareaRef.current.scrollHeight, 160)
-    textareaRef.current.style.height = `${Math.max(nextHeight, 44)}px`
-  }, [value])
+    if (!textareaRef.current) return;
+    textareaRef.current.style.height = "0px";
+    const nextHeight = Math.min(textareaRef.current.scrollHeight, 160);
+    textareaRef.current.style.height = `${Math.max(nextHeight, 44)}px`;
+  }, [value]);
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
-      event.preventDefault()
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
       if (!disabled && value.trim()) {
-        onSend()
+        onSend();
       }
     }
-  }
+  };
 
   return (
     <div className="border-t border-gray-200 px-3 py-2">
@@ -50,5 +55,5 @@ export const AiAssistInput = ({ value, onChange, onSend, disabled }: AiAssistInp
         </button>
       </div>
     </div>
-  )
-}
+  );
+};

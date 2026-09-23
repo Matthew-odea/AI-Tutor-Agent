@@ -1,13 +1,13 @@
-import { useState, useRef, useEffect } from 'react'
-import type { AssistantThreadResponse } from '../../api/history'
+import { useState, useRef, useEffect } from "react";
+import type { AssistantThreadResponse } from "../../api/history";
 
 interface AiAssistHeaderProps {
-  threads: AssistantThreadResponse[]
-  threadId: string | null
-  isLoadingThreads: boolean
-  onNewChat: () => void
-  onSelectThread: (threadId: string) => void
-  onDeleteThread?: (threadId: string) => void
+  threads: AssistantThreadResponse[];
+  threadId: string | null;
+  isLoadingThreads: boolean;
+  onNewChat: () => void;
+  onSelectThread: (threadId: string) => void;
+  onDeleteThread?: (threadId: string) => void;
 }
 
 export const AiAssistHeader = ({
@@ -18,21 +18,24 @@ export const AiAssistHeader = ({
   onSelectThread,
   onDeleteThread,
 }: AiAssistHeaderProps) => {
-  const [isOpen, setIsOpen] = useState(false)
-  const dropdownRef = useRef<HTMLDivElement>(null)
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsOpen(false)
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target as Node)
+      ) {
+        setIsOpen(false);
       }
-    }
-    if (isOpen) document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [isOpen])
+    };
+    if (isOpen) document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [isOpen]);
 
-  const activeThread = threads.find((t) => t.thread_id === threadId)
-  const activeLabel = activeThread?.title || 'Select thread'
+  const activeThread = threads.find((t) => t.thread_id === threadId);
+  const activeLabel = activeThread?.title || "Select thread";
 
   return (
     <div className="flex items-center justify-between px-3 py-2 border-b border-gray-200">
@@ -54,10 +57,24 @@ export const AiAssistHeader = ({
             aria-label="Assistant threads"
           >
             <span className="truncate">
-              {isLoadingThreads ? 'Loading...' : threads.length === 0 ? 'No threads' : activeLabel}
+              {isLoadingThreads
+                ? "Loading..."
+                : threads.length === 0
+                  ? "No threads"
+                  : activeLabel}
             </span>
-            <svg className={`w-3 h-3 flex-shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            <svg
+              className={`w-3 h-3 flex-shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M19 9l-7 7-7-7"
+              />
             </svg>
           </button>
           {isOpen && threads.length > 0 && (
@@ -66,29 +83,41 @@ export const AiAssistHeader = ({
                 <div
                   key={thread.thread_id}
                   className={`flex items-center justify-between group px-2 py-1.5 text-[11px] hover:bg-gray-50 cursor-pointer ${
-                    thread.thread_id === threadId ? 'bg-primary-50 text-primary-700 font-semibold' : 'text-gray-700'
+                    thread.thread_id === threadId
+                      ? "bg-primary-50 text-primary-700 font-semibold"
+                      : "text-gray-700"
                   }`}
                 >
                   <button
                     className="flex-1 text-left truncate"
                     onClick={() => {
-                      onSelectThread(thread.thread_id)
-                      setIsOpen(false)
+                      onSelectThread(thread.thread_id);
+                      setIsOpen(false);
                     }}
                   >
-                    {thread.title || 'Assistant Thread'}
+                    {thread.title || "Assistant Thread"}
                   </button>
                   {onDeleteThread && (
                     <button
                       onClick={(e) => {
-                        e.stopPropagation()
-                        onDeleteThread(thread.thread_id)
+                        e.stopPropagation();
+                        onDeleteThread(thread.thread_id);
                       }}
                       className="opacity-0 group-hover:opacity-100 p-0.5 hover:bg-red-50 hover:text-red-600 rounded transition-all flex-shrink-0 ml-1"
                       title="Delete thread"
                     >
-                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      <svg
+                        className="w-3 h-3"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M6 18L18 6M6 6l12 12"
+                        />
                       </svg>
                     </button>
                   )}
@@ -99,5 +128,5 @@ export const AiAssistHeader = ({
         </div>
       </div>
     </div>
-  )
-}
+  );
+};

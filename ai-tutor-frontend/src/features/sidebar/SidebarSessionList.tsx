@@ -1,7 +1,7 @@
-import React from 'react';
-import { SessionSkeletonList } from '../chat/SessionSkeleton';
-import { formatRelativeTime } from '../../utils/formatTime';
-import type { SessionInfo } from '../../types';
+import React from "react";
+import { SessionSkeletonList } from "../chat/SessionSkeleton";
+import { formatRelativeTime } from "../../utils/formatTime";
+import type { SessionInfo } from "../../types";
 
 interface SidebarSessionListProps {
   sessions: SessionInfo[];
@@ -9,7 +9,11 @@ interface SidebarSessionListProps {
   sessionId: string | null;
   loadingSessionId: string | null;
   handleLoadSession: (sid: string) => void;
-  handleDeleteClick: (sid: string, title: string, e: React.SyntheticEvent<HTMLElement>) => void;
+  handleDeleteClick: (
+    sid: string,
+    title: string,
+    e: React.SyntheticEvent<HTMLElement>,
+  ) => void;
 }
 
 export const SidebarSessionList: React.FC<SidebarSessionListProps> = ({
@@ -49,7 +53,7 @@ export const SidebarSessionList: React.FC<SidebarSessionListProps> = ({
       {sessions.map((session) => {
         const isActive = sessionId === session.session_id;
         const isLoading = loadingSessionId === session.session_id;
-        const sessionTitle = session.title?.trim() || 'Untitled';
+        const sessionTitle = session.title?.trim() || "Untitled";
         return (
           <button
             key={session.session_id}
@@ -57,9 +61,9 @@ export const SidebarSessionList: React.FC<SidebarSessionListProps> = ({
             disabled={isLoading}
             className={`w-full text-left px-2.5 py-2 rounded-md transition-colors group relative ${
               isActive
-                ? 'bg-gray-800 text-white'
-                : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-            } ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
+                ? "bg-gray-800 text-white"
+                : "text-gray-400 hover:bg-gray-800 hover:text-white"
+            } ${isLoading ? "opacity-50 cursor-wait" : ""}`}
           >
             <div className="flex items-center justify-between gap-1">
               <div className="flex-1 min-w-0">
@@ -74,13 +78,15 @@ export const SidebarSessionList: React.FC<SidebarSessionListProps> = ({
                 </p>
               </div>
               <div
-                onClick={(e) => handleDeleteClick(session.session_id, sessionTitle, e)}
+                onClick={(e) =>
+                  handleDeleteClick(session.session_id, sessionTitle, e)
+                }
                 className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-700 rounded transition-opacity flex-shrink-0 cursor-pointer"
                 title="Delete session"
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
+                  if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
                     handleDeleteClick(session.session_id, sessionTitle, e);
                   }

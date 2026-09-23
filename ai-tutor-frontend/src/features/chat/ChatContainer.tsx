@@ -2,12 +2,12 @@
  * Main chat container component - Supports stacked and split layouts
  */
 
-import { useChat } from '../../hooks/useChat'
-import { MessageList } from './MessageList'
-import { ChatInput } from './ChatInput'
+import { useChat } from "../../hooks/useChat";
+import { MessageList } from "./MessageList";
+import { ChatInput } from "./ChatInput";
 
 export const ChatContainer = () => {
-  const { messages, isLoading, error, sendMessage } = useChat()
+  const { messages, isLoading, error, sendMessage } = useChat();
 
   return (
     <div className="flex flex-col h-full bg-white overflow-hidden">
@@ -27,11 +27,15 @@ export const ChatContainer = () => {
       {/* Content Area - Always stacked (single-column) */}
       <div className="flex-1 overflow-hidden bg-white flex flex-col">
         <div className="flex-1 overflow-hidden w-full">
-          <MessageList messages={messages} isLoading={isLoading} onSendMessage={sendMessage} />
+          <MessageList
+            messages={messages}
+            isLoading={isLoading}
+            onSendMessage={sendMessage}
+          />
         </div>
         {/* Chat Input - Spans full width */}
         <ChatInput onSend={sendMessage} disabled={isLoading} />
       </div>
     </div>
-  )
-}
+  );
+};

@@ -1,7 +1,7 @@
-import React from 'react';
-import { SessionSkeletonList } from '../chat/SessionSkeleton';
-import { formatRelativeTime } from '../../utils/formatTime';
-import type { CodeProgram } from '../../types';
+import React from "react";
+import { SessionSkeletonList } from "../chat/SessionSkeleton";
+import { formatRelativeTime } from "../../utils/formatTime";
+import type { CodeProgram } from "../../types";
 
 interface SidebarProgramListProps {
   programs: CodeProgram[];
@@ -9,7 +9,11 @@ interface SidebarProgramListProps {
   activeProgramId: string | null;
   loadingProgramId: string | null;
   handleLoadProgram: (programId: string) => void;
-  handleDeleteProgramClick: (programId: string, title: string, e: React.SyntheticEvent<HTMLElement>) => void;
+  handleDeleteProgramClick: (
+    programId: string,
+    title: string,
+    e: React.SyntheticEvent<HTMLElement>,
+  ) => void;
 }
 
 export const SidebarProgramList: React.FC<SidebarProgramListProps> = ({
@@ -40,7 +44,9 @@ export const SidebarProgramList: React.FC<SidebarProgramListProps> = ({
           />
         </svg>
         <p className="text-sm text-gray-500">No programs yet</p>
-        <p className="text-xs text-gray-600 mt-1">Create a program to get started</p>
+        <p className="text-xs text-gray-600 mt-1">
+          Create a program to get started
+        </p>
       </div>
     );
   }
@@ -56,17 +62,22 @@ export const SidebarProgramList: React.FC<SidebarProgramListProps> = ({
             disabled={isLoading}
             className={`w-full text-left px-2.5 py-2 rounded-md transition-colors group relative ${
               isActive
-                ? 'bg-gray-800 text-white'
-                : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-            } ${isLoading ? 'opacity-50 cursor-wait' : ''}`}
+                ? "bg-gray-800 text-white"
+                : "text-gray-400 hover:bg-gray-800 hover:text-white"
+            } ${isLoading ? "opacity-50 cursor-wait" : ""}`}
           >
             <div className="flex items-center justify-between gap-1">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
-                  <span className="flex-shrink-0 w-4 h-4 rounded bg-blue-600/20 text-blue-400 text-[8px] font-bold flex items-center justify-center uppercase" title={program.language || 'python'}>
-                    {(program.language || 'py').slice(0, 2)}
+                  <span
+                    className="flex-shrink-0 w-4 h-4 rounded bg-blue-600/20 text-blue-400 text-[8px] font-bold flex items-center justify-center uppercase"
+                    title={program.language || "python"}
+                  >
+                    {(program.language || "py").slice(0, 2)}
                   </span>
-                  <p className="text-xs font-medium truncate">{program.title}</p>
+                  <p className="text-xs font-medium truncate">
+                    {program.title}
+                  </p>
                   {isLoading && (
                     <div className="animate-spin h-2.5 w-2.5 border border-primary-500 border-t-transparent rounded-full" />
                   )}
@@ -76,15 +87,21 @@ export const SidebarProgramList: React.FC<SidebarProgramListProps> = ({
                 </p>
               </div>
               <div
-                onClick={(e) => handleDeleteProgramClick(program.program_id, program.title, e)}
+                onClick={(e) =>
+                  handleDeleteProgramClick(program.program_id, program.title, e)
+                }
                 className="opacity-0 group-hover:opacity-100 p-1 hover:bg-gray-700 rounded transition-opacity flex-shrink-0 cursor-pointer"
                 title="Delete program"
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
+                  if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    handleDeleteProgramClick(program.program_id, program.title, e);
+                    handleDeleteProgramClick(
+                      program.program_id,
+                      program.title,
+                      e,
+                    );
                   }
                 }}
               >

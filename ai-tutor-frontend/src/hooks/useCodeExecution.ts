@@ -1,29 +1,29 @@
-import { useState } from 'react';
-import { getPyodide } from '../utils/pyodideLoader';
-import { formatStudentFriendlyPythonError } from '../utils/pythonErrorFormatter';
-import type { CodeExecutionResult } from '../types';
+import { useState } from "react";
+import { getPyodide } from "../utils/pyodideLoader";
+import { formatStudentFriendlyPythonError } from "../utils/pythonErrorFormatter";
+import type { CodeExecutionResult } from "../types";
 
 /**
  * Custom hook for executing Python code in the browser using Pyodide
- * 
+ *
  * Handles code execution, output/error capture, and execution timing.
  * Uses Pyodide WebAssembly runtime for client-side Python execution.
- * 
+ *
  * @returns Object containing:
  *   - isLoading: Boolean indicating if code is currently executing
  *   - result: Last execution result (output, error, execution time)
  *   - runCode: Async function to execute Python code
- * 
+ *
  * @example
  * ```tsx
  * const { runCode, isLoading, result } = useCodeExecution();
- * 
+ *
  * const handleRun = async () => {
  *   const result = await runCode('print("Hello, World!")');
  *   console.log(result.output); // => "Hello, World!\n"
  * };
  * ```
- * 
+ *
  * @remarks
  * - First code execution loads Pyodide (~10MB), subsequent runs are fast
  * - Captures both stdout and stderr separately
@@ -71,7 +71,10 @@ export function useCodeExecution() {
         await pyodide.runPythonAsync(code);
       } catch (pythonError: unknown) {
         // If there's a Python exception, format it nicely
-        const pythonErrorMessage = pythonError instanceof Error ? pythonError.message : String(pythonError)
+        const pythonErrorMessage =
+          pythonError instanceof Error
+            ? pythonError.message
+            : String(pythonError);
         const formattedError = await pyodide.runPythonAsync(`
 import sys
 import traceback
@@ -83,29 +86,31 @@ else:
     str(${JSON.stringify(pythonErrorMessage)})
 `);
 
-        const stderr = await pyodide.runPythonAsync('sys.stderr.getvalue()');
-        const fullError = [formattedError, stderr].filter(Boolean).join('\n');
-        const conciseError = formatStudentFriendlyPythonError(fullError || pythonErrorMessage || 'Python error');
+        const stderr = await pyodide.runPythonAsync("sys.stderr.getvalue()");
+        const fullError = [formattedError, stderr].filter(Boolean).join("\n");
+        const conciseError = formatStudentFriendlyPythonError(
+          fullError || pythonErrorMessage || "Python error",
+        );
 
         const executionTime = performance.now() - startTime;
         const executionResult: CodeExecutionResult = {
-          output: '',
+          output: "",
           error: conciseError,
           executionTime,
         };
-        
+
         setResult(executionResult);
         return executionResult;
       }
 
       // Capture output
-      const stdout = await pyodide.runPythonAsync('sys.stdout.getvalue()');
-      const stderr = await pyodide.runPythonAsync('sys.stderr.getvalue()');
+      const stdout = await pyodide.runPythonAsync("sys.stdout.getvalue()");
+      const stderr = await pyodide.runPythonAsync("sys.stderr.getvalue()");
 
       const executionTime = performance.now() - startTime;
 
       const executionResult: CodeExecutionResult = {
-        output: stdout || '',
+        output: stdout || "",
         error: stderr || null,
         executionTime,
       };
@@ -115,26 +120,27 @@ else:
     } catch (error: unknown) {
       // JavaScript/Pyodide loading errors
       const executionTime = performance.now() - startTime;
-      
+
       // Build concise error message
-      let errorMessage = '';
-      
+      let errorMessage = "";
+
       if (error instanceof Error && error.name) {
         errorMessage += `${error.name}: `;
       }
-      
+
       if (error instanceof Error && error.message) {
         errorMessage += error.message;
       } else {
-        errorMessage = 'Unknown error occurred';
+        errorMessage = "Unknown error occurred";
       }
 
-      if (errorMessage.includes('Pyodide version does not match')) {
-        errorMessage = 'Python runtime failed to load due to a version mismatch. Please refresh and try again.';
+      if (errorMessage.includes("Pyodide version does not match")) {
+        errorMessage =
+          "Python runtime failed to load due to a version mismatch. Please refresh and try again.";
       }
 
       const executionResult: CodeExecutionResult = {
-        output: '',
+        output: "",
         error: errorMessage,
         executionTime,
       };
