@@ -20,9 +20,14 @@ REGION="${REGION:-ap-southeast-2}"        # live compute and all DynamoDB data
 SSM_PATH="${SSM_PATH:-/ai-tutor/prod/}"
 TABLE="${TABLE:-oral_assessments}"
 
-if [[ -f .env ]]; then
-  set -a; source .env; set +a          # by reference: nothing lands in argv or history
+# No .env means the CLI falls back to this machine's default profile, which is a
+# different organisation's account. Every check then reads an empty path and
+# looks clear. Refuse rather than guess.
+if [[ ! -f .env ]]; then
+  echo "No .env in $(pwd). Without it these checks hit the wrong AWS account and report a false clear." >&2
+  exit 1
 fi
+set -a; source .env; set +a            # by reference: nothing lands in argv or history
 
 echo "== Account =="
 if ! aws sts get-caller-identity --query 'Account' --output text 2>/dev/null; then
@@ -38,10 +43,15 @@ echo
 # remaining source. If either is set with a plaintext value, that login stops
 # working on deploy. Names only — never the value.
 echo "== 1. Plaintext login bootstraps in SSM =="
-hits=$(aws ssm get-parameters-by-path --path "${SSM_PATH}" --recursive \
-         --region "${REGION}" --query 'Parameters[].Name' --output text 2>/dev/null \
-       | tr '\t' '\n' | grep -iE 'AUTH_USERS_JSON|AUTH_LOGIN_PASSWORD' || true)
-if [[ -z "$hits" ]]; then
+names=$(aws ssm get-parameters-by-path --path "${SSM_PATH}" --recursive \
+          --region "${REGION}" --query 'Parameters[].Name' --output text 2>/dev/null \
+        | tr '\t' '\n')
+hits=$(echo "$names" | grep -iE 'AUTH_USERS_JSON|AUTH_LOGIN_PASSWORD' || true)
+# AUTH_JWT_SECRET is in load-ssm-env.sh's required set, so the real path always
+# has it. Without it this is the wrong account or no access, not a clear result.
+if ! echo "$names" | grep -q 'AUTH_JWT_SECRET'; then
+  echo "  UNKNOWN — ${SSM_PATH} is empty or unreadable in this account. Wrong credentials?"
+elif [[ -z "$hits" ]]; then
   echo "  CLEAR — neither is set. Safe to deploy."
 else
   echo "  PRESENT:"; echo "$hits" | sed 's/^/    /'
