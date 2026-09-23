@@ -46,6 +46,11 @@ has been built ahead of your answer.
     instructor ticks "re-evaluate"; or refuse re-evaluation of released students only.
     *Recommend the first.*
 
+11. **Who may delete RAG context documents?** Any logged-in instructor can delete any document
+    in the chat tutor's context store (`InternalEndpoints.py`), because documents record no
+    owner. Options: admin-only, or record an uploader and restrict to them. *Recommend admin-only*
+    — it is one role check and the corpus is shared course material.
+
 **Things only you can do** (need the project's AWS credentials or a real device)
 
 - Put the project `.env` at the repo root and run `./scripts/prod_checks.sh` — see "Three that a

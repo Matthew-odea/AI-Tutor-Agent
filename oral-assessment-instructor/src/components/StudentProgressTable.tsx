@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { apiService } from '../services/api';
+import { apiService, type ProgressStream } from '../services/api';
 import { useAssessmentStore } from '../store/assessmentStore';
 import { useToastStore } from '../store/toastStore';
 import type { StudentProgress, Student } from '../../../shared/types/assessment';
@@ -80,7 +80,7 @@ export default function StudentProgressTable({ assessmentId }: StudentProgressTa
   // Current time, refreshed by the 1s ticker below. Read during render to drive
   // the "Inactive 30m+" badge without calling the impure Date.now() in render.
   const [now, setNow] = useState(() => Date.now());
-  const evalStreams = useRef<Record<string, EventSource>>({});
+  const evalStreams = useRef<Record<string, ProgressStream>>({});
   const INACTIVE_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
 
   // Invite modal focus management: the dialog traps Tab, closes on Escape, and

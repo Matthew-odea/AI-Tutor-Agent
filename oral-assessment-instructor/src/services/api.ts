@@ -15,6 +15,13 @@ type Schemas = components['schemas'];
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
+/** The subset of EventSource the progress stream's consumer uses. */
+export interface ProgressStream {
+  onmessage: ((event: { data: string }) => void) | null;
+  onerror: (() => void) | null;
+  close: () => void;
+}
+
 class ApiService {
   private client: AxiosInstance;
 
@@ -264,10 +271,44 @@ class ApiService {
     return response.data;
   }
 
-  openStudentEvaluationProgressStream(assessmentId: string, studentId: string): EventSource {
+  // EventSource cannot send headers, and the backend reads the token only from the
+  // Authorization header, so the old `?token=` URL was always 401 (and put the JWT in
+  // access logs). This reads the same `data: ...` frames with fetch, behind the
+  // EventSource shape StudentProgressTable already uses.
+  openStudentEvaluationProgressStream(assessmentId: string, studentId: string): ProgressStream {
+    const controller = new AbortController();
+    const stream: ProgressStream = { onmessage: null, onerror: null, close: () => controller.abort() };
     const token = localStorage.getItem('authToken');
-    const url = `${API_BASE_URL}/api/assessment/${assessmentId}/students/${studentId}/evaluation-progress${token ? `?token=${token}` : ''}`;
-    return new EventSource(url);
+    fetch(`${API_BASE_URL}/api/assessment/${assessmentId}/students/${studentId}/evaluation-progress`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      signal: controller.signal,
+    })
+      .then(async (res) => {
+        if (!res.ok || !res.body) throw new Error(`Progress stream failed: ${res.status}`);
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          let end;
+          while ((end = buffer.indexOf('\n\n')) !== -1) {
+            const data = buffer.slice(0, end).split('\n')
+              .filter((line) => line.startsWith('data:'))
+              .map((line) => line.slice(5).trimStart())
+              .join('\n');
+            buffer = buffer.slice(end + 2);
+            if (data) stream.onmessage?.({ data });
+          }
+        }
+        // The server ending the stream is an error to an EventSource consumer too.
+        if (!controller.signal.aborted) stream.onerror?.();
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) stream.onerror?.();
+      });
+    return stream;
   }
 
   // EPIC-3-3: Question preview and editing

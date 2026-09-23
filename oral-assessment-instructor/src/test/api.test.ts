@@ -21,3 +21,36 @@ describe('apiService student selection payloads', () => {
     expect(post).toHaveBeenLastCalledWith('/api/assessment/a1/evaluate-batch', { studentIds: ['s2'] });
   });
 });
+
+describe('apiService evaluation progress stream', () => {
+  // The backend authenticates only from the Authorization header. The old EventSource
+  // put the token in `?token=`, which was always 401, so live progress never showed.
+  it('sends the token as a header, not in the URL, and delivers each data frame', async () => {
+    localStorage.setItem('authToken', 'tok-123');
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(encoder.encode('data: {"status":"evaluating","questionsEvaluated":1}\n\n'));
+        c.enqueue(encoder.encode('data: {"status":"comp'));
+        c.enqueue(encoder.encode('leted","questionsEvaluated":2}\n\n'));
+        c.close();
+      },
+    });
+    const fetchMock = vi.fn().mockResolvedValue(new Response(body, { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const stream = apiService.openStudentEvaluationProgressStream('a1', 's1');
+    const messages: string[] = [];
+    const ended = new Promise<void>((resolve) => {
+      stream.onmessage = (e) => messages.push(JSON.parse(e.data).status);
+      stream.onerror = () => resolve();
+    });
+    await ended;
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).not.toContain('token');
+    expect(init.headers).toEqual({ Authorization: 'Bearer tok-123' });
+    expect(messages).toEqual(['evaluating', 'completed']);
+    vi.unstubAllGlobals();
+  });
+});
