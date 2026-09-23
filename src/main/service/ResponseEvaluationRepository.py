@@ -73,20 +73,6 @@ class ResponseEvaluationRepository:
         )
         return resp.get("Item")
 
-    # Fields that are owned by the instructor (manual override) or by the
-    # human-scoring validity harness. They are written through dedicated
-    # update paths, never by the AI evaluation run — so they must survive a
-    # re-evaluation, which overwrites the EVALUATION# item.
-    _PRESERVED_ON_REEVALUATION = (
-        "instructorScore",
-        "instructorComment",
-        "humanCorrectnessScore",
-        "humanUnderstandingScore",
-        "humanTotalScore",
-        "humanScoredBy",
-        "humanScoredAt",
-    )
-
     def store_evaluation(
         self,
         student_id: str,
@@ -94,12 +80,15 @@ class ResponseEvaluationRepository:
         question_id: str,
         evaluation: Dict[str, Any],
     ) -> None:
-        created_at = datetime.now(timezone.utc).isoformat() + "Z"
-        pk = f"STUDENT#{student_id}#ASSESSMENT#{assessment_id}"
-        sk = f"EVALUATION#{question_id}"
-        item: Dict[str, Any] = {
-            "PK": pk,
-            "SK": sk,
+        """Write the AI evaluation for one question.
+
+        An update that sets only the AI-owned attributes, never a read-then-put:
+        the instructor override (instructorScore / instructorComment) and the
+        human reference scores are written by their own update paths, and a
+        re-evaluation must not be able to wipe them — neither when the read
+        fails nor when an override lands between the read and the write.
+        """
+        fields: Dict[str, Any] = {
             "questionId": question_id,
             "assessmentId": assessment_id,
             "studentId": student_id,
@@ -111,7 +100,7 @@ class ResponseEvaluationRepository:
             "strengths": evaluation.get("strengths", []),
             "weaknesses": evaluation.get("weaknesses", []),
             "suggestedImprovements": evaluation.get("suggested_improvements", []),
-            "evaluatedAt": created_at,
+            "evaluatedAt": datetime.now(timezone.utc).isoformat() + "Z",
             # Review / confidence flags (Tasks 2, 4, 5). Always written so the
             # instructor and release gate can reason about evaluation quality.
             "needsReview": bool(evaluation.get("needs_review", False)),
@@ -120,20 +109,24 @@ class ResponseEvaluationRepository:
         }
         confidence = evaluation.get("transcript_confidence")
         if confidence is not None:
-            item["transcriptConfidence"] = Decimal(str(confidence))
+            fields["transcriptConfidence"] = Decimal(str(confidence))
 
-        # Re-evaluation overwrites the item via put_item; carry forward any
-        # instructor override or human reference score so released grades and
-        # validity-study data are not silently wiped by a re-run.
-        try:
-            existing = self.table.get_item(Key={"PK": pk, "SK": sk}).get("Item") or {}
-        except Exception:
-            existing = {}
-        for preserved in self._PRESERVED_ON_REEVALUATION:
-            if preserved in existing and preserved not in item:
-                item[preserved] = existing[preserved]
+        expression = "SET " + ", ".join(f"#{k} = :{k}" for k in fields)
+        names = {f"#{k}": k for k in fields}
+        if confidence is None:
+            # A re-evaluation without a transcript confidence must not keep a stale one.
+            expression += " REMOVE #transcriptConfidence"
+            names["#transcriptConfidence"] = "transcriptConfidence"
 
-        self.table.put_item(Item=item)
+        self.table.update_item(
+            Key={
+                "PK": f"STUDENT#{student_id}#ASSESSMENT#{assessment_id}",
+                "SK": f"EVALUATION#{question_id}",
+            },
+            UpdateExpression=expression,
+            ExpressionAttributeNames=names,
+            ExpressionAttributeValues={f":{k}": v for k, v in fields.items()},
+        )
 
     def record_human_score(
         self,
