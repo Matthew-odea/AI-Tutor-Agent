@@ -40,7 +40,6 @@ class AppSettings:
     port: int
     reload: bool
 
-    use_dynamodb: bool
     dynamodb_table_name: str
     dynamodb_region: str
 
@@ -49,8 +48,8 @@ class AppSettings:
 
     @property
     def allow_origins(self) -> List[str]:
-        if self.allow_origins_raw == "http://localhost:*":
-            return ["*"]
+        """Origins allowed by CORS. Unset means none — set ALLOW_ORIGINS explicitly,
+        including for local development (see .env.example)."""
         return _as_list(self.allow_origins_raw, default=[])
 
 
@@ -62,11 +61,10 @@ def get_settings() -> AppSettings:
         docs_url=os.getenv("DOCS_URL", "/docs"),
         redoc_url=os.getenv("REDOC_URL", "/redoc"),
         openapi_url=os.getenv("OPENAPI_URL", "/openapi.json"),
-        allow_origins_raw=os.getenv("ALLOW_ORIGINS", "http://localhost:*"),
+        allow_origins_raw=os.getenv("ALLOW_ORIGINS", ""),
         host=os.getenv("HOST", "0.0.0.0"),
         port=_as_int(os.getenv("PORT"), 8000),
         reload=_as_bool(os.getenv("RELOAD"), True),
-        use_dynamodb=_as_bool(os.getenv("USE_DYNAMODB"), False),
         dynamodb_table_name=os.getenv("DYNAMODB_TABLE_NAME", "chat_sessions"),
         dynamodb_region=os.getenv("DYNAMODB_REGION", "us-east-1"),
         aws_default_region=os.getenv("AWS_DEFAULT_REGION", "us-east-1"),

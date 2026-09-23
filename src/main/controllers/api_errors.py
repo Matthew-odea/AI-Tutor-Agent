@@ -7,7 +7,11 @@ from typing import Any
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.exceptions import HTTPException
+# Starlette's HTTPException, not FastAPI's: FastAPI's subclasses it, so this one
+# key catches both, and it is the only one that catches the HTTPExceptions
+# Starlette itself raises for an unmatched path (404) and a wrong method (405).
+# Registering FastAPI's class instead leaves those two answering {"detail": ...}.
+from starlette.exceptions import HTTPException
 from starlette.responses import JSONResponse
 
 

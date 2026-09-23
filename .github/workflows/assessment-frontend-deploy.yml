@@ -40,9 +40,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Delete macOS-generated lockfiles so npm resolves Linux optional deps (rollup native)
-          cd oral-assessment-instructor && rm -f package-lock.json && npm install
-          cd ../oral-assessment-student && rm -f package-lock.json && npm install
+          cd oral-assessment-instructor && npm ci
+          cd ../oral-assessment-student && npm ci
 
       - name: Build instructor frontend
         working-directory: oral-assessment-instructor

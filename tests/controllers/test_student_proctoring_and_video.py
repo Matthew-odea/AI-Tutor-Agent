@@ -1,5 +1,7 @@
 """
-Tests for Sprint 6 student router changes:
+Student video answers and proctoring chunk upload.
+
+Covers:
 - Video answer submission (answer_type='video')
 - Proctoring chunk manifest endpoint
 - video_url stored and returned correctly

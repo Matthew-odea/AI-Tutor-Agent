@@ -59,6 +59,34 @@ def mock_dynamodb(aws_credentials):
 
 
 @pytest.fixture()
+def conversation_memory(aws_credentials):
+    """
+    A DynamoDBConversationMemory on a moto-backed chat table.
+
+    There is only one conversation store — DynamoDB — so tests that need somewhere
+    to keep chat history use this rather than a stand-in.
+    """
+    from src.main.agentcore_setup.dynamodb_memory import DynamoDBConversationMemory
+
+    with mock_aws():
+        dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
+        table = dynamodb.create_table(
+            TableName=CHAT_TABLE,
+            KeySchema=[
+                {"AttributeName": "PK", "KeyType": "HASH"},
+                {"AttributeName": "SK", "KeyType": "RANGE"},
+            ],
+            AttributeDefinitions=[
+                {"AttributeName": "PK", "AttributeType": "S"},
+                {"AttributeName": "SK", "AttributeType": "S"},
+            ],
+            BillingMode="PAY_PER_REQUEST",
+        )
+        table.meta.client.get_waiter("table_exists").wait(TableName=CHAT_TABLE)
+        yield DynamoDBConversationMemory(table_name=CHAT_TABLE, region="us-east-1", ttl_days=30)
+
+
+@pytest.fixture()
 def mock_s3(aws_credentials):
     """Yield a moto-backed S3 bucket for assessment media."""
     with mock_aws():

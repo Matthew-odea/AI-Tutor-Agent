@@ -11,7 +11,6 @@ import type {
   ApiError,
 } from '../types';
 import {
-  getStudentToken,
   getQuestions,
   type QuestionsResponse,
   submitAnswer,
@@ -25,11 +24,6 @@ import {
 } from '../services/api';
 import { useToastStore } from './toastStore';
 
-const ensureStudentToken = async (studentId: string, assessmentId: string) => {
-  if (!sessionStorage.getItem('studentToken')) {
-    await getStudentToken(studentId, assessmentId);
-  }
-};
 import { uploadAudio, validateAudioBlob } from '../services/s3';
 import {
   saveAudioDraft,
@@ -240,9 +234,10 @@ export const useAssessmentStore = create<AssessmentStore>((set, get) => ({
   isOnline: typeof navigator !== 'undefined' ? navigator.onLine : true,
 
   setStudentInfo: (studentId: string, assessmentId: string) => {
-    // Persist for token refresh interceptor
-    sessionStorage.setItem('studentId', studentId);
-    sessionStorage.setItem('assessmentId', assessmentId);
+    // Same store as the session token (localStorage), so identity survives a
+    // refresh or a new tab.
+    localStorage.setItem('studentId', studentId);
+    localStorage.setItem('assessmentId', assessmentId);
     set({ studentId, assessmentId, error: null });
   },
 
@@ -348,7 +343,6 @@ export const useAssessmentStore = create<AssessmentStore>((set, get) => ({
     set({ isLoading: true, error: null });
 
     try {
-      await ensureStudentToken(studentId, assessmentId);
       const result: QuestionsResponse = await getQuestions(studentId, assessmentId);
       set({
         questions: result.questions,
@@ -759,7 +753,6 @@ export const useAssessmentStore = create<AssessmentStore>((set, get) => ({
 
       const audioUrl = await uploadAudio(
         recordedBlob,
-        studentId,
         currentQuestion.id,
         (progress) => { set({ uploadProgress: progress.percentage }); }
       );
@@ -953,7 +946,6 @@ export const useAssessmentStore = create<AssessmentStore>((set, get) => ({
     }
 
     try {
-      await ensureStudentToken(studentId, assessmentId);
       const results = await getResults(studentId, assessmentId);
       // A 2xx is not automatically a results payload: "still evaluating" comes
       // back as a 202 whose body carries only a `detail` message, and axios

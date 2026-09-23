@@ -6,7 +6,7 @@ import re
 
 import asyncio
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Body, Depends, Response
 from fastapi.responses import HTMLResponse, StreamingResponse
 
 from src.main.auth.dependencies import get_auth_service, require_auth_principal
@@ -17,8 +17,6 @@ from src.main.controllers.controller_dependencies import (
     get_assessment_report_service,
     get_evaluation_service,
     get_instructor_assessment_service,
-    get_instructor_question_bank_service,
-    get_instructor_submission_service,
     get_question_service,
     get_sqs_job_dispatcher,
 )
@@ -31,12 +29,7 @@ from src.main.dtos.InstructorAssessmentDTOs import (
     AssessmentListResponse,
     AssessmentReportResponse,
     AssessmentResponse,
-    BankQuestionListResponse,
-    BankQuestionRequest,
-    BankQuestionResponse,
-    CodeUploadResponse,
     CreateAssessmentRequest,
-    CsvEnrollmentResponse,
     DeleteStudentQuestionResponse,
     EvaluateBatchRequest,
     EvaluationJobResponse,
@@ -65,23 +58,14 @@ from src.main.dtos.InstructorAssessmentDTOs import (
     StudentProgressItem,
     StudentResponse,
     StudentResultItem,
-    BankQuestionSuggestion,
-    SuggestBankQuestionsRequest,
-    SuggestBankQuestionsResponse,
     UpdateBriefRequest,
     UpdateStudentQuestionRequest,
-    UpdateQuestionTimeLimitRequest,
-    UpdateScheduleRequest,
-    UpdateStatusRequest,
     UploadStudentsRequest,
-    ZipUploadResponse,
 )
 from src.main.service.AssessmentReportRenderer import render_report_html, render_report_pdf
 from src.main.service.AssessmentReportService import AssessmentReportService, AssessmentReportServiceError
 from src.main.service.BatchJobManager import JobType, get_batch_job_manager
 from src.main.service.InstructorAssessmentService import InstructorAssessmentService, InstructorAssessmentServiceError
-from src.main.service.InstructorQuestionBankService import InstructorQuestionBankService, InstructorQuestionBankServiceError
-from src.main.service.InstructorSubmissionService import InstructorSubmissionService, InstructorSubmissionServiceError
 from src.main.service.SQSJobDispatcher import SQSJobDispatcher
 from src.main.service.QuestionGenerationService import QuestionGenerationService
 from src.main.service.ResponseEvaluationService import ResponseEvaluationService
@@ -130,13 +114,6 @@ async def create_assessment(
 
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=400, code="assessment_create_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in create_assessment: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.get("/list", response_model=AssessmentListResponse)
@@ -147,10 +124,7 @@ async def list_assessments(
     try:
         _assert_instructor_access(_principal)
         loop = asyncio.get_event_loop()
-        if _principal.source == "x-user-id":
-            assessments = await loop.run_in_executor(None, svc.list_assessments)
-        else:
-            assessments = await loop.run_in_executor(None, lambda: svc.list_assessments(owner_user_id=_principal.user_id))
+        assessments = await loop.run_in_executor(None, lambda: svc.list_assessments(owner_user_id=_principal.user_id))
 
         return AssessmentListResponse(
             ok=True,
@@ -160,13 +134,6 @@ async def list_assessments(
 
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=500, code="assessment_list_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in list_assessments: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.get("/{id}", response_model=AssessmentResponse)
@@ -184,13 +151,6 @@ async def get_assessment(
 
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in get_assessment: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.post("/{id}/upload-students", status_code=201)
@@ -217,13 +177,6 @@ async def upload_students(
 
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=400, code="upload_students_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in upload_students: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.post("/{id}/import-ed", status_code=200)
@@ -263,13 +216,6 @@ async def import_from_ed(
         raise ApiError(status_code=400, code="ed_import_failed", message=str(error))
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=400, code="ed_import_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in import_from_ed: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.get("/{id}/students", response_model=StudentListResponse)
@@ -294,13 +240,6 @@ async def get_assessment_students(
 
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=404, code="assessment_students_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in get_assessment_students: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.delete("/{id}", status_code=204)
@@ -320,127 +259,6 @@ async def delete_assessment(
 
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=400, code="delete_assessment_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in delete_assessment: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
-
-
-@assessment_router.put("/{id}/schedule", response_model=AssessmentResponse)
-async def update_assessment_schedule(
-    id: str,
-    request: UpdateScheduleRequest = Body(...),
-    svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
-    _principal: AuthPrincipal = Depends(require_auth_principal),
-):
-    """Set or update the assessment access mode and scheduling window."""
-    try:
-        _assert_instructor_access(_principal)
-        loop = asyncio.get_event_loop()
-        assessment = await loop.run_in_executor(None, lambda: svc.get_assessment(id))
-        _assert_assessment_owner(_principal, assessment)
-        result = await loop.run_in_executor(None, lambda: svc.update_schedule(
-            assessment_id=id,
-            access_mode=request.accessMode,
-            scheduled_window_start=request.scheduledWindowStart,
-            scheduled_window_end=request.scheduledWindowEnd,
-        ))
-        return AssessmentResponse(**result)
-
-    except InstructorAssessmentServiceError as error:
-        raise ApiError(status_code=400, code="update_schedule_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in update_assessment_schedule: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
-
-
-@assessment_router.put("/{id}/status", response_model=AssessmentResponse)
-async def update_assessment_status(
-    id: str,
-    request: UpdateStatusRequest = Body(...),
-    svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
-    _principal: AuthPrincipal = Depends(require_auth_principal),
-):
-    """Transition assessment status: draft→open, open→closed."""
-    try:
-        _assert_instructor_access(_principal)
-        loop = asyncio.get_event_loop()
-        assessment = await loop.run_in_executor(None, lambda: svc.get_assessment(id))
-        _assert_assessment_owner(_principal, assessment)
-        result = await loop.run_in_executor(None, lambda: svc.update_status(id, request.status))
-        return AssessmentResponse(**result)
-    except InstructorAssessmentServiceError as error:
-        raise ApiError(status_code=400, code="update_status_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in update_assessment_status: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
-
-
-@assessment_router.get("/{id}/window-status")
-async def get_window_status(
-    id: str,
-    svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
-):
-    """
-    Public endpoint — no auth required.
-    Returns the current window state so the student frontend can show
-    a countdown before directing the student to exchange their invite token.
-    """
-    try:
-        loop = asyncio.get_event_loop()
-        assessment = await loop.run_in_executor(None, lambda: svc.get_assessment(id))
-        access_mode = assessment.get("accessMode", "open")
-
-        if access_mode == "open":
-            return {"assessmentId": id, "accessMode": "open", "state": "open"}
-
-        from datetime import datetime, timezone
-        window_start = assessment.get("scheduledWindowStart")
-        window_end = assessment.get("scheduledWindowEnd")
-
-        if not window_start or not window_end:
-            return {"assessmentId": id, "accessMode": "scheduled", "state": "open"}
-
-        now = datetime.now(timezone.utc)
-
-        def _parse(dt_str):
-            parsed = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
-            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
-
-        start = _parse(window_start)
-        end = _parse(window_end)
-
-        if now < start:
-            state = "upcoming"
-        elif now > end:
-            state = "closed"
-        else:
-            state = "open"
-
-        return {
-            "assessmentId": id,
-            "accessMode": "scheduled",
-            "state": state,
-            "scheduledWindowStart": window_start,
-            "scheduledWindowEnd": window_end,
-        }
-
-    except InstructorAssessmentServiceError as error:
-        raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
-    except Exception as error:
-        logger.error(f"Unexpected error in get_window_status: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.post("/{id}/students/{student_id}/invite")
@@ -501,13 +319,6 @@ async def generate_student_invite(
 
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in generate_student_invite: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.post("/{id}/send-invites", status_code=200)
@@ -591,151 +402,6 @@ async def send_bulk_invites(
         }
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in send_bulk_invites: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
-
-
-@assessment_router.post("/{id}/upload-csv", response_model=CsvEnrollmentResponse, status_code=201)
-async def upload_students_csv(
-    id: str,
-    file: UploadFile = File(..., description="CSV file with columns: student_id, name, email"),
-    svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
-    submission_svc: InstructorSubmissionService = Depends(get_instructor_submission_service),
-    _principal: AuthPrincipal = Depends(require_auth_principal),
-):
-    """
-    Bulk-enrol students from a CSV file.
-    Required columns (case-insensitive): student_id / studentId, name, email.
-    Per-row validation errors are returned rather than failing the whole upload.
-    Duplicate student IDs within the file are rejected.
-    """
-    try:
-        _assert_instructor_access(_principal)
-        loop = asyncio.get_event_loop()
-        assessment = await loop.run_in_executor(None, lambda: svc.get_assessment(id))
-        _assert_assessment_owner(_principal, assessment)
-
-        csv_bytes = await file.read()
-        valid_rows, error_rows = await loop.run_in_executor(None, lambda: submission_svc.parse_csv_enrollment(csv_bytes))
-
-        if valid_rows:
-            await loop.run_in_executor(None, lambda: svc.upload_students(id, valid_rows))
-
-        return CsvEnrollmentResponse(
-            ok=True,
-            assessmentId=id,
-            enrolledCount=len(valid_rows),
-            errorCount=len(error_rows),
-            errors=error_rows,
-        )
-
-    except InstructorSubmissionServiceError as error:
-        raise ApiError(status_code=400, code="csv_parse_failed", message=str(error))
-    except InstructorAssessmentServiceError as error:
-        raise ApiError(status_code=400, code="csv_enrollment_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in upload_students_csv: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
-
-
-@assessment_router.post(
-    "/{id}/students/{student_id}/upload-code",
-    response_model=CodeUploadResponse,
-    status_code=201,
-)
-async def upload_student_code(
-    id: str,
-    student_id: str,
-    files: list[UploadFile] = File(..., description="One or more code files (≤500 KB each)"),
-    svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
-    submission_svc: InstructorSubmissionService = Depends(get_instructor_submission_service),
-    _principal: AuthPrincipal = Depends(require_auth_principal),
-):
-    """
-    Upload one or more code files for a specific student.
-    Accepted extensions: .py .js .ts .java .cpp .c .go .rb .txt
-    Files are concatenated with filename separator headers and stored in S3.
-    """
-    try:
-        _assert_instructor_access(_principal)
-        loop = asyncio.get_event_loop()
-        assessment = await loop.run_in_executor(None, lambda: svc.get_assessment(id))
-        _assert_assessment_owner(_principal, assessment)
-
-        students = await loop.run_in_executor(None, lambda: svc.get_assessment_students(id))
-        if not any(s["studentId"] == student_id for s in students):
-            raise ApiError(
-                status_code=404,
-                code="student_not_found",
-                message=f"Student {student_id} is not enrolled in assessment {id}",
-            )
-
-        file_tuples = [(f.filename or "upload.txt", await f.read()) for f in files]
-        result = await loop.run_in_executor(None, lambda: submission_svc.upload_student_code_files(id, student_id, file_tuples))
-
-        return CodeUploadResponse(**result)
-
-    except InstructorSubmissionServiceError as error:
-        raise ApiError(status_code=400, code="code_upload_failed", message=str(error))
-    except InstructorAssessmentServiceError as error:
-        raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in upload_student_code: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
-
-
-@assessment_router.post("/{id}/upload-zip", response_model=ZipUploadResponse, status_code=201)
-async def upload_zip_submissions(
-    id: str,
-    file: UploadFile = File(..., description="Zip archive with one file per student, named by student ID"),
-    svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
-    submission_svc: InstructorSubmissionService = Depends(get_instructor_submission_service),
-    _principal: AuthPrincipal = Depends(require_auth_principal),
-):
-    """
-    Upload a zip archive of student submissions.
-    Each file in the zip should be named by student ID (e.g., s12345.py).
-    Matched by filename stem (case-insensitive) against enrolled student IDs.
-    Unmatched files are reported as warnings; errors do not abort the whole upload.
-    """
-    try:
-        _assert_instructor_access(_principal)
-        loop = asyncio.get_event_loop()
-        assessment = await loop.run_in_executor(None, lambda: svc.get_assessment(id))
-        _assert_assessment_owner(_principal, assessment)
-
-        students = await loop.run_in_executor(None, lambda: svc.get_assessment_students(id))
-        enrolled_ids = [s["studentId"] for s in students]
-
-        zip_bytes = await file.read()
-        result = await loop.run_in_executor(None, lambda: submission_svc.upload_zip_submissions(id, zip_bytes, enrolled_ids))
-
-        return ZipUploadResponse(**result)
-
-    except InstructorSubmissionServiceError as error:
-        raise ApiError(status_code=400, code="zip_upload_failed", message=str(error))
-    except InstructorAssessmentServiceError as error:
-        raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in upload_zip_submissions: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.put("/{id}/brief", response_model=AssessmentResponse)
@@ -760,13 +426,6 @@ async def update_assessment_brief(
 
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=400, code="update_brief_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in update_assessment_brief: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.post("/{id}/generate-questions-batch", response_model=QuestionGenerationJobResponse, status_code=202)
@@ -856,63 +515,6 @@ async def generate_questions_batch(
 
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=404, code="question_generation_batch_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in generate_questions_batch: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
-
-
-@assessment_router.get("/{id}/generation-status/{jobId}/stream")
-async def stream_generation_status(
-    id: str,
-    jobId: str,
-    svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
-    _principal: AuthPrincipal = Depends(require_auth_principal),
-):
-    """
-    SSE endpoint — streams real-time job progress from DynamoDB.
-    Emits an event every 2 seconds until the job is completed or failed,
-    then sends a final event and closes the stream.
-    """
-    try:
-        _assert_instructor_access(_principal)
-        loop = asyncio.get_event_loop()
-        assessment = await loop.run_in_executor(None, lambda: svc.get_assessment(id))
-        _assert_assessment_owner(_principal, assessment)
-    except (InstructorAssessmentServiceError, ApiError, HTTPException) as error:
-        raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
-
-    job_manager = get_batch_job_manager()
-
-    async def event_stream():
-        import json as _json
-        _loop = asyncio.get_event_loop()
-        terminal = {"completed", "failed"}
-        while True:
-            job = await _loop.run_in_executor(None, lambda: job_manager.get_job(jobId))
-            if not job:
-                yield f"event: error\ndata: {_json.dumps({'message': 'Job not found'})}\n\n"
-                break
-
-            payload = _json.dumps({
-                "jobId": job["job_id"],
-                "status": job["status"],
-                "totalStudents": job["total_items"],
-                "processedCount": job["processed_count"],
-                "successfulCount": job.get("successful_count", 0),
-                "failedCount": job.get("failed_count", 0),
-                "completedAt": job.get("completed_at"),
-            })
-            yield f"data: {payload}\n\n"
-
-            if job["status"] in terminal:
-                break
-            await asyncio.sleep(2)
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @assessment_router.get("/{id}/students/{studentId}/evaluation-progress")
@@ -997,13 +599,6 @@ async def get_generation_status(
 
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in get_generation_status: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.get("/{id}/progress", response_model=ProgressSummaryResponse)
@@ -1038,13 +633,6 @@ async def get_assessment_progress(
 
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=404, code="assessment_progress_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in get_assessment_progress: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.post("/{id}/evaluate-batch", response_model=EvaluationJobResponse, status_code=202)
@@ -1097,13 +685,6 @@ async def evaluate_batch(
 
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=404, code="evaluation_batch_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in evaluate_batch: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.get("/{id}/evaluation-status/{jobId}", response_model=EvaluationStatusResponse)
@@ -1140,13 +721,6 @@ async def get_evaluation_status(
 
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in get_evaluation_status: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.get("/{id}/results", response_model=ResultsSummaryResponse)
@@ -1184,13 +758,6 @@ async def get_assessment_results(
 
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=404, code="assessment_results_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in get_assessment_results: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1219,13 +786,6 @@ async def get_assessment_report(
         )
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in get_assessment_report: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.post("/{id}/report/generate", response_model=GenerateReportResponse)
@@ -1256,13 +816,6 @@ async def generate_assessment_report(
         raise ApiError(status_code=500, code="report_generation_failed", message=str(error))
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in generate_assessment_report: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.get("/{id}/report.html", response_class=HTMLResponse)
@@ -1285,13 +838,6 @@ async def get_assessment_report_html(
         return HTMLResponse(content=render_report_html(report))
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in get_assessment_report_html: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.get("/{id}/report.pdf")
@@ -1324,205 +870,6 @@ async def get_assessment_report_pdf(
         raise ApiError(status_code=503, code="pdf_rendering_unavailable", message=str(error))
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in get_assessment_report_pdf: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Sprint 4 – Question Bank (EPIC-3-2)
-# ──────────────────────────────────────────────────────────────────────────────
-
-@assessment_router.get("/{id}/bank-questions", response_model=BankQuestionListResponse)
-async def list_bank_questions(
-    id: str,
-    svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
-    bank_svc: InstructorQuestionBankService = Depends(get_instructor_question_bank_service),
-    _principal: AuthPrincipal = Depends(require_auth_principal),
-):
-    """List all question bank questions for an assessment."""
-    try:
-        _assert_instructor_access(_principal)
-        loop = asyncio.get_event_loop()
-        assessment = await loop.run_in_executor(None, lambda: svc.get_assessment(id))
-        _assert_assessment_owner(_principal, assessment)
-        questions = await loop.run_in_executor(None, lambda: bank_svc.list_questions(id))
-        return BankQuestionListResponse(
-            ok=True,
-            assessmentId=id,
-            questions=[BankQuestionResponse(**q) for q in questions],
-            total=len(questions),
-        )
-    except InstructorQuestionBankServiceError as error:
-        raise ApiError(status_code=400, code="bank_questions_failed", message=str(error))
-    except InstructorAssessmentServiceError as error:
-        raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in list_bank_questions: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
-
-
-@assessment_router.post("/{id}/bank-questions", response_model=BankQuestionResponse, status_code=201)
-async def add_bank_question(
-    id: str,
-    request: BankQuestionRequest = Body(...),
-    svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
-    bank_svc: InstructorQuestionBankService = Depends(get_instructor_question_bank_service),
-    _principal: AuthPrincipal = Depends(require_auth_principal),
-):
-    """Add a question to the assessment bank (max 20 per assessment)."""
-    try:
-        _assert_instructor_access(_principal)
-        loop = asyncio.get_event_loop()
-        assessment = await loop.run_in_executor(None, lambda: svc.get_assessment(id))
-        _assert_assessment_owner(_principal, assessment)
-        result = await loop.run_in_executor(None, lambda: bank_svc.add_question(
-            assessment_id=id,
-            text=request.text,
-            topic=request.topic,
-            difficulty=request.difficulty,
-            time_limit=request.timeLimit,
-            source="manual",
-        ))
-        return BankQuestionResponse(**result)
-    except InstructorQuestionBankServiceError as error:
-        raise ApiError(status_code=400, code="add_bank_question_failed", message=str(error))
-    except InstructorAssessmentServiceError as error:
-        raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in add_bank_question: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
-
-
-@assessment_router.delete("/{id}/bank-questions/{question_id}", status_code=204)
-async def delete_bank_question(
-    id: str,
-    question_id: str,
-    svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
-    bank_svc: InstructorQuestionBankService = Depends(get_instructor_question_bank_service),
-    _principal: AuthPrincipal = Depends(require_auth_principal),
-):
-    """Delete a bank question from an assessment."""
-    try:
-        _assert_instructor_access(_principal)
-        loop = asyncio.get_event_loop()
-        assessment = await loop.run_in_executor(None, lambda: svc.get_assessment(id))
-        _assert_assessment_owner(_principal, assessment)
-        await loop.run_in_executor(None, lambda: bank_svc.delete_question(id, question_id))
-        return None
-    except InstructorAssessmentServiceError as error:
-        raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in delete_bank_question: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
-
-
-@assessment_router.post("/{id}/bank-questions/suggest", response_model=SuggestBankQuestionsResponse)
-async def suggest_bank_questions(
-    id: str,
-    request: SuggestBankQuestionsRequest = Body(...),
-    svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
-    bank_svc: InstructorQuestionBankService = Depends(get_instructor_question_bank_service),
-    _principal: AuthPrincipal = Depends(require_auth_principal),
-):
-    """
-    AI-suggest general bank questions based on the assessment brief.
-    Returns suggestions without saving them — the instructor selects which to add
-    via POST /{id}/bank-questions.
-    """
-    try:
-        _assert_instructor_access(_principal)
-        loop = asyncio.get_event_loop()
-        assessment = await loop.run_in_executor(None, lambda: svc.get_assessment(id))
-        _assert_assessment_owner(_principal, assessment)
-        suggestions = await loop.run_in_executor(None, lambda: bank_svc.suggest_questions(id, count=request.count))
-        return SuggestBankQuestionsResponse(
-            ok=True,
-            assessmentId=id,
-            suggestions=[BankQuestionSuggestion(**s) for s in suggestions],
-            total=len(suggestions),
-        )
-    except InstructorQuestionBankServiceError as error:
-        raise ApiError(status_code=400, code="suggest_bank_questions_failed", message=str(error))
-    except InstructorAssessmentServiceError as error:
-        raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in suggest_bank_questions: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Sprint 4 – Per-question time limit override (EPIC-3-4)
-# ──────────────────────────────────────────────────────────────────────────────
-
-@assessment_router.patch("/{id}/students/{student_id}/questions/{question_id}/time-limit")
-async def update_question_time_limit(
-    id: str,
-    student_id: str,
-    question_id: str,
-    request: UpdateQuestionTimeLimitRequest = Body(...),
-    svc: InstructorAssessmentService = Depends(get_instructor_assessment_service),
-    _principal: AuthPrincipal = Depends(require_auth_principal),
-):
-    """
-    Set or clear a per-question time limit override for a student's question.
-    timeLimit = null removes the override (assessment default applies).
-    timeLimit = N (seconds) overrides the assessment default for this question only.
-    """
-    try:
-        _assert_instructor_access(_principal)
-        loop = asyncio.get_event_loop()
-        assessment = await loop.run_in_executor(None, lambda: svc.get_assessment(id))
-        _assert_assessment_owner(_principal, assessment)
-
-        pk = f"STUDENT#{student_id}#ASSESSMENT#{id}"
-        if request.timeLimit is not None:
-            await loop.run_in_executor(None, lambda: svc.table.update_item(
-                Key={"PK": pk, "SK": f"QUESTION#{question_id}"},
-                UpdateExpression="SET timeLimit = :tl",
-                ExpressionAttributeValues={":tl": request.timeLimit},
-            ))
-        else:
-            await loop.run_in_executor(None, lambda: svc.table.update_item(
-                Key={"PK": pk, "SK": f"QUESTION#{question_id}"},
-                UpdateExpression="REMOVE timeLimit",
-            ))
-
-        logger.info(
-            "Set timeLimit=%s on question %s for student %s in assessment %s",
-            request.timeLimit, question_id, student_id, id,
-        )
-        return {"ok": True, "questionId": question_id, "studentId": student_id, "timeLimit": request.timeLimit}
-
-    except InstructorAssessmentServiceError as error:
-        raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in update_question_time_limit: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1558,13 +905,6 @@ async def get_student_detail(
         )
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=404, code="student_detail_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in get_student_detail: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.put("/{id}/student/{student_id}/question/{question_id}/override", response_model=ScoreOverrideResponse)
@@ -1586,13 +926,6 @@ async def override_question_score(
         return ScoreOverrideResponse(ok=True, **result)
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=400, code="override_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in override_question_score: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.put("/{id}/release-results", response_model=ReleaseResultsResponse)
@@ -1649,13 +982,6 @@ async def release_results(
         return ReleaseResultsResponse(ok=True, **result)
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=404, code="assessment_not_found", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in release_results: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.put(
@@ -1689,13 +1015,6 @@ async def record_human_score(
         return RecordHumanScoreResponse(ok=True, **result)
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=400, code="human_score_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in record_human_score: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.get("/{id}/score-agreement", response_model=ScoreAgreementResponse)
@@ -1714,13 +1033,6 @@ async def get_score_agreement(
         return ScoreAgreementResponse(ok=True, **result)
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=400, code="score_agreement_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in get_score_agreement: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.get("/{id}/flagged-evaluations", response_model=FlaggedEvaluationsResponse)
@@ -1739,13 +1051,6 @@ async def get_flagged_evaluations(
         return FlaggedEvaluationsResponse(ok=True, **result)
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=400, code="flagged_evaluations_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in get_flagged_evaluations: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.post("/{id}/student/{student_id}/remind", response_model=SendReminderResponse)
@@ -1765,13 +1070,6 @@ async def send_reminder(
         return SendReminderResponse(ok=True, studentId=student_id, assessmentId=id, message=message)
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=400, code="reminder_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error(f"Unexpected error in send_reminder: {error}")
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 # ── EPIC-3-3: Question Preview and Editing ───────────────────────────────────
@@ -1796,13 +1094,6 @@ async def list_student_questions(
         )
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=400, code="list_questions_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error("Unexpected error in list_student_questions: %s", error)
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.put("/{id}/students/{student_id}/questions/{question_id}", response_model=StudentQuestionResponse)
@@ -1824,13 +1115,6 @@ async def update_student_question(
         return StudentQuestionResponse(question=StudentQuestionItem(**updated))
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=400, code="update_question_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error("Unexpected error in update_student_question: %s", error)
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.delete("/{id}/students/{student_id}/questions/{question_id}", response_model=DeleteStudentQuestionResponse)
@@ -1851,13 +1135,6 @@ async def delete_student_question(
         return DeleteStudentQuestionResponse(deletedId=deleted_id)
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=400, code="delete_question_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error("Unexpected error in delete_student_question: %s", error)
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.post("/{id}/students/{student_id}/questions", response_model=StudentQuestionResponse, status_code=201)
@@ -1880,13 +1157,6 @@ async def add_student_question(
         return StudentQuestionResponse(question=StudentQuestionItem(**added))
     except InstructorAssessmentServiceError as error:
         raise ApiError(status_code=400, code="add_question_failed", message=str(error))
-    except HTTPException:
-        raise
-    except ApiError:
-        raise
-    except Exception as error:
-        logger.error("Unexpected error in add_student_question: %s", error)
-        raise ApiError(status_code=500, code="unexpected_error", message=str(error))
 
 
 @assessment_router.get("/{id}/evaluation-status-stream/{jobId}")

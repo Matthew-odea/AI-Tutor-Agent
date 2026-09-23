@@ -15,14 +15,17 @@ def _build_service(monkeypatch) -> AuthService:
     monkeypatch.setenv("AUTH_PASSWORD_RESET_BASE_URL", "http://localhost:5173/?reset=1")
     monkeypatch.setenv("AUTH_PASSWORD_RESET_FROM_EMAIL", "noreply@example.com")
     monkeypatch.setenv("AUTH_PASSWORD_RESET_TOKEN_MINUTES", "30")
-    monkeypatch.setenv("AUTH_PERSIST_USERS", "false")
-
     ses_client = MagicMock()
     monkeypatch.setattr("src.main.auth.service.boto3.client", lambda *args, **kwargs: ses_client)
+    # No DynamoDB here: these tests cover the env-configured user path, and this
+    # also keeps the constructor from reaching for a real table.
+    monkeypatch.setattr(
+        "src.main.auth.service.boto3.resource",
+        MagicMock(side_effect=RuntimeError("no DynamoDB in this test")),
+    )
 
     service = AuthService()
-    service.auth_users_table = None
-    service.persist_users = False
+    assert service.auth_users_table is None and service.persist_users is False
     return service
 
 

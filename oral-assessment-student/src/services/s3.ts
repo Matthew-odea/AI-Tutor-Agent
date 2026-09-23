@@ -4,6 +4,7 @@
 
 import axios, { AxiosError } from 'axios';
 import { getUploadUrl, uploadAudioToS3 } from './api';
+import type { UploadTarget } from './api';
 import type { ApiError } from '../types';
 
 export interface UploadProgress {
@@ -38,7 +39,7 @@ function isPresignedUrlExpired(err: unknown): boolean {
  */
 async function uploadMedia(
   blob: Blob,
-  filename: string,
+  target: UploadTarget,
   onProgress?: (progress: UploadProgress) => void
 ): Promise<string> {
   const reportProgress = (percentage: number) => {
@@ -51,7 +52,7 @@ async function uploadMedia(
     }
   };
 
-  const { uploadUrl, fileUrl } = await getUploadUrl(filename, blob.type);
+  const { uploadUrl, fileUrl } = await getUploadUrl(target, blob.type);
   try {
     await uploadAudioToS3(uploadUrl, blob, reportProgress);
     return fileUrl;
@@ -60,7 +61,7 @@ async function uploadMedia(
     // retry the PUT against it. Any other failure (including a second expiry)
     // propagates to uploadAudio's error-message mapping unchanged.
     if (!isPresignedUrlExpired(error)) throw error;
-    const refreshed = await getUploadUrl(filename, blob.type);
+    const refreshed = await getUploadUrl(target, blob.type);
     await uploadAudioToS3(refreshed.uploadUrl, blob, reportProgress);
     return refreshed.fileUrl;
   }
@@ -116,36 +117,16 @@ function toFriendlyUploadError(error: unknown): Error {
  */
 export async function uploadAudio(
   audioBlob: Blob,
-  studentId: string,
   questionId: string,
   onProgress?: (progress: UploadProgress) => void
 ): Promise<string> {
   try {
-    const ext = audioBlob.type.includes('mp4') ? 'mp4' : audioBlob.type.includes('ogg') ? 'ogg' : 'webm';
-    const filename = `audio/${studentId}/${questionId}_${Date.now()}.${ext}`;
-    return await uploadMedia(audioBlob, filename, onProgress);
+    // The key (audio/<student>/<question>_<timestamp>.<ext>) is built server-side
+    // from the auth token, so no student id is sent from here.
+    return await uploadMedia(audioBlob, { kind: 'audio', questionId }, onProgress);
   } catch (error) {
     console.error('Failed to upload audio:', error);
     throw toFriendlyUploadError(error);
-  }
-}
-
-/**
- * Upload video blob to S3 and return the file URL
- */
-export async function uploadVideo(
-  videoBlob: Blob,
-  studentId: string,
-  questionId: string,
-  onProgress?: (progress: UploadProgress) => void
-): Promise<string> {
-  try {
-    const ext = videoBlob.type.includes('mp4') ? 'mp4' : 'webm';
-    const filename = `video/${studentId}/${questionId}_${Date.now()}.${ext}`;
-    return await uploadMedia(videoBlob, filename, onProgress);
-  } catch (error) {
-    console.error('Failed to upload video:', error);
-    throw new Error('Failed to upload video file. Please try again.');
   }
 }
 
@@ -184,7 +165,6 @@ export function formatFileSize(bytes: number): string {
 
 export default {
   uploadAudio,
-  uploadVideo,
   validateAudioBlob,
   formatFileSize,
 };

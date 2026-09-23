@@ -75,8 +75,6 @@ Business logic layer. Key service groups:
 - `InstructorAssessmentEnrollment` -- student CSV upload, enrollment management
 - `InstructorAssessmentProgressAggregator` -- aggregate student progress
 - `InstructorAssessmentResultsAggregator` -- aggregate evaluation results
-- `InstructorQuestionBankService` -- question bank CRUD, AI-suggested questions
-- `InstructorSubmissionService` -- track instructor submissions
 
 **Student Assessment:**
 - `OralAssessmentService` -- student-side: fetch questions, submit answers, track progress
@@ -134,7 +132,7 @@ User message
 
 ```
 Instructor triggers batch generation
-  → POST /api/assessment/{id}/questions/generate
+  → POST /api/assessment/{id}/generate-questions-batch
   → SQSJobDispatcher: send message to SQS queue
   → SQS consumer thread picks up job
   → QuestionGenerationService: for each student
@@ -148,29 +146,34 @@ Instructor triggers batch generation
 
 ```
 Student opens assessment link
-  → POST /api/student/token → session JWT
+  → POST /api/auth/student/exchange → single-use invite token exchanged for a 12-hour session JWT
   → GET /api/student/{id}/assessment/{aid}/questions → question list
   → For each question:
     → Record audio/video or type text answer
-    → POST /api/s3/presigned-url → upload media to S3
-    → POST /api/student/{id}/assessment/{aid}/answer → store answer metadata
-  → POST /api/student/{id}/assessment/{aid}/submit → mark complete
+    → POST /api/s3/upload-url → upload media to S3
+    → POST /api/student/{id}/answer → store answer metadata
+  → PUT /api/student/{id}/submit → mark complete
 ```
+
+Note: `answer` and `submit` are scoped by `student_id` only — the assessment is resolved server-side from the student's enrollment, not from an `{aid}` path segment.
 
 ### Batch Evaluation
 
 ```
 Instructor triggers evaluation
-  → POST /api/assessment/{id}/evaluate
+  → POST /api/assessment/{id}/evaluate-batch
   → SQSJobDispatcher: send message to SQS queue
   → SQS consumer thread picks up job
   → EvaluationWorkflowRunner: for each student with submitted answers
     → Fetch questions + answers from DynamoDB
-    → If audio: fetch transcript from S3 (or transcribe via Deepgram)
-    → ResponseEvaluationEngine: Bedrock → correctness (0-5) + understanding (0-5)
+    → If audio/video: fetch transcript from S3 (or transcribe via Deepgram)
+    → ResponseEvaluationEngine: Bedrock → correctness (0-5) + understanding (0-5),
+      server-summed to a total_score (0-10 by default per question)
     → Store evaluation in DynamoDB
   → Update job status
 ```
+
+Per-question max score defaults to 10 (`correctness + understanding`, each clamped 0-5) and grade cutoffs default to 90/75/60 (`excellent`/`competent`/`developing`). Both are resolved per-assessment by `ScoringConfig.from_metadata()` from optional `maxScorePerQuestion` / `gradeCutoffs` fields on the assessment's METADATA item — see `src/main/service/ScoringConfig.py`.
 
 ### Document Upload (RAG Context)
 
@@ -185,9 +188,9 @@ POST /internal/context/upload
 
 ## Async Job System
 
-Two job mechanisms:
+One job mechanism: **SQS + DynamoDB**. `SQSJobDispatcher` sends messages to an SQS queue. A consumer thread started at app boot processes jobs and writes status to DynamoDB as `JOB#` records (see `DYNAMODB_SCHEMA.md`).
 
-1. **SQS + DynamoDB** (production) -- `SQSJobDispatcher` sends messages to an SQS queue. A consumer thread started at app boot processes jobs and writes status to DynamoDB as `JOB#` records.
+`BatchJobManager` is a thin compatibility wrapper kept so routers didn't need to change call sites -- it delegates to `DynamoDBJobStore` and holds no state of its own. There is no in-memory job fallback.
 
 The SQS consumer connects two services: `QuestionGenerationService` (question generation jobs) and `EvaluationWorkflowRunner` (evaluation jobs).
 
@@ -198,7 +201,7 @@ The SQS consumer connects two services: `QuestionGenerationService` (question ge
 | DynamoDB `oral_assessments` | Assessments, students, questions, answers, evaluations, jobs | See `docs/DYNAMODB_SCHEMA.md` |
 | DynamoDB `auth_users` | User credentials and profiles | `email` as partition key |
 | Neo4j | Document chunks with vector embeddings | Graph nodes with vector index |
-| S3 `assessment bucket` | Audio/video recordings, transcripts | `{assessmentId}/{studentId}/{questionId}.*` |
+| S3 `assessment bucket` | Audio recordings: `audio/{userId}/{questionId}_{timestampMs}.{ext}`. Proctoring chunks: `proctoring/{assessmentId}/{userId}/chunk_{index:06d}.{ext}`. Keys are built server-side (`S3UploadService.build_upload_key`) from the authenticated principal, never from client input. Transcripts are not stored in S3 -- they're written to the `transcript` attribute on the DynamoDB answer item. |
 | SQS | Async job messages | Transient |
 
 ## Frontend Architecture

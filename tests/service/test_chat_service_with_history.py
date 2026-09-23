@@ -6,7 +6,6 @@ import pytest
 import uuid
 from unittest.mock import MagicMock
 from src.main.service.ChatService import ChatService, ChatServiceError
-from src.main.agentcore_setup.memory import ConversationMemory
 
 
 class DummyVectorService:
@@ -62,9 +61,9 @@ class DummyAgentClient:
 
 
 @pytest.fixture
-def memory():
-    """Create fresh ConversationMemory for each test."""
-    return ConversationMemory(max_sessions=10)
+def memory(conversation_memory):
+    """Fresh moto-backed conversation store for each test."""
+    return conversation_memory
 
 
 @pytest.fixture
@@ -175,13 +174,13 @@ class TestConversationHistory:
         assert history[0]["content"] == "Hello world"
         assert history[1]["role"] == "assistant"
     
-    def test_history_respects_max_messages_limit(self, chat_service):
+    def test_history_respects_max_messages_limit(self, memory):
         """Test that history is truncated to max_history_messages."""
         # Create service with small history limit
         service = ChatService(
             vector_service=DummyVectorService(),
             agent_client=DummyAgentClient(),
-            memory=ConversationMemory(),
+            memory=memory,
             max_history_messages=4  # Only keep 4 messages
         )
         

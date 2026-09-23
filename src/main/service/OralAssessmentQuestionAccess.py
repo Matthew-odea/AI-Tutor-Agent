@@ -34,6 +34,11 @@ class OralAssessmentQuestionAccess:
         """
         Fetch question-bank items for this assessment.
         Stored at PK=ASSESSMENT#{assessment_id}, SK=BANK_QUESTION#{id}
+
+        Read-only since 2026-09-22: the question-bank feature was deleted as dead, so
+        nothing writes BANK_QUESTION# items any more. This read stays until someone
+        confirms no such items exist in production — removing it before then would
+        silently drop questions from any assessment that has them.
         """
         response = self.table.query(
             KeyConditionExpression=Key("PK").eq(f"ASSESSMENT#{assessment_id}")

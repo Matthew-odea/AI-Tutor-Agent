@@ -13,7 +13,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
 from app import create_app
-from src.main.auth.dependencies import get_auth_service
+from src.main.auth.dependencies import get_auth_service, require_auth_principal
 from src.main.auth.models import AuthPrincipal
 
 
@@ -136,3 +136,28 @@ class TestResetPassword:
         resp = client.post("/api/auth/reset-password", json={"token": "t" * 25, "new_password": "newpass123"})
         assert resp.status_code == 200
         assert "reset successfully" in resp.json()["message"].lower()
+
+
+class TestSetUserRoles:
+    """Role assignment is admin-only — an instructor must not be able to self-promote."""
+
+    def _client_as(self, roles):
+        svc = _mock_auth_service()
+        app = create_app()
+        app.dependency_overrides[get_auth_service] = lambda: svc
+        app.dependency_overrides[require_auth_principal] = lambda: AuthPrincipal(
+            user_id="u-1", email="u@test.com", roles=roles, source="jwt"
+        )
+        return TestClient(app), svc
+
+    def test_instructor_cannot_grant_admin(self):
+        client, svc = self._client_as(["instructor"])
+        resp = client.put("/api/auth/users/u@test.com/roles", json={"roles": ["instructor", "admin"]})
+        assert resp.status_code == 403
+        svc.set_user_roles.assert_not_called()
+
+    def test_admin_can_set_roles(self):
+        client, svc = self._client_as(["admin"])
+        resp = client.put("/api/auth/users/other@test.com/roles", json={"roles": ["instructor"]})
+        assert resp.status_code == 200
+        svc.set_user_roles.assert_called_once_with("other@test.com", ["instructor"])

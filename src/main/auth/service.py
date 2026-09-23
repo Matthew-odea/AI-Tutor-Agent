@@ -27,7 +27,6 @@ class AuthService:
         self.jwt_secret = os.getenv("AUTH_JWT_SECRET", "").strip()
         self.jwt_algorithm = os.getenv("AUTH_JWT_ALGORITHM", "HS256").strip() or "HS256"
         self.google_oauth_client_id = os.getenv("GOOGLE_OAUTH_CLIENT_ID", "").strip()
-        self.allow_header_fallback = os.getenv("AUTH_ALLOW_HEADER_FALLBACK", "false").lower() == "true"
         self.access_token_minutes = self._parse_positive_int(os.getenv("AUTH_ACCESS_TOKEN_MINUTES"), default=60)
         self.password_hash_iterations = self._parse_positive_int(os.getenv("AUTH_PASSWORD_HASH_ITERATIONS"), default=200_000)
         self.password_reset_token_minutes = self._parse_positive_int(
@@ -46,10 +45,13 @@ class AuthService:
             for role in os.getenv("AUTH_SIGNUP_DEFAULT_ROLES", "student").split(",")
             if role.strip()
         ]
-        self.persist_users = os.getenv("USE_DYNAMODB", "false").lower() == "true"
         self.auth_users_table_name = os.getenv("DYNAMODB_AUTH_USERS_TABLE", "auth_users")
         self.auth_users_region = os.getenv("AWS_DEFAULT_REGION", "us-east-1")
-        self.auth_users_table = self._init_auth_users_table() if self.persist_users else None
+        # Whether the users table is reachable, not a configuration choice.
+        # _init_auth_users_table clears this if the table is missing, and the
+        # service then falls back to the env-configured login users.
+        self.persist_users = True
+        self.auth_users_table = self._init_auth_users_table()
         self.ses_client = self._init_ses_client()
         self._login_users = self._load_login_users()
 
@@ -181,6 +183,11 @@ class AuthService:
             return None
         return token.strip()
 
+    # Purposes a bearer token may carry to authenticate a request. Refresh,
+    # password-reset and student-invite tokens are signed with the same key and
+    # must never be accepted here.
+    BEARER_PURPOSES = frozenset({"access", "student_session"})
+
     def _decode_jwt(self, token: str) -> Dict[str, Any]:
         if not self.jwt_secret:
             raise HTTPException(
@@ -197,6 +204,11 @@ class AuthService:
             )
             if not isinstance(payload, dict):
                 raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token payload")
+            if payload.get("purpose") not in self.BEARER_PURPOSES:
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token is not valid for authentication",
+                )
             return payload
         except jwt.ExpiredSignatureError:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token expired")
@@ -237,10 +249,8 @@ class AuthService:
     @staticmethod
     def _password_matches(raw_password: str, user_record: Dict[str, Any]) -> bool:
         expected_password = user_record.get("password")
-        if isinstance(expected_password, str) and expected_password:
-            if expected_password.startswith("pbkdf2_sha256$"):
-                return AuthService._verify_hashed_password(raw_password, expected_password)
-            return compare_digest(raw_password, expected_password)
+        if isinstance(expected_password, str) and AuthService._is_hashed_password(expected_password):
+            return AuthService._verify_hashed_password(raw_password, expected_password)
 
         return False
 
@@ -552,6 +562,15 @@ class AuthService:
         normalized_email = self._normalize_email(email)
         user_record = self._load_existing_user(normalized_email)
 
+        # Legacy records stored the password in plaintext. Those logins now fail
+        # closed; the account is recovered through the password-reset flow, which
+        # writes a PBKDF2 hash.
+        if user_record and not self._is_hashed_password(str(user_record.get("password") or "")):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="This account must reset its password before signing in. Use 'Forgot password'.",
+            )
+
         if not user_record or not self._password_matches(password, user_record):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
@@ -746,6 +765,7 @@ class AuthService:
             "sub": principal.user_id,
             "email": principal.email,
             "roles": principal.roles,
+            "purpose": "access",
             "iat": int(now.timestamp()),
             "exp": int(expires_at.timestamp()),
         }
@@ -759,14 +779,13 @@ class AuthService:
             "roles": principal.roles,
         }
 
-    def resolve_principal(self, authorization: Optional[str], x_user_id: Optional[str]) -> AuthPrincipal:
+    def resolve_principal(self, authorization: Optional[str], x_user_id: Optional[str] = None) -> AuthPrincipal:
+        # x_user_id is accepted and ignored: callers still pass the header through,
+        # but an unsigned header is never an identity.
         token = self._extract_bearer_token(authorization)
         if token:
             payload = self._decode_jwt(token)
             return self._principal_from_payload(payload)
-
-        if self.allow_header_fallback and x_user_id and x_user_id.strip():
-            return AuthPrincipal(user_id=x_user_id.strip(), source="x-user-id")
 
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
 
@@ -848,10 +867,39 @@ class AuthService:
                 self._assessment_table_cache = None
         return self._assessment_table_cache
 
+    def assessment_window_end(self, assessment_id: str) -> Optional[datetime]:
+        """
+        Close time of an assessment, from the same METADATA item the assessment
+        service reads: the scheduled window end when the assessment is scheduled,
+        otherwise the due date. Returns None when it cannot be determined, in
+        which case callers fall back to a fixed expiry.
+        """
+        table = self._get_assessment_table()
+        if not table:
+            return None
+        try:
+            item = table.get_item(
+                Key={"PK": f"ASSESSMENT#{assessment_id}", "SK": "METADATA"}
+            ).get("Item")
+            if not item:
+                return None
+            raw = None
+            if item.get("accessMode", "open") == "scheduled":
+                raw = item.get("scheduledWindowEnd")
+            raw = raw or item.get("dueDate")
+            if not isinstance(raw, str) or not raw.strip():
+                return None
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+        except Exception:
+            logger.warning("Could not read assessment window for %s", assessment_id)
+            return None
+
     def generate_student_invite_token(self, student_id: str, assessment_id: str) -> str:
         """
-        Generate a signed, single-use invite token for a student.
-        The jti is stored in DynamoDB so the token can only be exchanged once.
+        Generate a signed invite token for a student. It stays exchangeable for a
+        session token for as long as the assessment window is open, so a student
+        who loses their session can recover it from the same emailed link.
         """
         if not self.jwt_secret:
             raise HTTPException(
@@ -859,7 +907,11 @@ class AuthService:
                 detail="JWT authentication is not configured",
             )
         now = datetime.now(timezone.utc)
-        expires_at = now + timedelta(days=7)
+        window_end = self.assessment_window_end(assessment_id)
+        # One hour past the close so a submission in the final minutes still works.
+        expires_at = (window_end + timedelta(hours=1)) if window_end else (now + timedelta(days=7))
+        if expires_at <= now:
+            expires_at = now + timedelta(hours=1)
         jti = secrets.token_urlsafe(16)
 
         payload: Dict[str, Any] = {
@@ -952,14 +1004,15 @@ class AuthService:
                 f"Hi {student_name},\n\n"
                 f"You have been invited to complete an assessment: {assessment_title}.\n\n"
                 f"Click the link below to start:\n{invite_link}\n\n"
-                "This link is single-use and expires in 7 days.\n\n"
+                "Keep this link — you can use it again to get back into your\n"
+                "assessment until it closes.\n\n"
                 "Good luck!"
             )
             html_body = (
                 f"<p>Hi {student_name},</p>"
                 f"<p>You have been invited to complete an assessment: <strong>{assessment_title}</strong>.</p>"
                 f'<p><a href="{invite_link}">Click here to start your assessment</a></p>'
-                "<p>This link is single-use and expires in 7 days.</p>"
+                "<p>Keep this link — you can use it again to get back into your assessment until it closes.</p>"
                 "<p>Good luck!</p>"
             )
 
@@ -981,8 +1034,10 @@ class AuthService:
 
     def exchange_student_invite_token(self, token: str) -> Dict[str, Any]:
         """
-        Exchange a single-use invite token for a short-lived student session token.
-        Marks the jti as used in DynamoDB to prevent replay.
+        Exchange an invite token for a short-lived student session token.
+        Re-usable while the assessment window is open — losing a session must not
+        lock a student out of their own assessment — and refused once it closes.
+        The jti record in DynamoDB remains the revocation point.
         """
         if not self.jwt_secret:
             raise HTTPException(
@@ -1011,23 +1066,31 @@ class AuthService:
         if not student_id or not assessment_id or not jti:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid invite token claims")
 
-        # Conditionally mark jti used — fails if already used or not found.
+        now = datetime.now(timezone.utc)
+        window_end = self.assessment_window_end(assessment_id)
+        if window_end and now > window_end + timedelta(hours=1):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="This assessment has closed.",
+            )
+
+        # The jti record must still exist — deleting it revokes the invite.
         table = self._get_assessment_table()
         if table:
             try:
                 table.update_item(
                     Key={"PK": f"INVITE#{jti}", "SK": "METADATA"},
-                    UpdateExpression="SET #u = :true",
-                    ConditionExpression="attribute_exists(PK) AND #u = :false",
+                    UpdateExpression="SET #u = :true, last_used_at = :now",
+                    ConditionExpression="attribute_exists(PK)",
                     ExpressionAttributeNames={"#u": "used"},
-                    ExpressionAttributeValues={":true": True, ":false": False},
+                    ExpressionAttributeValues={":true": True, ":now": now.isoformat()},
                 )
             except ClientError as exc:
                 code = exc.response.get("Error", {}).get("Code", "")
                 if code == "ConditionalCheckFailedException":
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Invite token has already been used",
+                        detail="This invite link is no longer valid.",
                     )
                 logger.exception("DynamoDB error checking invite jti %s", jti)
                 raise HTTPException(
@@ -1035,11 +1098,17 @@ class AuthService:
                     detail="Failed to validate invite token",
                 )
 
-        return self.issue_student_session_token(student_id, assessment_id)
+        return self.issue_student_session_token(student_id, assessment_id, window_end=window_end)
 
-    def issue_student_session_token(self, student_id: str, assessment_id: str) -> Dict[str, Any]:
+    def issue_student_session_token(
+        self,
+        student_id: str,
+        assessment_id: str,
+        window_end: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
         """
-        Issue a short-lived (12-hour) session JWT for a student.
+        Issue a short-lived (12-hour) session JWT for a student, never outliving
+        the assessment window when that is known.
         The JWT has sub=student_id and roles=["student"] so the existing
         _assert_student_access() check in student_router.py works unchanged.
         """
@@ -1050,6 +1119,10 @@ class AuthService:
             )
         now = datetime.now(timezone.utc)
         expires_at = now + timedelta(hours=12)
+        if window_end:
+            expires_at = min(expires_at, window_end + timedelta(hours=1))
+        if expires_at <= now:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="This assessment has closed.")
         payload: Dict[str, Any] = {
             "sub": student_id,
             "student_id": student_id,
@@ -1063,7 +1136,7 @@ class AuthService:
         return {
             "access_token": token,
             "token_type": "bearer",
-            "expires_in": 12 * 3600,
+            "expires_in": int((expires_at - now).total_seconds()),
             "student_id": student_id,
             "assessment_id": assessment_id,
         }

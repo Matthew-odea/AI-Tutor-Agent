@@ -164,6 +164,9 @@ class QuestionResultDetail(BaseModel):
     weaknesses: Optional[List[str]] = None
     suggestedImprovements: Optional[List[str]] = None
     evaluatedAt: Optional[str] = None
+    # True when the AI could not score this question and no instructor has yet.
+    # It is excluded from totalScore and maxScore until someone does.
+    awaitingReview: bool = False
 
 
 class StudentResultsResponse(BaseModel):
@@ -181,4 +184,7 @@ class StudentResultsResponse(BaseModel):
     submittedAt: Optional[str] = None
     evaluatedQuestions: int
     totalQuestions: int
+    # Non-zero means percentage is over a partial denominator: that many questions
+    # are excluded pending instructor review.
+    questionsAwaitingReview: int = 0
     questions: List[QuestionResultDetail]

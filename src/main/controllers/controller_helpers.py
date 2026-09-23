@@ -71,9 +71,6 @@ def _assert_instructor_access(principal: AuthPrincipal) -> None:
     if _has_role(principal, {"instructor", "admin"}):
         return
 
-    if principal.source == "x-user-id":
-        return
-
     raise HTTPException(status_code=403, detail="Instructor access required")
 
 
@@ -99,8 +96,5 @@ def _assert_assessment_owner(principal: AuthPrincipal, assessment: dict) -> None
         if principal.user_id == created_by:
             return
         raise HTTPException(status_code=403, detail="Assessment access denied")
-
-    if principal.source == "x-user-id":
-        return
 
     raise HTTPException(status_code=403, detail="Assessment ownership metadata missing")

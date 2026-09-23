@@ -11,7 +11,9 @@ Tests for AuthService covering:
 """
 from __future__ import annotations
 
+import json
 import time
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import jwt as pyjwt
@@ -32,18 +34,21 @@ def _build_service(monkeypatch, **overrides) -> AuthService:
     monkeypatch.setenv("AUTH_JWT_ALGORITHM", "HS256")
     monkeypatch.setenv("AUTH_ACCESS_TOKEN_MINUTES", "60")
     monkeypatch.setenv("AUTH_SIGNUP_DEFAULT_ROLES", "student")
-    monkeypatch.setenv("AUTH_ALLOW_HEADER_FALLBACK", overrides.get("header_fallback", "false"))
-    monkeypatch.setenv("USE_DYNAMODB", "false")
     monkeypatch.setenv("AUTH_USERS_JSON", overrides.get("users_json", "[]"))
     monkeypatch.setenv("AUTH_PASSWORD_RESET_BASE_URL", "http://localhost:5173/?reset=1")
     monkeypatch.setenv("AUTH_PASSWORD_RESET_FROM_EMAIL", "noreply@test.com")
 
     ses_mock = MagicMock()
     monkeypatch.setattr("src.main.auth.service.boto3.client", lambda *a, **kw: ses_mock)
+    # No DynamoDB here: these tests cover the env-configured user path, and this
+    # also keeps the constructor from reaching for a real table.
+    monkeypatch.setattr(
+        "src.main.auth.service.boto3.resource",
+        MagicMock(side_effect=RuntimeError("no DynamoDB in this test")),
+    )
 
     svc = AuthService()
-    svc.auth_users_table = None
-    svc.persist_users = False
+    assert svc.auth_users_table is None and svc.persist_users is False
     return svc
 
 
@@ -109,12 +114,26 @@ class TestEmailPasswordAuth:
         assert exc_info.value.status_code == 401
 
     def test_login_with_env_configured_user(self, monkeypatch):
-        users_json = '[{"email":"admin@test.com","password":"admin123","user_id":"admin-1","roles":["instructor"]}]'
+        # Env-configured users must carry a PBKDF2 hash, not a plaintext password.
+        hashed = _build_service(monkeypatch)._hash_password("admin123")
+        users_json = json.dumps([
+            {"email": "admin@test.com", "password": hashed, "user_id": "admin-1", "roles": ["instructor"]}
+        ])
         svc = _build_service(monkeypatch, users_json=users_json)
 
         principal = svc.authenticate_credentials("admin@test.com", "admin123")
         assert principal.user_id == "admin-1"
         assert "instructor" in principal.roles
+
+    def test_login_with_plaintext_stored_password_is_refused(self, monkeypatch):
+        """A legacy plaintext record fails closed and is pointed at password reset."""
+        users_json = '[{"email":"legacy@test.com","password":"admin123","user_id":"legacy-1","roles":["instructor"]}]'
+        svc = _build_service(monkeypatch, users_json=users_json)
+
+        with pytest.raises(HTTPException) as exc_info:
+            svc.authenticate_credentials("legacy@test.com", "admin123")
+        assert exc_info.value.status_code == 401
+        assert "reset" in exc_info.value.detail.lower()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -268,6 +287,47 @@ class TestStudentInviteTokens:
         assert payload["purpose"] == "student_session"
 
 
+class TestStudentInviteReuse:
+    """An invite stays usable while the assessment is open — and only until then."""
+
+    @staticmethod
+    def _table_with_due_date(due_date_iso: str) -> MagicMock:
+        table = MagicMock()
+        table.get_item.return_value = {"Item": {"dueDate": due_date_iso}}
+        return table
+
+    def test_exchange_twice_inside_window(self, monkeypatch):
+        svc = _build_service(monkeypatch)
+        closes = datetime.now(timezone.utc) + timedelta(hours=2)
+        svc._assessment_table_cache = self._table_with_due_date(closes.isoformat())
+
+        token = svc.generate_student_invite_token("s-1", "a-1")
+        first = svc.exchange_student_invite_token(token)
+        second = svc.exchange_student_invite_token(token)
+
+        assert first["student_id"] == second["student_id"] == "s-1"
+        assert first["access_token"] and second["access_token"]
+        # Session never outlives the window (2h left, not the 12h default).
+        assert second["expires_in"] <= 3 * 3600
+
+    def test_exchange_refused_after_window_closes(self, monkeypatch):
+        svc = _build_service(monkeypatch)
+        open_table = self._table_with_due_date(
+            (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+        )
+        svc._assessment_table_cache = open_table
+        token = svc.generate_student_invite_token("s-1", "a-1")
+
+        # The assessment closed a day ago.
+        open_table.get_item.return_value = {
+            "Item": {"dueDate": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()}
+        }
+        with pytest.raises(HTTPException) as exc_info:
+            svc.exchange_student_invite_token(token)
+        assert exc_info.value.status_code == 401
+        assert "closed" in exc_info.value.detail.lower()
+
+
 class TestStudentInviteEmail:
     """send_student_invite_email — custom copy (used by bulk send + per-student resend)."""
 
@@ -300,7 +360,7 @@ class TestStudentInviteEmail:
         svc.ses_client.send_email.assert_called_once()
         message = svc.ses_client.send_email.call_args.kwargs["Message"]
         assert message["Subject"]["Data"] == "Your assessment invitation: Quiz 2"
-        assert "single-use" in message["Body"]["Text"]["Data"]
+        assert "use it again" in message["Body"]["Text"]["Data"]
 
 
 # ─────────────────────────────────────────────────────────────
@@ -317,17 +377,27 @@ class TestPrincipalResolution:
         assert resolved.user_id == "u-1"
         assert resolved.source == "jwt"
 
-    def test_resolve_from_x_user_id_when_allowed(self, monkeypatch):
-        svc = _build_service(monkeypatch, header_fallback="true")
-        resolved = svc.resolve_principal(None, "fallback-user")
-        assert resolved.user_id == "fallback-user"
-        assert resolved.source == "x-user-id"
-
-    def test_resolve_rejects_x_user_id_when_not_allowed(self, monkeypatch):
-        svc = _build_service(monkeypatch, header_fallback="false")
+    def test_resolve_rejects_x_user_id(self, monkeypatch):
+        """The X-User-Id header is never an identity, whatever the environment says."""
+        monkeypatch.setenv("AUTH_ALLOW_HEADER_FALLBACK", "true")
+        svc = _build_service(monkeypatch)
         with pytest.raises(HTTPException) as exc_info:
             svc.resolve_principal(None, "fallback-user")
         assert exc_info.value.status_code == 401
+
+    def test_resolve_rejects_tokens_of_another_purpose(self, monkeypatch):
+        """Reset, refresh and invite tokens share the signing key — none is a credential."""
+        svc = _build_service(monkeypatch)
+        svc._assessment_table_cache = None
+
+        reset_token, _jti, _expires = svc._issue_password_reset_token("u@test.com")
+        refresh_token = svc.issue_refresh_token(AuthPrincipal(user_id="u-1", email="u@test.com"))
+        invite_token = svc.generate_student_invite_token("s-1", "a-1")
+
+        for token in (reset_token, refresh_token, invite_token):
+            with pytest.raises(HTTPException) as exc_info:
+                svc.resolve_principal(f"Bearer {token}", None)
+            assert exc_info.value.status_code == 401
 
     def test_resolve_no_auth_raises(self, monkeypatch):
         svc = _build_service(monkeypatch)

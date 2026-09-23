@@ -8,6 +8,7 @@ fire exactly once per milestone even under concurrent submissions.
 """
 from __future__ import annotations
 
+import threading
 from unittest.mock import MagicMock
 
 import boto3
@@ -84,6 +85,60 @@ def seed_students(table, submitted: int, not_submitted: int = 0, assessment_id=A
             "SK": f"STUDENT#n{i}",
             "status": "enrolled",
         })
+
+
+class _WriteBarrierTable:
+    """Table wrapper that forces the lost-update interleaving.
+
+    Every write waits at a barrier until `parties` callers have arrived, so all of
+    them have completed their reads before any write lands. Writes are then applied
+    one at a time — moto is not thread-safe, and the race under test is in our code,
+    not in the mock.
+    """
+
+    def __init__(self, inner, parties: int):
+        self._inner = inner
+        self._barrier = threading.Barrier(parties, timeout=10)
+        self._write_lock = threading.Lock()
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    def _write(self, method, kwargs):
+        self._barrier.wait()
+        with self._write_lock:
+            return method(**kwargs)
+
+    def update_item(self, **kwargs):
+        return self._write(self._inner.update_item, kwargs)
+
+    def put_item(self, **kwargs):
+        return self._write(self._inner.put_item, kwargs)
+
+
+class _SerializedTable:
+    """Table wrapper that applies each call one at a time, as real DynamoDB does per item.
+
+    moto is not thread-safe: ten threads issuing a bare conditional `update_item`
+    against it, with no application code involved, let more than one write win in
+    about one trial in thirty. The lock covers one call, not a sequence, so a
+    read-then-write implementation still races under it.
+    """
+
+    def __init__(self, inner):
+        self._inner = inner
+        self._lock = threading.Lock()
+
+    def __getattr__(self, name):
+        attr = getattr(self._inner, name)
+        if not callable(attr):
+            return attr
+
+        def locked(*args, **kwargs):
+            with self._lock:
+                return attr(*args, **kwargs)
+
+        return locked
 
 
 class TestCountSubmitted:
@@ -187,9 +242,30 @@ class TestShouldGenerateOnSubmit:
         from concurrent.futures import ThreadPoolExecutor
 
         seed_students(table, submitted=10)
-        svc = make_service(table)
+        svc = make_service(_SerializedTable(table))
         with ThreadPoolExecutor(max_workers=10) as pool:
             decisions = list(pool.map(lambda _: svc.should_generate_on_submit(ASSESSMENT_ID), range(10)))
+        assert sum(1 for d in decisions if d is not None) == 1
+
+    def test_lost_update_interleaving_still_yields_one_decision(self, table):
+        """The race itself, forced rather than hoped for.
+
+        `_WriteBarrierTable` holds every writer until all of them have finished
+        reading, which is exactly the interleaving that loses an increment: both
+        submissions decide from the same pre-write state. A read-modify-write
+        counter claims milestone 1 twice here and generates two reports. Only a
+        conditional write survives it, so this fails if the atomic claim is
+        replaced by a read-then-write.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
+        seed_students(table, submitted=10)
+        svc = make_service(_WriteBarrierTable(table, parties=2))
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(svc.should_generate_on_submit, ASSESSMENT_ID) for _ in range(2)]
+            decisions = [f.result(timeout=10) for f in futures]
+
         assert sum(1 for d in decisions if d is not None) == 1
 
     def test_auto_report_disabled_never_fires(self, table):

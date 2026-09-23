@@ -25,7 +25,7 @@ vi.mock('axios', async (importOriginal) => {
     (config: unknown) => h.replayMock(config),
     {
       post: (url: string, body: unknown) => {
-        if (url.includes('/student/token')) return h.tokenPostMock(body);
+        if (url.includes('/auth/student/exchange')) return h.tokenPostMock(body);
         return Promise.resolve({ data: {} });
       },
       put: vi.fn().mockResolvedValue({ data: {} }),
@@ -73,8 +73,9 @@ function make401(url: string): AxiosError {
 
 beforeEach(() => {
   sessionStorage.clear();
-  sessionStorage.setItem('studentId', 'z1');
-  sessionStorage.setItem('assessmentId', 'a1');
+  localStorage.clear();
+  // The session is renewed by re-exchanging the student's own invite token.
+  localStorage.setItem('inviteToken', 'invite-abc');
   tokenPostMock.mockReset();
   replayMock.mockReset();
   replayMock.mockResolvedValue({ data: { ok: true } });
@@ -84,12 +85,12 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('single-flight token refresh interceptor', () => {
+describe('single-flight session renewal interceptor', () => {
   it('captured the response error handler', () => {
     expect(h.capturedErrorHandler).toBeTypeOf('function');
   });
 
-  it('N concurrent 401s trigger exactly ONE token POST and all are replayed', async () => {
+  it('N concurrent 401s trigger exactly ONE invite exchange and all are replayed', async () => {
     let resolveToken: (v: { data: { access_token: string } }) => void = () => {};
     tokenPostMock.mockImplementation(
       () =>
@@ -113,7 +114,7 @@ describe('single-flight token refresh interceptor', () => {
 
     expect(tokenPostMock).toHaveBeenCalledTimes(1);
     expect(replayMock).toHaveBeenCalledTimes(5);
-    expect(sessionStorage.getItem('studentToken')).toBe('fresh-token');
+    expect(localStorage.getItem('studentToken')).toBe('fresh-token');
     // Every replay carried the fresh Authorization header.
     for (const call of replayMock.mock.calls) {
       expect(call[0].headers['Authorization']).toBe('Bearer fresh-token');
@@ -145,18 +146,24 @@ describe('single-flight token refresh interceptor', () => {
     tokenPostMock.mockResolvedValue({ data: { access_token: 't2' } });
     await h.capturedErrorHandler!(make401('/api/student/second'));
     expect(tokenPostMock).toHaveBeenCalledTimes(2);
-    expect(sessionStorage.getItem('studentToken')).toBe('t2');
+    expect(localStorage.getItem('studentToken')).toBe('t2');
   });
 
-  it('does NOT refresh the token endpoint itself (avoids loops)', async () => {
-    await h.capturedErrorHandler!(make401('/api/student/token')).catch(() => {});
+  it('does NOT refresh the exchange endpoint itself (avoids loops)', async () => {
+    await h.capturedErrorHandler!(make401('/api/auth/student/exchange')).catch(() => {});
     expect(tokenPostMock).not.toHaveBeenCalled();
   });
 
-  it('does NOT refresh when studentId/assessmentId are missing', async () => {
-    sessionStorage.clear();
+  it('does NOT refresh when no invite token is stored', async () => {
+    localStorage.clear();
     await h.capturedErrorHandler!(make401('/api/student/r1')).catch(() => {});
     expect(tokenPostMock).not.toHaveBeenCalled();
+  });
+
+  it('sends the stored invite token to the exchange endpoint', async () => {
+    tokenPostMock.mockResolvedValue({ data: { access_token: 't1' } });
+    await h.capturedErrorHandler!(make401('/api/student/r1'));
+    expect(tokenPostMock).toHaveBeenCalledWith({ invite_token: 'invite-abc' });
   });
 
   it('respects the _retried guard (no double refresh for one request)', async () => {

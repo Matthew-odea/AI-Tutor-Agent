@@ -29,9 +29,24 @@ class DummyStore:
         return self._thread
 
 
-def test_assert_instructor_access_allows_instructor_and_x_user_id():
+def test_assert_instructor_access_allows_instructor_and_admin():
     helpers._assert_instructor_access(AuthPrincipal(user_id="u1", roles=["instructor"], source="jwt"))
-    helpers._assert_instructor_access(AuthPrincipal(user_id="u2", roles=[], source="x-user-id"))
+    helpers._assert_instructor_access(AuthPrincipal(user_id="u2", roles=["admin"], source="jwt"))
+
+
+def test_assert_instructor_access_denies_roleless_x_user_id_principal():
+    """The X-User-Id header no longer grants instructor rights."""
+    with pytest.raises(HTTPException) as error:
+        helpers._assert_instructor_access(AuthPrincipal(user_id="u2", roles=[], source="x-user-id"))
+
+    assert error.value.status_code == 403
+
+
+def test_assert_assessment_owner_denies_x_user_id_principal_without_owner_metadata():
+    with pytest.raises(HTTPException) as error:
+        helpers._assert_assessment_owner(AuthPrincipal(user_id="u2", roles=[], source="x-user-id"), {})
+
+    assert error.value.status_code == 403
 
 
 def test_assert_instructor_access_denies_student():

@@ -14,7 +14,7 @@ def _build_client(principal: AuthPrincipal, oral_service=None) -> TestClient:
     app = create_app()
     app.dependency_overrides[require_auth_principal] = lambda: principal
     app.dependency_overrides[get_oral_assessment_service] = lambda: oral_service or MagicMock()
-    return TestClient(app)
+    return TestClient(app, raise_server_exceptions=False)
 
 
 def _answer_payload():
@@ -30,7 +30,7 @@ def _answer_payload():
     "side_effect,expected_status,expected_code",
     [
         (OralAssessmentServiceError("invalid answer"), 400, "submit_answer_failed"),
-        (RuntimeError("boom"), 500, "unexpected_error"),
+        (RuntimeError("boom"), 500, "internal_error"),
     ],
 )
 def test_submit_answer_error_mappings(side_effect, expected_status, expected_code):

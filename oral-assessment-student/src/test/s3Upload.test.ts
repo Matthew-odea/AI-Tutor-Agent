@@ -113,7 +113,7 @@ describe('uploadMedia — presigned URL refetch on 403', () => {
       .mockResolvedValueOnce(undefined);
 
     const blob = new Blob(['x'], { type: 'audio/webm' });
-    const url = await uploadAudio(blob, 'z1', 'q1');
+    const url = await uploadAudio(blob, 'q1');
 
     expect(getUploadUrlMock).toHaveBeenCalledTimes(2); // initial + one refetch
     expect(uploadToS3Mock).toHaveBeenCalledTimes(2);
@@ -134,7 +134,7 @@ describe('uploadMedia — presigned URL refetch on 403', () => {
     // Regression guard: uploadAudioToS3 throws an ApiError *plain object* (not an
     // Error instance). The friendly-message mapping must still inspect .details
     // and surface the specific network message — NOT the generic fallback.
-    await expect(uploadAudio(blob, 'z1', 'q1')).rejects.toThrow(
+    await expect(uploadAudio(blob, 'q1')).rejects.toThrow(
       'Network error: please check your internet connection and try again.'
     );
     expect(getUploadUrlMock).toHaveBeenCalledTimes(1); // no refetch
@@ -150,7 +150,7 @@ describe('uploadMedia — presigned URL refetch on 403', () => {
     uploadToS3Mock.mockRejectedValue({ message: 'Failed to upload audio file', details: timeout });
 
     const blob = new Blob(['x'], { type: 'audio/webm' });
-    await expect(uploadAudio(blob, 'z1', 'q1')).rejects.toThrow(
+    await expect(uploadAudio(blob, 'q1')).rejects.toThrow(
       'Upload timed out. Please check your connection and try again.'
     );
   });
@@ -166,7 +166,7 @@ describe('uploadMedia — presigned URL refetch on 403', () => {
     const blob = new Blob(['x'], { type: 'audio/webm' });
     // The surviving 403 (an ApiError plain object) must map to the auth-expired
     // message, proving the instanceof-Error gap is closed for the 403 path too.
-    await expect(uploadAudio(blob, 'z1', 'q1')).rejects.toThrow(
+    await expect(uploadAudio(blob, 'q1')).rejects.toThrow(
       'Upload authorization expired. Please try again.'
     );
     expect(getUploadUrlMock).toHaveBeenCalledTimes(2); // initial + exactly one refetch
