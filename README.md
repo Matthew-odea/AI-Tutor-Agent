@@ -19,6 +19,28 @@ An AI-powered educational platform for programming courses, built for UNSW's COM
 | Speech-to-Text | Deepgram |
 | Auth | JWT + optional Google OAuth |
 
+## New Contributors — Start Here
+
+**Merging to `main` deploys to production.** Real students use this, and there is no code review — CI is the only gate. Read [`CLAUDE.md`](CLAUDE.md) before your first PR.
+
+Access to request on day one:
+
+- [ ] GitHub collaborator access to this repo (needed to push branches and open PRs)
+- [ ] Your own AWS IAM user in the project account, scoped to what you need (DynamoDB, S3, SQS, Bedrock, SSM read) — don't share keys
+- [ ] Values for your local `.env` (`AUTH_JWT_SECRET`, table names, queue URL) from the maintainer — never commit `.env`
+- [ ] A Deepgram API key, only if you're working on transcription
+
+Neo4j needs no account — run it locally with `docker-compose up -d` (only RAG chat uses it).
+
+Your first hour:
+
+1. Follow Quick Start below and get the backend running at http://localhost:8000/docs.
+2. Run `pytest` (full suite should pass; the two Neo4j tests error without Docker running).
+3. Start one frontend and run `npm run validate` in it.
+4. Skim [docs/ONBOARDING.md](docs/ONBOARDING.md) (codebase tour) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+Every PR: branch off `main`, run `pytest` and `npm run validate` in any frontend you touched, open a PR, wait for CI (includes a 68% backend coverage floor). New routes must pass `tests/controllers/test_route_auth.py`.
+
 ## Quick Start
 
 ```bash
@@ -54,7 +76,7 @@ See also the repo-root `CLAUDE.md` for task-oriented operating instructions (how
 ## Testing
 
 ```bash
-PYTHONPATH=. pytest tests/ -v          # Backend
+pytest                                  # Backend (from repo root)
 npm test                                # Any frontend (watch mode)
 npm run test:run                        # Any frontend (CI mode)
 ```
